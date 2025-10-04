@@ -10,6 +10,17 @@ struct MeshAsset;
 
 constexpr auto kNumberOfFrames = 2;
 
+struct FrameData {
+  VkCommandBuffer commandBuffer;
+  VkFence fence;
+  VkSemaphore swapchainSemaphore;
+  DeletionQueue frameDeletionQueue;
+  AllocatedImage drawImage;
+  AllocatedImage depthImage;
+  DescriptorAllocatorGrowable descriptorAllocator;
+  VkDescriptorSet drawImageDescriptorSet;
+};
+
 class Engine final {
  public:
   Engine(const Engine& other) = delete;
@@ -36,7 +47,14 @@ class Engine final {
   AllocatedBuffer create_buffer(std::size_t allocSize,
                                 VkBufferUsageFlags usageFlags,
                                 VmaMemoryUsage memoryUsage);
-  void destroy_buffer(AllocatedBuffer& buffer);
+  void destroy_buffer(const AllocatedBuffer& buffer);
+  AllocatedImage create_image(VkExtent3D extent, VkFormat format,
+                              VkImageUsageFlags imageUsage,
+                              bool mipMapped = false);
+  AllocatedImage create_image(void* data, VkExtent3D extent, VkFormat format,
+                              VkImageUsageFlags imageUsage,
+                              bool mipMapped = false);
+  void destroy_image(const AllocatedImage& image);
   FrameData& get_current_frame();
 
   void init_window();
@@ -50,16 +68,17 @@ class Engine final {
   void init_mesh_pipelines();
   void init_imgui();
   void init_mesh_data();
+  void init_default_data();
   void destroy_sync();
   void destroy_commands();
-  void create_draw_images(VkExtent3D extent);
-  void create_depth_images(VkExtent3D extent);
+  void create_draw_image(AllocatedImage& image, VkExtent3D extent);
+  void create_depth_image(AllocatedImage& depthImage, VkExtent3D extent);
   void create_swapchain(const std::uint32_t width, const std::uint32_t height);
   void destroy_swapchain();
   void resize_swapchain();
 
  private:
-  VkExtent2D m_windowExtent{1700, 900};
+  VkExtent2D m_windowExtent{1920, 1080};
   std::uint64_t m_frameNumber = 0;
   bool m_isInitialized = false;
   bool m_isRenderStopped = false;
@@ -90,13 +109,11 @@ class Engine final {
 
   DeletionQueue m_mainDeletionQueue;
   VmaAllocator m_allocator;
-  std::array<AllocatedImage, kNumberOfFrames> m_drawImages;
-  std::array<AllocatedImage, kNumberOfFrames> m_depthImages;
   VkExtent2D m_drawExtent;
-
-  DescriptorAllocator m_descriptorAllocator;
   VkDescriptorSetLayout m_drawImageDescriptorSetLayout;
-  std::array<VkDescriptorSet, kNumberOfFrames> m_drawImagesDescriptors;
+  GpuSceneData m_sceneData;
+  VkDescriptorSetLayout m_gpuSceneDataDescriptorSetLayout;
+
   VkPipelineLayout m_pipelineLayout;
 
   // Simple immediate submit structures
@@ -120,6 +137,15 @@ class Engine final {
   float m_centerRadius{5.0f};
   bool m_bSwapchainResizeRequest = false;
   float m_renderScale{1.0f};
+
+  AllocatedImage m_whiteImage;
+  AllocatedImage m_blackImage;
+  AllocatedImage m_greyImage;
+  AllocatedImage m_errorImage;
+
+  VkSampler m_defaultSamplerLinear;
+  VkSampler m_defaultSamplerNearest;
+  VkDescriptorSetLayout m_texturedSetLayout;
 };
 
 }  // namespace mp

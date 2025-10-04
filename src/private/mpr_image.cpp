@@ -26,7 +26,6 @@ void transition_image(const VkCommandBuffer cmd, const VkImage image,
       .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
       .imageMemoryBarrierCount = 1,
       .pImageMemoryBarriers = &imageBarrier,
-
   };
   vkCmdPipelineBarrier2(cmd, &dependencyInfo);
 }

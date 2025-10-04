@@ -14,21 +14,47 @@ struct DescriptorLayoutBuilder {
                               VkDescriptorSetLayoutCreateFlags flags = 0);
 };
 
-struct DescriptorAllocator {
+class DescriptorAllocatorGrowable {
+ public:
   struct PoolSizeRatio {
     VkDescriptorType type;
     float ratio;
   };
 
-  VkDescriptorPool pool;
-
-  void init_pool(VkDevice device, std::uint32_t maxSets,
-                 std::span<PoolSizeRatio> poolRatios);
-  void clear_descriptors(VkDevice device);
-  void destroy_pool(VkDevice device);
+  DescriptorAllocatorGrowable() = default;
+  void init(VkDevice device, std::uint32_t initialSets,
+            std::span<const PoolSizeRatio> poolSizeRatios);
+  void clear_pools(VkDevice device);
+  void destroy_pools(VkDevice device);
 
   [[nodiscard]]
-  VkDescriptorSet allocate(VkDevice device, VkDescriptorSetLayout layout);
+  VkDescriptorSet allocate(VkDevice device, VkDescriptorSetLayout layout,
+                           void* pNext = nullptr);
+
+ private:
+  VkDescriptorPool get_pool(VkDevice device);
+  static VkDescriptorPool create_pool(VkDevice device, std::uint32_t setCount,
+                                      std::span<const PoolSizeRatio> poolSizeRatios);
+
+  std::vector<PoolSizeRatio> m_poolSizeRatios;
+  std::vector<VkDescriptorPool> m_fullPools;
+  std::vector<VkDescriptorPool> m_readyPools;
+  std::uint32_t m_setsPerPool;
+};
+
+struct DescriptorWriter {
+  std::deque<VkDescriptorImageInfo> descriptorImageInfos;
+  std::deque<VkDescriptorBufferInfo> descriptorBufferInfos;
+  std::vector<VkWriteDescriptorSet> writes;
+
+  void write_image(int binding, VkImageView image, VkSampler sampler,
+                   VkImageLayout layout, VkDescriptorType descriptorType);
+  void write_buffer(int binding, VkBuffer buffer, std::size_t size,
+                    std::size_t offset, VkDescriptorType descriptorType);
+
+  void clear();
+
+  void update_set(VkDevice device, VkDescriptorSet descriptorSet);
 };
 
 }  // namespace mp

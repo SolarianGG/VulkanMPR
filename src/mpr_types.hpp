@@ -40,13 +40,6 @@ struct DeletionQueue {
   }
 };
 
-struct FrameData {
-  VkCommandBuffer commandBuffer;
-  VkFence fence;
-  VkSemaphore swapchainSemaphore;
-  DeletionQueue frameDeletionQueue;
-};
-
 struct AllocatedImage {
   VkImage image;
   VkImageView imageView;
@@ -94,6 +87,55 @@ struct GpuMeshBuffers {
 struct GpuPushConstants {
   glm::mat4 mvpMatrix;
   VkDeviceAddress vertexBufferDeviceAddr;
+};
+
+struct GpuSceneData {
+  glm::mat4 view;
+  glm::mat4 proj;
+  glm::mat4 viewProj;
+  glm::vec4 ambientColor;
+  glm::vec4 sunlightDirection;  // w for sun power
+  glm::vec4 sunlightColor;
+};
+
+
+enum class MaterialPass : std::uint8_t {
+  Opaque,
+  Transparent,
+  Other
+};
+struct MaterialPipeline {
+  VkPipeline pipeline;
+  VkPipelineLayout pipelineLayout;
+};
+
+struct MaterialInstance {
+  MaterialPipeline* pipeline;
+  VkDescriptorSet materialSet;
+  MaterialPass passType;
+};
+
+struct RenderObject {
+  std::uint32_t indexCount;
+  std::uint32_t firstIndex;
+  VkBuffer indexBuffer;
+
+  MaterialInstance* material;
+
+  glm::mat4 transform;
+  VkDeviceAddress vertexBufferAddress;
+};
+
+struct DrawContext; 
+class IRenderable {
+public:
+  virtual void draw(const glm::mat4& topMatrix, DrawContext& ctx) = 0;
+
+  IRenderable(const IRenderable& other) = default;
+  IRenderable(IRenderable&& other) noexcept = default;
+  IRenderable& operator=(const IRenderable& other) = default;
+  IRenderable& operator=(IRenderable&& other) noexcept = default;
+  virtual ~IRenderable() = default;
 };
 
 }  // namespace mp
