@@ -24,7 +24,7 @@
 namespace mp {
 
 struct DeletionQueue {
-  std::deque<std::function<void()> > deletors;
+  std::deque<std::function<void()>> deletors;
 
   template <typename T>
   void push_function(T&& function) {
@@ -85,7 +85,7 @@ struct GpuMeshBuffers {
 };
 
 struct GpuPushConstants {
-  glm::mat4 mvpMatrix;
+  glm::mat4 transform;
   VkDeviceAddress vertexBufferDeviceAddr;
 };
 
@@ -98,12 +98,8 @@ struct GpuSceneData {
   glm::vec4 sunlightColor;
 };
 
+enum class MaterialPass : std::uint8_t { Opaque, Transparent, Other };
 
-enum class MaterialPass : std::uint8_t {
-  Opaque,
-  Transparent,
-  Other
-};
 struct MaterialPipeline {
   VkPipeline pipeline;
   VkPipelineLayout pipelineLayout;
@@ -115,22 +111,14 @@ struct MaterialInstance {
   MaterialPass passType;
 };
 
-struct RenderObject {
-  std::uint32_t indexCount;
-  std::uint32_t firstIndex;
-  VkBuffer indexBuffer;
 
-  MaterialInstance* material;
 
-  glm::mat4 transform;
-  VkDeviceAddress vertexBufferAddress;
-};
-
-struct DrawContext; 
+struct DrawContext;
 class IRenderable {
-public:
+ public:
   virtual void draw(const glm::mat4& topMatrix, DrawContext& ctx) = 0;
 
+  IRenderable() = default;
   IRenderable(const IRenderable& other) = default;
   IRenderable(IRenderable&& other) noexcept = default;
   IRenderable& operator=(const IRenderable& other) = default;
@@ -138,4 +126,31 @@ public:
   virtual ~IRenderable() = default;
 };
 
+struct Node : public IRenderable {
+  std::weak_ptr<Node> parent;
+  std::vector<std::shared_ptr<Node>> children;
+
+  glm::mat4 localTransform;
+  glm::mat4 worldTransform;
+
+  void refresh_transform(const glm::mat4& parentMatrix) {
+    worldTransform = parentMatrix * localTransform;
+    for (auto& c : children) {
+      c->refresh_transform(worldTransform);
+    }
+  }
+
+  void draw(const glm::mat4& topMatrix, DrawContext& ctx) override {
+    for (auto& c : children) {
+      c->draw(topMatrix, ctx);
+    }
+  }
+};
+struct MeshAsset;
+
+struct MeshNode : public Node {
+  std::shared_ptr<MeshAsset> mesh;
+
+  void draw(const glm::mat4& topMatrix, DrawContext& ctx) override;
+};
 }  // namespace mp

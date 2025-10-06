@@ -38,7 +38,7 @@ void DescriptorAllocatorGrowable::init(
   const VkDescriptorPool newPool =
       create_pool(device, initialSets, poolSizeRatios);
 
-  m_setsPerPool = initialSets * 1.5;
+  m_setsPerPool = static_cast<std::uint32_t>(initialSets * 1.5);
 
   m_readyPools.push_back(newPool);
 }
@@ -101,7 +101,8 @@ VkDescriptorPool DescriptorAllocatorGrowable::get_pool(const VkDevice device) {
   } else {
     newPool = create_pool(device, m_setsPerPool, m_poolSizeRatios);
 
-    m_setsPerPool = std::min<uint32_t>(m_setsPerPool * 1.5, 4092);
+    m_setsPerPool = std::min<uint32_t>(
+        static_cast<std::uint32_t>(m_setsPerPool * 1.5), 4092);
   }
   return newPool;
 }

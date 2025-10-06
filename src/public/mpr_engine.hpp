@@ -7,6 +7,7 @@ struct SDL_Window;
 
 namespace mp {
 struct MeshAsset;
+class Engine;
 
 constexpr auto kNumberOfFrames = 2;
 
@@ -21,7 +22,53 @@ struct FrameData {
   VkDescriptorSet drawImageDescriptorSet;
 };
 
+struct GLTFMetallic_Roughness {
+  MaterialPipeline opaquePipeline;
+  MaterialPipeline transparentPipeline;
+
+  VkDescriptorSetLayout materialLayout;
+
+  struct alignas(256) MaterialConstants {
+    glm::vec4 colorFactors;
+    glm::vec4 metalRoughFactors;
+  };
+
+  struct MaterialResources {
+    AllocatedImage colorImage;
+    VkSampler colorSampler;
+    AllocatedImage metalRoughnessImage;
+    VkSampler metalRoughnessSampler;
+    VkBuffer dataBuffer;
+    std::uint32_t dataBufferOffset;
+  };
+
+  DescriptorWriter writer;
+
+  void build_pipelines(Engine& engine);
+  void clear_resources(VkDevice device);
+
+  MaterialInstance write_material(VkDevice device, MaterialPass matPass,
+                                  const MaterialResources& res,
+                                  DescriptorAllocatorGrowable& allocator);
+};
+struct RenderObject {
+  std::uint32_t indexCount;
+  std::uint32_t firstIndex;
+  VkBuffer indexBuffer;
+
+  MaterialInstance* material;
+
+  glm::mat4 transform;
+  VkDeviceAddress vertexBufferAddress;
+};
+
+struct DrawContext {
+  std::vector<RenderObject> opaqueSurfaces;
+};
+
 class Engine final {
+  friend struct GLTFMetallic_Roughness;
+
  public:
   Engine(const Engine& other) = delete;
   Engine(Engine&& other) noexcept = delete;
@@ -65,7 +112,6 @@ class Engine final {
   void init_descriptors();
   void init_pipelines();
   void init_background_pipelines();
-  void init_mesh_pipelines();
   void init_imgui();
   void init_mesh_data();
   void init_default_data();
@@ -114,7 +160,7 @@ class Engine final {
   GpuSceneData m_sceneData;
   VkDescriptorSetLayout m_gpuSceneDataDescriptorSetLayout;
 
-  VkPipelineLayout m_pipelineLayout;
+  VkPipelineLayout m_backgroundPipelineLayout;
 
   // Simple immediate submit structures
   // For future optimizations consider adding queue
@@ -146,6 +192,16 @@ class Engine final {
   VkSampler m_defaultSamplerLinear;
   VkSampler m_defaultSamplerNearest;
   VkDescriptorSetLayout m_texturedSetLayout;
+
+  MaterialInstance m_defaultData;
+  GLTFMetallic_Roughness m_metalRoughness;
+
+  DescriptorAllocatorGrowable m_globalDescAllocator;
+
+  DrawContext m_mainDrawContext;
+  std::unordered_map<std::string, std::shared_ptr<Node>> m_loadedNodes;
+
+  void update_scene();
 };
 
 }  // namespace mp
