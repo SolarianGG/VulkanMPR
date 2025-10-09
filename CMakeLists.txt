@@ -7,6 +7,7 @@ endif()
 
 project ("VulkanMPR")
 
+
 set (CMAKE_CXX_STANDARD 23)
 set (CMAKE_CXX_STANDARD_REQUIRED True)
 
@@ -29,7 +30,8 @@ add_executable(VulkanMPR "${SRC_PATH}/VulkanMPR.cpp"
                          "${COMP_PATH}/mpr_image.cpp"
                          "${COMP_PATH}/mpr_descriptors.cpp"
                          "${COMP_PATH}/mpr_pipelines.cpp"
-                         "${COMP_PATH}/mpr_loader.cpp")
+                         "${COMP_PATH}/mpr_loader.cpp" 
+                          "${COMP_PATH}/mpr_camera.cpp")
 target_include_directories(VulkanMPR PRIVATE ${INCLUDE_PATH} ${SRC_PATH})
 target_link_libraries(VulkanMPR PRIVATE 
   Vulkan::Vulkan 

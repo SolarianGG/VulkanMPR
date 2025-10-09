@@ -2,6 +2,7 @@
 
 #include "mpr_descriptors.hpp"
 #include "mpr_types.hpp"
+#include "mpr_camera.hpp"
 
 struct SDL_Window;
 
@@ -179,8 +180,6 @@ class Engine final {
   std::vector<std::shared_ptr<MeshAsset>> m_testAssets;
   int m_assetIndex{0};
 
-  glm::vec3 m_eyePos;
-  float m_centerRadius{5.0f};
   bool m_bSwapchainResizeRequest = false;
   float m_renderScale{1.0f};
 
@@ -200,6 +199,8 @@ class Engine final {
 
   DrawContext m_mainDrawContext;
   std::unordered_map<std::string, std::shared_ptr<Node>> m_loadedNodes;
+
+  Camera m_camera;
 
   void update_scene();
 };

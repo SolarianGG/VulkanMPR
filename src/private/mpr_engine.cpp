@@ -1,4 +1,5 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#define GLM_ENABLE_EXPERIMENTAL
 #include "mpr_engine.hpp"
 
 #include <SDL3/SDL.h>
@@ -17,6 +18,7 @@
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_vulkan.h>
 #include <vk_mem_alloc.h>
+#include <vulkan/vk_enum_string_helper.h>
 
 #include "glm/ext/matrix_clip_space.hpp"
 #include "glm/ext/matrix_transform.hpp"
@@ -25,7 +27,6 @@
 #include "mpr_init_vk_stucts.hpp"
 #include "mpr_loader.hpp"
 #include "mpr_pipelines.hpp"
-#include "vulkan/vk_enum_string_helper.h"
 
 using namespace std::chrono_literals;
 namespace rn = std::ranges;
@@ -33,6 +34,8 @@ namespace vi = std::views;
 
 constexpr bool bUseValidationLayers = true;
 constexpr auto kBaseWindowTitle = "Hello Vulkan";
+
+#define GPU_USAGE_DISCRETE
 
 namespace {
 mp::Engine* gLoadedEngine = nullptr;
@@ -48,20 +51,20 @@ get_required_instance_extensions_for_window() {
 namespace mp {
 void GLTFMetallic_Roughness::build_pipelines(Engine& engine) {
   VkShaderModule meshVertShader;
-  if (!load_shader_module("../../src/compiled_shaders/mesh.vert.spv",
+  if (!load_shader_module("../../src/compiled_shaders/mesh.vertex.spv",
                           engine.m_device, &meshVertShader)) {
-    throw std::runtime_error("Failed to load mesh.vert.spv");
+    throw std::runtime_error("Failed to load mesh.vertex.spv");
   }
   VkShaderModule meshFragShader;
-  if (!load_shader_module("../../src/compiled_shaders/mesh.frag.spv",
+  if (!load_shader_module("../../src/compiled_shaders/mesh.pixel.spv",
                           engine.m_device, &meshFragShader)) {
-    throw std::runtime_error("Failed to load mesh.frag.spv");
+    throw std::runtime_error("Failed to load mesh.pixel.spv");
   }
 
   const VkPushConstantRange pushConstantRange{
       .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
       .offset = 0,
-      .size = sizeof(GpuPushConstants),
+      .size = static_cast<std::uint32_t>(sizeof(GpuPushConstants)),
   };
 
   {
@@ -200,6 +203,11 @@ Engine::Engine() {
   init_default_data();
   init_mesh_data();
 
+  m_camera.velocity = glm::vec3(0.0f);
+  m_camera.position = glm::vec3(0.0f, 0.0f, 5.0f);
+
+  m_camera.pitch = 0;
+  m_camera.yaw = 0;
   m_isInitialized = true;
 }
 
@@ -331,11 +339,13 @@ void Engine::draw_background(VkCommandBuffer cmd) {
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                     currentComputeEffect.pipeline);
 
-  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_backgroundPipelineLayout,
-                          0, 1, &descSet, 0, nullptr);
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                          m_backgroundPipelineLayout, 0, 1, &descSet, 0,
+                          nullptr);
 
-  vkCmdPushConstants(cmd, m_backgroundPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                     sizeof(ConstantPushRange), &currentComputeEffect.data);
+  vkCmdPushConstants(cmd, m_backgroundPipelineLayout,
+                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ConstantPushRange),
+                     &currentComputeEffect.data);
 
   vkCmdDispatch(cmd, std::ceil(m_drawExtent.width / 16.0f),
                 std::ceil(m_drawExtent.height / 16.0f), 1);
@@ -570,28 +580,11 @@ void Engine::run() {
       if (e.type == SDL_EVENT_WINDOW_MAXIMIZED) {
         m_isRenderStopped = false;
       }
+      m_camera.process_sdl_event(e);
       ImGui_ImplSDL3_ProcessEvent(&e);
 
       if (ImGui::GetIO().WantCaptureMouse || ImGui::GetIO().WantCaptureKeyboard)
         continue;
-
-      if (e.type == SDL_EVENT_MOUSE_WHEEL) {
-        m_centerRadius += e.wheel.y;
-      }
-
-      if (e.type == SDL_EVENT_MOUSE_MOTION) {
-        static float theta = glm::pi<float>() / 4;
-        static float phi = glm::pi<float>() / 2;
-        theta += glm::radians(e.motion.xrel * 0.25f);
-        phi += glm::radians(e.motion.yrel * 0.5f);
-
-        phi = glm::clamp(phi, 0.1f, glm::pi<float>() - 0.1f);
-
-        const float x = {m_centerRadius * std::sinf(phi) * std::cosf(theta)};
-        const float z = {m_centerRadius * std::sinf(phi) * std::sinf(theta)};
-        const float y = {m_centerRadius * std::cos(phi)};
-        m_eyePos = {x, y, z};
-      }
     }
 
     if (m_bSwapchainResizeRequest) {
@@ -1028,7 +1021,7 @@ void Engine::init_background_pipelines() {
   constexpr VkPushConstantRange pushConstantRange{
       .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
       .offset = 0,
-      .size = sizeof(ConstantPushRange),
+      .size = static_cast<std::uint32_t>(sizeof(ConstantPushRange)),
   };
 
   const VkPipelineLayoutCreateInfo layoutCreateInfo{
@@ -1077,8 +1070,9 @@ void Engine::init_background_pipelines() {
 
   gradientComputeEffect.pipelineLayout = m_backgroundPipelineLayout;
   gradientComputeEffect.name = "gradient";
-  gradientComputeEffect.data = {.data1 = {1.0f, 0.0f, 0.0f, 1.0f},
-                                .data2 = {0.0f, 1.0f, 0.0f, 1.0f}};
+  gradientComputeEffect.data =
+      ConstantPushRange{.data1 = glm::vec4{1.0f, 0.0f, 0.0f, 1.0f},
+                        .data2 = glm::vec4{0.0f, 1.0f, 0.0f, 1.0f}};
   vkCreateComputePipelines(m_device, nullptr, 1, &createInfo, nullptr,
                            &gradientComputeEffect.pipeline) >>
       chk;
@@ -1355,6 +1349,7 @@ void Engine::WindowCleaner::operator()(SDL_Window* window) const {
 }
 
 void Engine::update_scene() {
+  m_camera.update();
   m_mainDrawContext.opaqueSurfaces.clear();
 
   m_loadedNodes[m_testAssets[m_assetIndex]->name]->draw(glm::mat4(1.0f),
@@ -1362,20 +1357,19 @@ void Engine::update_scene() {
 
   for (int i = 1; i <= 3; ++i) {
     glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3(0.2f * i));
-    glm::mat4 translation = glm::translate(glm::mat4(1.0f), glm::vec3(2.5f * i, 0.0f, 2.0f));
+    glm::mat4 translation =
+        glm::translate(glm::mat4(1.0f), glm::vec3(2.5f * i, 0.0f, 2.0f));
     m_loadedNodes["Cube"]->draw(translation * scale, m_mainDrawContext);
   }
 
-  const glm::mat4 proj =
-      glm::perspective(glm::radians(90.0f),
-                       static_cast<float>(m_drawExtent.width) /
-                           static_cast<float>(m_drawExtent.height),
-                       1000.0f, 0.001f);
-  const glm::mat4 view = glm::lookAt(m_eyePos, glm::vec3{0.0f, 0.0f, 0.0f},
-                                     glm::vec3{0.0f, 1.0f, 0.0f});
-  m_sceneData.view = view;
+  const glm::mat4 proj = glm::perspective(
+      glm::radians(90.0f),
+      static_cast<float>(m_drawExtent.width) / m_drawExtent.height, 100.0f,
+      0.001f);
+
+  m_sceneData.view = m_camera.get_view_matrix();
   m_sceneData.proj = proj;
-  m_sceneData.viewProj = proj * view;
+  m_sceneData.projView = proj * m_sceneData.view;
   m_sceneData.ambientColor = glm::vec4(0.1f, 0.1f, 0.1f, 1.0f);
   m_sceneData.sunlightColor = glm::vec4(1.0f);
   m_sceneData.sunlightDirection =
