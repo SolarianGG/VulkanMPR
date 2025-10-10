@@ -169,9 +169,35 @@ void MeshNode::draw(const glm::mat4& topMatrix, DrawContext& ctx) {
 
   Node::draw(topMatrix, ctx);
 }
+
+void LoadedGLTF::draw(const glm::mat4& topMatrix, DrawContext& ctx) {
+  for (auto& node : topNodes) {
+    node->draw(topMatrix, ctx);
+  }
+}
+
+void LoadedGLTF::clear_all() {
+  descriptorAllocator.destroy_pools(creator->m_device);
+  creator->destroy_buffer(materialDataBuffer);
+  for (const auto& mesh : vi::values(meshes)) {
+    creator->destroy_buffer(mesh->meshBuffers.indexBuffer);
+    creator->destroy_buffer(mesh->meshBuffers.vertexBuffer);
+  }
+  for (const auto& image : vi::values(images)) {
+    if (image.image != creator->m_errorImage.image) {
+      creator->destroy_image(image);
+    }
+  }
+
+  for (const auto& sampler : samplers) {
+    vkDestroySampler(creator->m_device, sampler, nullptr);
+  }
+}
+
 Engine::~Engine() {
   if (m_isInitialized) {
     vkDeviceWaitIdle(m_device);
+    m_loadedScenes.clear();
     for (auto& frame : m_frameData) {
       frame.frameDeletionQueue.flush();
     }
@@ -563,10 +589,6 @@ void Engine::run() {
       vi::transform([](const auto& effect) { return effect.name; }) |
       rn::to<std::vector>();
 
-  const auto assetsNames =
-      m_testAssets |
-      vi::transform([](const auto& asset) { return asset->name.c_str(); }) |
-      rn::to<std::vector>();
   while (bIsRunning) {
     while (SDL_PollEvent(&e)) {
       if (e.type == SDL_EVENT_QUIT) {
@@ -603,12 +625,6 @@ void Engine::run() {
     // ImGui UI
     if (ImGui::Begin("Other")) {
       ImGui::DragFloat("Render scale", &m_renderScale, 0.01f, 0.01f, 1.0f);
-    }
-    ImGui::End();
-
-    if (ImGui::Begin("Assets")) {
-      ImGui::ListBox("Select asset", &m_assetIndex, assetsNames.data(),
-                     assetsNames.size());
     }
     ImGui::End();
 
@@ -698,7 +714,7 @@ void Engine::draw_geometry(VkCommandBuffer cmd, VkImageView colorImageView,
   };
   vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-  for (const auto& ctx : m_mainDrawContext.opaqueSurfaces) {
+  auto drawContext = [&](const RenderObject& ctx) {
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       ctx.material->pipeline->pipeline);
 
@@ -716,6 +732,12 @@ void Engine::draw_geometry(VkCommandBuffer cmd, VkImageView colorImageView,
     vkCmdBindIndexBuffer(cmd, ctx.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
     vkCmdDrawIndexed(cmd, ctx.indexCount, 1, ctx.firstIndex, 0, 0);
+  };
+  for (const auto& ctx : m_mainDrawContext.opaqueSurfaces) {
+    drawContext(ctx);
+  }
+  for (const auto& ctx : m_mainDrawContext.opaqueSurfaces) {
+    drawContext(ctx);
   }
 
   vkCmdEndRendering(cmd);
@@ -1166,27 +1188,10 @@ void Engine::init_imgui() {
 }
 
 void Engine::init_mesh_data() {
-  m_testAssets = load_mesh(*this, "../../assets/basicmesh.glb").value();
+  const std::string structurePath = "../../assets/Sponza/glTF/Sponza.gltf";
+  auto structureFile = load_gltf(*this, structurePath).value();
 
-  for (auto& m : m_testAssets) {
-    auto newNode = std::make_shared<MeshNode>();
-    newNode->mesh = m;
-    newNode->localTransform = glm::mat4(1.0f);
-    newNode->worldTransform = glm::mat4(1.0f);
-
-    for (auto& s : m->geoSurfaces) {
-      s.material = std::make_shared<GLTFMaterial>(m_defaultData);
-    }
-
-    m_loadedNodes[m->name] = std::move(newNode);
-  }
-
-  m_mainDeletionQueue.push_function([&] {
-    for (auto& assets : m_testAssets) {
-      destroy_buffer(assets->meshBuffers.vertexBuffer);
-      destroy_buffer(assets->meshBuffers.indexBuffer);
-    }
-  });
+  m_loadedScenes[structurePath] = std::move(structureFile);
 }
 
 void Engine::init_default_data() {
@@ -1351,20 +1356,15 @@ void Engine::WindowCleaner::operator()(SDL_Window* window) const {
 void Engine::update_scene() {
   m_camera.update();
   m_mainDrawContext.opaqueSurfaces.clear();
+  m_mainDrawContext.transparentSurfaces.clear();
 
-  m_loadedNodes[m_testAssets[m_assetIndex]->name]->draw(glm::mat4(1.0f),
-                                                        m_mainDrawContext);
-
-  for (int i = 1; i <= 3; ++i) {
-    glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3(0.2f * i));
-    glm::mat4 translation =
-        glm::translate(glm::mat4(1.0f), glm::vec3(2.5f * i, 0.0f, 2.0f));
-    m_loadedNodes["Cube"]->draw(translation * scale, m_mainDrawContext);
+  for (auto& mesh : m_loadedScenes | std::views::values) {
+    mesh->draw(glm::mat4(1.0f), m_mainDrawContext);
   }
 
   const glm::mat4 proj = glm::perspective(
       glm::radians(90.0f),
-      static_cast<float>(m_drawExtent.width) / m_drawExtent.height, 100.0f,
+      static_cast<float>(m_drawExtent.width) / m_drawExtent.height, 1000.0f,
       0.001f);
 
   m_sceneData.view = m_camera.get_view_matrix();

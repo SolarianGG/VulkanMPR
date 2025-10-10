@@ -1,8 +1,8 @@
 #pragma once
 
+#include "mpr_camera.hpp"
 #include "mpr_descriptors.hpp"
 #include "mpr_types.hpp"
-#include "mpr_camera.hpp"
 
 struct SDL_Window;
 
@@ -65,11 +65,69 @@ struct RenderObject {
 
 struct DrawContext {
   std::vector<RenderObject> opaqueSurfaces;
+  std::vector<RenderObject> transparentSurfaces;
+};
+
+struct Node : public IRenderable {
+  std::weak_ptr<Node> parent;
+  std::vector<std::shared_ptr<Node>> children;
+
+  glm::mat4 localTransform;
+  glm::mat4 worldTransform;
+
+  void refresh_transform(const glm::mat4& parentMatrix) {
+    worldTransform = parentMatrix * localTransform;
+    for (auto& c : children) {
+      c->refresh_transform(worldTransform);
+    }
+  }
+
+  void draw(const glm::mat4& topMatrix, DrawContext& ctx) override {
+    for (auto& c : children) {
+      c->draw(topMatrix, ctx);
+    }
+  }
+};
+struct MeshAsset;
+
+struct MeshNode : public Node {
+  std::shared_ptr<MeshAsset> mesh;
+
+  MeshNode() = default;
+  explicit MeshNode(std::shared_ptr<MeshAsset> mesh_) : mesh(std::move(mesh_)) {}
+  void draw(const glm::mat4& topMatrix, DrawContext& ctx) override;
+};
+
+struct LoadedGLTF : public IRenderable {
+  std::unordered_map<std::string, std::shared_ptr<MeshAsset>> meshes;
+  std::unordered_map<std::string, std::shared_ptr<Node>> nodes;
+  std::unordered_map<std::string, AllocatedImage> images;
+  std::unordered_map<std::string, std::shared_ptr<struct GLTFMaterial>>
+      materials;
+
+  std::vector<std::shared_ptr<Node>> topNodes;
+
+  std::vector<VkSampler> samplers;
+
+  DescriptorAllocatorGrowable descriptorAllocator;
+
+  AllocatedBuffer materialDataBuffer;
+
+  Engine* creator;
+
+  LoadedGLTF() = default;
+  LoadedGLTF(const LoadedGLTF& other) = delete;
+  LoadedGLTF(LoadedGLTF&& other) noexcept = delete;
+  LoadedGLTF& operator=(const LoadedGLTF& other) = delete;
+  LoadedGLTF& operator=(LoadedGLTF&& other) noexcept = delete;
+  ~LoadedGLTF() override { clear_all(); }
+  void draw(const glm::mat4& topMatrix, DrawContext& ctx) override;
+
+ private:
+  void clear_all();
 };
 
 class Engine final {
-  friend struct GLTFMetallic_Roughness;
-
  public:
   Engine(const Engine& other) = delete;
   Engine(Engine&& other) noexcept = delete;
@@ -81,16 +139,10 @@ class Engine final {
 
   static Engine& get();
 
-  void draw();
   GpuMeshBuffers create_mesh_buffers(std::span<std::uint32_t> indices,
                                      std::span<Vertex> vertices);
   void run();
 
- private:
-  void draw_background(VkCommandBuffer cmd);
-  void draw_imgui(VkCommandBuffer cmd, VkImageView targetImageView);
-  void draw_geometry(VkCommandBuffer cmd, VkImageView colorImageView,
-                     VkImageView depthImageView, VkExtent2D imageExtent);
   void immediate_submit(const std::function<void(VkCommandBuffer)>& function);
   AllocatedBuffer create_buffer(std::size_t allocSize,
                                 VkBufferUsageFlags usageFlags,
@@ -105,17 +157,6 @@ class Engine final {
   void destroy_image(const AllocatedImage& image);
   FrameData& get_current_frame();
 
-  void init_window();
-  void init_vulkan();
-  void init_swapchain();
-  void init_commands();
-  void init_sync();
-  void init_descriptors();
-  void init_pipelines();
-  void init_background_pipelines();
-  void init_imgui();
-  void init_mesh_data();
-  void init_default_data();
   void destroy_sync();
   void destroy_commands();
   void create_draw_image(AllocatedImage& image, VkExtent3D extent);
@@ -124,7 +165,6 @@ class Engine final {
   void destroy_swapchain();
   void resize_swapchain();
 
- private:
   VkExtent2D m_windowExtent{1920, 1080};
   std::uint64_t m_frameNumber = 0;
   bool m_isInitialized = false;
@@ -177,8 +217,6 @@ class Engine final {
 
   GpuPushConstants m_pushConstants;
 
-  std::vector<std::shared_ptr<MeshAsset>> m_testAssets;
-  int m_assetIndex{0};
 
   bool m_bSwapchainResizeRequest = false;
   float m_renderScale{1.0f};
@@ -198,10 +236,27 @@ class Engine final {
   DescriptorAllocatorGrowable m_globalDescAllocator;
 
   DrawContext m_mainDrawContext;
-  std::unordered_map<std::string, std::shared_ptr<Node>> m_loadedNodes;
+  std::unordered_map<std::string, std::shared_ptr<LoadedGLTF>> m_loadedScenes;
 
   Camera m_camera;
 
+private:
+  void init_window();
+  void init_vulkan();
+  void init_swapchain();
+  void init_commands();
+  void init_sync();
+  void init_descriptors();
+  void init_pipelines();
+  void init_background_pipelines();
+  void init_imgui();
+  void init_mesh_data();
+  void init_default_data();
+  void draw();
+  void draw_background(VkCommandBuffer cmd);
+  void draw_imgui(VkCommandBuffer cmd, VkImageView targetImageView);
+  void draw_geometry(VkCommandBuffer cmd, VkImageView colorImageView,
+                     VkImageView depthImageView, VkExtent2D imageExtent);
   void update_scene();
 };
 

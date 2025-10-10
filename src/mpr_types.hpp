@@ -126,31 +126,4 @@ class IRenderable {
   virtual ~IRenderable() = default;
 };
 
-struct Node : public IRenderable {
-  std::weak_ptr<Node> parent;
-  std::vector<std::shared_ptr<Node>> children;
-
-  glm::mat4 localTransform;
-  glm::mat4 worldTransform;
-
-  void refresh_transform(const glm::mat4& parentMatrix) {
-    worldTransform = parentMatrix * localTransform;
-    for (auto& c : children) {
-      c->refresh_transform(worldTransform);
-    }
-  }
-
-  void draw(const glm::mat4& topMatrix, DrawContext& ctx) override {
-    for (auto& c : children) {
-      c->draw(topMatrix, ctx);
-    }
-  }
-};
-struct MeshAsset;
-
-struct MeshNode : public Node {
-  std::shared_ptr<MeshAsset> mesh;
-
-  void draw(const glm::mat4& topMatrix, DrawContext& ctx) override;
-};
 }  // namespace mp

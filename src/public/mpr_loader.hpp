@@ -5,8 +5,11 @@
 #include <unordered_map>
 
 #include "mpr_types.hpp"
+#include "mpr_engine.hpp"
 
 namespace mp {
+
+
 struct GLTFMaterial {
   MaterialInstance data;
 };
@@ -24,9 +27,7 @@ struct MeshAsset {
   GpuMeshBuffers meshBuffers;
 };
 
-class Engine;
-
-std::optional<std::vector<std::shared_ptr<MeshAsset>>> load_mesh(
+std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(
     mp::Engine& engine, const std::filesystem::path& filePath);
 
 }
