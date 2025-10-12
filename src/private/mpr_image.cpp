@@ -30,8 +30,9 @@ void transition_image(const VkCommandBuffer cmd, const VkImage image,
   vkCmdPipelineBarrier2(cmd, &dependencyInfo);
 }
 
-void copy_to_image(const VkCommandBuffer cmd, const VkImage src, const VkImage dest,
-                   const VkExtent2D srcSize, const VkExtent2D destSize) {
+void copy_to_image(const VkCommandBuffer cmd, const VkImage src,
+                   const VkImage dest, const VkExtent2D srcSize,
+                   const VkExtent2D destSize) {
   VkImageBlit2 blitRegion{VK_STRUCTURE_TYPE_IMAGE_BLIT_2};
   blitRegion.srcOffsets[1] = {.x = static_cast<int32_t>(srcSize.width),
                               .y = static_cast<int32_t>(srcSize.height),
@@ -67,4 +68,26 @@ void copy_to_image(const VkCommandBuffer cmd, const VkImage src, const VkImage d
 
   vkCmdBlitImage2(cmd, &blitImageInfo);
 }
+
+void BarrierBuilder::barrier(const VkCommandBuffer cmd,
+                             const VkDependencyFlags dependencyFlags) {
+  const VkDependencyInfo dependencyInfo{
+      .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+      .pNext = nullptr,
+      .dependencyFlags = dependencyFlags,
+      .memoryBarrierCount = static_cast<std::uint32_t>(memoryBarriers.size()),
+      .pMemoryBarriers = memoryBarriers.data(),
+      .bufferMemoryBarrierCount =
+          static_cast<std::uint32_t>(bufferBarriers.size()),
+      .pBufferMemoryBarriers = bufferBarriers.data(),
+      .imageMemoryBarrierCount =
+          static_cast<std::uint32_t>(imageBarriers.size()),
+      .pImageMemoryBarriers = imageBarriers.data()
+
+  };
+
+  vkCmdPipelineBarrier2(cmd, &dependencyInfo);
+  clear();
+}
+
 }  // namespace mp::utils

@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <chrono>
 #include <format>
+#include <numbers>
+#include <numeric>
 #include <print>
 #include <ranges>
 #include <thread>
@@ -31,6 +33,7 @@
 using namespace std::chrono_literals;
 namespace rn = std::ranges;
 namespace vi = std::views;
+namespace cn = std::chrono;
 
 constexpr bool bUseValidationLayers = true;
 constexpr auto kBaseWindowTitle = "Hello Vulkan";
@@ -45,6 +48,12 @@ get_required_instance_extensions_for_window() {
   std::uint32_t count;
   const auto requiredExtensions = SDL_Vulkan_GetInstanceExtensions(&count);
   return {count, requiredExtensions};
+}
+
+
+[[nodiscard]] bool is_visible(const mp::RenderObject& renderObject,
+                     const glm::mat4& projView) {
+  return true;
 }
 }  // namespace
 
@@ -114,7 +123,7 @@ void GLTFMetallic_Roughness::build_pipelines(Engine& engine) {
 
   //---
   pipelineBuilder.pipelineLayout = transparentPipeline.pipelineLayout;
-  pipelineBuilder.disable_depth_test();
+  pipelineBuilder.enable_depth_test(false, VK_COMPARE_OP_GREATER_OR_EQUAL);
   pipelineBuilder.enable_blending_additive();
   transparentPipeline.pipeline =
       pipelineBuilder.build_pipeline(engine.m_device);
@@ -163,7 +172,7 @@ void MeshNode::draw(const glm::mat4& topMatrix, DrawContext& ctx) {
   for (const auto& s : mesh->geoSurfaces) {
     ctx.opaqueSurfaces.emplace_back(s.count, s.startIndex,
                                     mesh->meshBuffers.indexBuffer.buffer,
-                                    &s.material->data, nodeMatrix,
+                                    &s.material->data, s.bound, nodeMatrix,
                                     mesh->meshBuffers.vertexBufferDeviceAddr);
   }
 
@@ -171,7 +180,7 @@ void MeshNode::draw(const glm::mat4& topMatrix, DrawContext& ctx) {
 }
 
 void LoadedGLTF::draw(const glm::mat4& topMatrix, DrawContext& ctx) {
-  for (auto& node : topNodes) {
+  for (const auto& node : topNodes) {
     node->draw(topMatrix, ctx);
   }
 }
@@ -267,8 +276,8 @@ void Engine::draw() {
   VkSemaphore& signalSemaphore = m_swapchainSemaphores[swapchainImageIndex];
 
   // Reset command buffer
-  VkCommandBuffer& cmd = currentFrame.commandBuffer;
-  VkImage& swapchainImage = m_swapchainImages[swapchainImageIndex];
+  const VkCommandBuffer& cmd = currentFrame.commandBuffer;
+  const VkImage& swapchainImage = m_swapchainImages[swapchainImageIndex];
 
   constexpr VkCommandBufferBeginInfo beginInfo{
       .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -277,8 +286,8 @@ void Engine::draw() {
       .pInheritanceInfo = nullptr,
   };
 
-  AllocatedImage& currentDrawingImage = currentFrame.drawImage;
-  AllocatedImage& currentDepthImage = currentFrame.depthImage;
+  const AllocatedImage& currentDrawingImage = currentFrame.drawImage;
+  const AllocatedImage& currentDepthImage = currentFrame.depthImage;
   m_drawExtent.width =
       std::min(currentDrawingImage.imageExtent.width, m_swapchainExtent.width) *
       m_renderScale;
@@ -288,38 +297,95 @@ void Engine::draw() {
 
   vkBeginCommandBuffer(cmd, &beginInfo) >> chk;
 
-  utils::transition_image(cmd, currentDrawingImage.image,
-                          VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+  utils::BarrierBuilder barrierBuilder;
+  {
+    barrierBuilder.add_image_barrier(
+        currentDrawingImage.image, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        VK_ACCESS_2_SHADER_WRITE_BIT_KHR, VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_GENERAL,
+        utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+
+    barrierBuilder.barrier(cmd);
+  }
 
   draw_background(cmd);
 
-  utils::transition_image(cmd, currentDrawingImage.image,
-                          VK_IMAGE_LAYOUT_GENERAL,
-                          VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-  utils::transition_image(cmd, currentDepthImage.image,
-                          VK_IMAGE_LAYOUT_UNDEFINED,
-                          VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+  {
+    barrierBuilder.add_image_barrier(
+        currentDrawingImage.image, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
+        VK_ACCESS_2_SHADER_WRITE_BIT,
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT |
+            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+        VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+
+    barrierBuilder.add_image_barrier(
+        currentDepthImage.image, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+        VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+            VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+        VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+            VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+        utils::init_subresource_range(VK_IMAGE_ASPECT_DEPTH_BIT));
+    barrierBuilder.barrier(cmd);
+  }
 
   draw_geometry(cmd, currentDrawingImage.imageView, currentDepthImage.imageView,
                 m_drawExtent);
-  utils::transition_image(cmd, currentDrawingImage.image,
-                          VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                          VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-  utils::transition_image(cmd, swapchainImage, VK_IMAGE_LAYOUT_UNDEFINED,
-                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+  {
+    barrierBuilder.add_image_barrier(
+        currentDrawingImage.image,
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT |
+            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+        VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+
+    barrierBuilder.add_image_barrier(
+        swapchainImage, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+        VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+    barrierBuilder.barrier(cmd);
+  }
 
   utils::copy_to_image(cmd, currentDrawingImage.image, swapchainImage,
                        m_drawExtent, m_swapchainExtent);
 
-  utils::transition_image(cmd, swapchainImage,
-                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                          VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+  {
+    barrierBuilder.add_image_barrier(
+        swapchainImage, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+        VK_ACCESS_2_TRANSFER_WRITE_BIT,
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT |
+            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+
+        utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+
+    barrierBuilder.barrier(cmd);
+  }
 
   draw_imgui(cmd, m_swapchainImageViews[swapchainImageIndex]);
 
-  utils::transition_image(cmd, swapchainImage,
-                          VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                          VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+  {
+    barrierBuilder.add_image_barrier(
+        swapchainImage, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT |
+            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+        VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0,
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+
+    barrierBuilder.barrier(cmd);
+  }
 
   vkEndCommandBuffer(currentFrame.commandBuffer) >> chk;
 
@@ -359,8 +425,8 @@ void Engine::draw() {
 }
 
 void Engine::draw_background(VkCommandBuffer cmd) {
-  VkDescriptorSet& descSet = get_current_frame().drawImageDescriptorSet;
-  auto& currentComputeEffect = m_computeEffects[m_currentComputeEffect];
+  const VkDescriptorSet& descSet = get_current_frame().drawImageDescriptorSet;
+  const auto& currentComputeEffect = m_computeEffects[m_currentComputeEffect];
 
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                     currentComputeEffect.pipeline);
@@ -449,7 +515,7 @@ AllocatedImage Engine::create_image(const VkExtent3D extent,
             std::floor(std::log2(std::max(extent.width, extent.height)))) +
         1;
   }
-  VmaAllocationCreateInfo allocationCreateInfo{
+  const VmaAllocationCreateInfo allocationCreateInfo{
       .usage = VMA_MEMORY_USAGE_GPU_ONLY,
       .requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
   };
@@ -482,10 +548,10 @@ AllocatedImage Engine::create_image(void* data, VkExtent3D extent,
   constexpr auto imagePixelSize = 4;  // 8 + 8 + 8 + 8 = 32bits (4 bytes)
   const auto bufferSize =
       extent.width * extent.height * extent.depth * imagePixelSize;
-  AllocatedImage image = create_image(
+  const AllocatedImage image = create_image(
       extent, format, imageUsage | VK_IMAGE_USAGE_TRANSFER_DST_BIT, mipMapped);
 
-  AllocatedBuffer stagingBuffer = create_buffer(
+  const AllocatedBuffer stagingBuffer = create_buffer(
       bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
 
   auto* bufferData =
@@ -550,7 +616,7 @@ GpuMeshBuffers Engine::create_mesh_buffers(std::span<std::uint32_t> indices,
       VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
       VMA_MEMORY_USAGE_GPU_ONLY);
 
-  AllocatedBuffer stagingBuffer = create_buffer(
+  const AllocatedBuffer stagingBuffer = create_buffer(
       vertexBufferSize + indexBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
       VMA_MEMORY_USAGE_CPU_ONLY);
 
@@ -590,6 +656,7 @@ void Engine::run() {
       rn::to<std::vector>();
 
   while (bIsRunning) {
+    auto start = cn::steady_clock::now();
     while (SDL_PollEvent(&e)) {
       if (e.type == SDL_EVENT_QUIT) {
         bIsRunning = false;
@@ -628,6 +695,14 @@ void Engine::run() {
     }
     ImGui::End();
 
+    ImGui::Begin("Stats");
+    ImGui::Text("Frame time: %f ms", m_stats.frameTime);
+    ImGui::Text("Draw time: %f ms", m_stats.meshDrawTime);
+    ImGui::Text("Scene update tim: %f ms", m_stats.sceneUpdateTime);
+    ImGui::Text("Amount of draw calls: %i", m_stats.drawCallCount);
+    ImGui::Text("Amount of triangles: %i", m_stats.triangleCount);
+    ImGui::End();
+
     if (ImGui::Begin("Effects")) {
       ImGui::ListBox("Select compute effect", &m_currentComputeEffect,
                      effectsNames.data(), effectsNames.size());
@@ -652,6 +727,11 @@ void Engine::run() {
     ImGui::Render();
 
     draw();
+
+    auto end = cn::steady_clock::now();
+
+    auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
+    m_stats.frameTime = elapsed.count() / 1000.0f;
   }
 }
 
@@ -671,6 +751,9 @@ void Engine::draw_imgui(VkCommandBuffer cmd, VkImageView targetImageView) {
 void Engine::draw_geometry(VkCommandBuffer cmd, VkImageView colorImageView,
                            VkImageView depthImageView,
                            const VkExtent2D imageExtent) {
+  m_stats.drawCallCount = 0;
+  m_stats.triangleCount = 0;
+  auto start = cn::steady_clock::now();
   AllocatedBuffer gpuSceneDataBuffer =
       create_buffer(sizeof(GpuSceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                     VMA_MEMORY_USAGE_CPU_TO_GPU);
@@ -690,6 +773,22 @@ void Engine::draw_geometry(VkCommandBuffer cmd, VkImageView colorImageView,
                                    VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
     globalSceneWriter.update_set(m_device, globalDescSet);
   }
+
+  auto opaqueSurfaces =
+      vi::iota(0u, m_mainDrawContext.opaqueSurfaces.size()) |
+      vi::filter([&](const std::uint32_t index) {
+        return is_visible(m_mainDrawContext.opaqueSurfaces[index], sceneData->projView);
+      }) |
+      rn::to<std::vector>();
+  rn::sort(opaqueSurfaces, [&](const std::uint32_t ia, const std::uint32_t ib) {
+    const auto& a = m_mainDrawContext.opaqueSurfaces[ia];
+    const auto& b = m_mainDrawContext.opaqueSurfaces[ib];
+
+    if (a.material == b.material) {
+      return a.indexBuffer < b.indexBuffer;
+    }
+    return a.material < b.material;
+  });
   // ---
   const auto colorAttachment = utils::attachment_info(
       colorImageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
@@ -714,14 +813,31 @@ void Engine::draw_geometry(VkCommandBuffer cmd, VkImageView colorImageView,
   };
   vkCmdSetScissor(cmd, 0, 1, &scissor);
 
+  MaterialInstance* lastMaterial = nullptr;
+  MaterialPipeline* lastPipeline = nullptr;
+  VkBuffer lastIndexBuffer = nullptr;
   auto drawContext = [&](const RenderObject& ctx) {
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                      ctx.material->pipeline->pipeline);
+    if (lastMaterial != ctx.material) {
+      if (ctx.material->pipeline != lastPipeline) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          ctx.material->pipeline->pipeline);
 
-    const VkDescriptorSet descSets[]{globalDescSet, ctx.material->materialSet};
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            ctx.material->pipeline->pipelineLayout, 0,
-                            std::size(descSets), descSets, 0, nullptr);
+        lastPipeline = ctx.material->pipeline;
+      }
+      const VkDescriptorSet descSets[]{globalDescSet,
+                                       ctx.material->materialSet};
+      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                              ctx.material->pipeline->pipelineLayout, 0,
+                              std::size(descSets), descSets, 0, nullptr);
+
+      lastMaterial = ctx.material;
+    }
+
+    if (lastIndexBuffer != ctx.indexBuffer) {
+      vkCmdBindIndexBuffer(cmd, ctx.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+
+      lastIndexBuffer = ctx.indexBuffer;
+    }
     const GpuPushConstants ctxPushConstant{
         .transform = ctx.transform,
         .vertexBufferDeviceAddr = ctx.vertexBufferAddress};
@@ -729,18 +845,22 @@ void Engine::draw_geometry(VkCommandBuffer cmd, VkImageView colorImageView,
                        VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GpuPushConstants),
                        &ctxPushConstant);
 
-    vkCmdBindIndexBuffer(cmd, ctx.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
-
     vkCmdDrawIndexed(cmd, ctx.indexCount, 1, ctx.firstIndex, 0, 0);
+    m_stats.drawCallCount++;
+    m_stats.triangleCount += ctx.indexCount / 3;
   };
-  for (const auto& ctx : m_mainDrawContext.opaqueSurfaces) {
-    drawContext(ctx);
+  for (const auto ctx : opaqueSurfaces) {
+    drawContext(m_mainDrawContext.opaqueSurfaces[ctx]);
   }
   for (const auto& ctx : m_mainDrawContext.opaqueSurfaces) {
     drawContext(ctx);
   }
 
   vkCmdEndRendering(cmd);
+
+  auto end = cn::steady_clock::now();
+  auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
+  m_stats.meshDrawTime = elapsed.count() / 1000.0f;
 }
 
 FrameData& Engine::get_current_frame() {
@@ -1009,7 +1129,7 @@ void Engine::init_descriptors() {
   };
   for (auto& frame : m_frameData) {
     auto& drawImageDescriptors = frame.drawImageDescriptorSet;
-    auto& drawImage = frame.drawImage;
+    const auto& drawImage = frame.drawImage;
     drawImageDescriptors = m_globalDescAllocator.allocate(
         m_device, m_drawImageDescriptorSetLayout);
 
@@ -1188,7 +1308,7 @@ void Engine::init_imgui() {
 }
 
 void Engine::init_mesh_data() {
-  const std::string structurePath = "../../assets/Sponza/glTF/Sponza.gltf";
+  const std::string structurePath = "../../assets/structure.glb";
   auto structureFile = load_gltf(*this, structurePath).value();
 
   m_loadedScenes[structurePath] = std::move(structureFile);
@@ -1211,7 +1331,7 @@ void Engine::init_default_data() {
       create_image(reinterpret_cast<void*>(&greyColor), VkExtent3D{1, 1, 1},
                    VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
 
-  std::uint32_t magentaColor =
+  const std::uint32_t magentaColor =
       glm::packUnorm4x8(glm::vec4(1.0f, 0.0f, 1.0f, 1.0f));
   std::array<std::uint32_t, 16 * 16> errorPixels;
   for (int i = 0; i < 16; ++i) {
@@ -1246,7 +1366,7 @@ void Engine::init_default_data() {
       VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
       VMA_MEMORY_USAGE_GPU_ONLY);
 
-  AllocatedBuffer stagingBuffer = create_buffer(
+  const AllocatedBuffer stagingBuffer = create_buffer(
       sizeof(GLTFMetallic_Roughness::MaterialConstants),
       VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
 
@@ -1287,12 +1407,12 @@ void Engine::init_default_data() {
 }
 
 void Engine::destroy_sync() {
-  for (auto& frame : m_frameData) {
+  for (const auto& frame : m_frameData) {
     vkDestroyFence(m_device, frame.fence, nullptr);
     vkDestroySemaphore(m_device, frame.swapchainSemaphore, nullptr);
   }
 
-  for (auto& renderSemaphore : m_swapchainSemaphores) {
+  for (const auto& renderSemaphore : m_swapchainSemaphores) {
     vkDestroySemaphore(m_device, renderSemaphore, nullptr);
   }
 }
@@ -1354,11 +1474,12 @@ void Engine::WindowCleaner::operator()(SDL_Window* window) const {
 }
 
 void Engine::update_scene() {
+  const auto start = cn::steady_clock::now();
   m_camera.update();
   m_mainDrawContext.opaqueSurfaces.clear();
   m_mainDrawContext.transparentSurfaces.clear();
 
-  for (auto& mesh : m_loadedScenes | std::views::values) {
+  for (const auto& mesh : m_loadedScenes | std::views::values) {
     mesh->draw(glm::mat4(1.0f), m_mainDrawContext);
   }
 
@@ -1374,5 +1495,10 @@ void Engine::update_scene() {
   m_sceneData.sunlightColor = glm::vec4(1.0f);
   m_sceneData.sunlightDirection =
       glm::normalize(glm::vec4(.77f, 0.2f, 0.5f, 1.0f));
+  const auto end = cn::steady_clock::now();
+  const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
+
+  m_stats.sceneUpdateTime = elapsed.count() / 1000.0f;
 }
+
 }  // namespace mp

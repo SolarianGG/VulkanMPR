@@ -39,7 +39,7 @@ class DescriptorAllocatorGrowable {
   std::vector<PoolSizeRatio> m_poolSizeRatios;
   std::vector<VkDescriptorPool> m_fullPools;
   std::vector<VkDescriptorPool> m_readyPools;
-  std::uint32_t m_setsPerPool;
+  std::uint32_t m_setsPerPool{};
 };
 
 struct DescriptorWriter {

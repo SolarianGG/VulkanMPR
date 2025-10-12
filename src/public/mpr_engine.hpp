@@ -7,8 +7,37 @@
 struct SDL_Window;
 
 namespace mp {
-struct MeshAsset;
+struct GLTFMaterial {
+  MaterialInstance data;
+};
 class Engine;
+
+struct Bound {
+  glm::vec3 origin;
+  float radius;
+};
+
+struct GeoSurface {
+  std::uint32_t startIndex;
+  std::uint32_t count;
+  Bound bound;
+  std::shared_ptr<GLTFMaterial> material;
+};
+
+struct MeshAsset {
+  std::string name;
+
+  std::vector<GeoSurface> geoSurfaces;
+  GpuMeshBuffers meshBuffers;
+};
+
+struct EngineStats {
+  float frameTime;
+  int triangleCount;
+  int drawCallCount;
+  float sceneUpdateTime;
+  float meshDrawTime;
+};
 
 constexpr auto kNumberOfFrames = 2;
 
@@ -59,6 +88,7 @@ struct RenderObject {
 
   MaterialInstance* material;
 
+  Bound bound;
   glm::mat4 transform;
   VkDeviceAddress vertexBufferAddress;
 };
@@ -94,7 +124,8 @@ struct MeshNode : public Node {
   std::shared_ptr<MeshAsset> mesh;
 
   MeshNode() = default;
-  explicit MeshNode(std::shared_ptr<MeshAsset> mesh_) : mesh(std::move(mesh_)) {}
+  explicit MeshNode(std::shared_ptr<MeshAsset> mesh_)
+      : mesh(std::move(mesh_)) {}
   void draw(const glm::mat4& topMatrix, DrawContext& ctx) override;
 };
 
@@ -217,7 +248,6 @@ class Engine final {
 
   GpuPushConstants m_pushConstants;
 
-
   bool m_bSwapchainResizeRequest = false;
   float m_renderScale{1.0f};
 
@@ -240,7 +270,9 @@ class Engine final {
 
   Camera m_camera;
 
-private:
+  EngineStats m_stats{};
+
+ private:
   void init_window();
   void init_vulkan();
   void init_swapchain();

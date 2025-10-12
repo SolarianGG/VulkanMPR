@@ -147,6 +147,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(
   }
   fastgltf::Asset asset = std::move(load.get());
 
+  assert(asset.lights.empty());
   auto scene = std::make_shared<LoadedGLTF>();
   scene->creator = &engine;
   LoadedGLTF& file = *scene;
@@ -339,6 +340,19 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(
         std::println("Mesh does not contains material");
         newSurface.material = materials[0];
       }
+
+      glm::vec3 minPos = vertices[initialVtx].pos;
+      glm::vec3 maxPos = vertices[initialVtx].pos;
+      for (auto it = vertices.begin() + initialVtx, e = vertices.end(); it != e;
+           ++it) {
+        minPos = glm::min(minPos, it->pos);
+        maxPos = glm::max(maxPos, it->pos);
+      }
+      newSurface.bound.origin = (minPos + maxPos) / 2.0f;
+      newSurface.bound.radius =
+          glm::max(glm::length(minPos - newSurface.bound.origin),
+                   glm::length(maxPos - newSurface.bound.origin));
+
       newMesh.geoSurfaces.push_back(newSurface);
     }
 
