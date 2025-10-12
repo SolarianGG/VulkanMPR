@@ -94,7 +94,7 @@ std::optional<mp::AllocatedImage> load_image(mp::Engine& engine,
     constexpr VkFormat imageFormat = VK_FORMAT_R8G8B8A8_UNORM;
     constexpr VkImageUsageFlags imageUsage = VK_IMAGE_USAGE_SAMPLED_BIT;
     newImage =
-        engine.create_image(data, extent, imageFormat, imageUsage, false);
+        engine.create_image(data, extent, imageFormat, imageUsage, true);
   } else {
     return std::nullopt;
   }
@@ -340,18 +340,6 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(
         std::println("Mesh does not contains material");
         newSurface.material = materials[0];
       }
-
-      glm::vec3 minPos = vertices[initialVtx].pos;
-      glm::vec3 maxPos = vertices[initialVtx].pos;
-      for (auto it = vertices.begin() + initialVtx, e = vertices.end(); it != e;
-           ++it) {
-        minPos = glm::min(minPos, it->pos);
-        maxPos = glm::max(maxPos, it->pos);
-      }
-      newSurface.bound.origin = (minPos + maxPos) / 2.0f;
-      newSurface.bound.radius =
-          glm::max(glm::length(minPos - newSurface.bound.origin),
-                   glm::length(maxPos - newSurface.bound.origin));
 
       newMesh.geoSurfaces.push_back(newSurface);
     }

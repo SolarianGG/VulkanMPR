@@ -1,10 +1,20 @@
 #pragma once
 #include <vulkan/vulkan.h>
 
+#include <cmath>
 #include <deque>
 #include <vector>
 
 namespace mp::utils {
+
+inline std::uint32_t calculate_mip_levels(const VkExtent2D extent) {
+  return static_cast<std::uint32_t>(
+             std::floor(std::log2(std::max(extent.width, extent.height)))) +
+         1;
+}
+
+
+void generate_mipmaps(VkCommandBuffer cmd, VkImage image, VkExtent2D extent);
 void transition_image(VkCommandBuffer cmd, VkImage image,
                       VkImageLayout currentLayout, VkImageLayout newLayout);
 

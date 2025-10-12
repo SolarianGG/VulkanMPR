@@ -12,15 +12,10 @@ struct GLTFMaterial {
 };
 class Engine;
 
-struct Bound {
-  glm::vec3 origin;
-  float radius;
-};
 
 struct GeoSurface {
   std::uint32_t startIndex;
   std::uint32_t count;
-  Bound bound;
   std::shared_ptr<GLTFMaterial> material;
 };
 
@@ -88,7 +83,6 @@ struct RenderObject {
 
   MaterialInstance* material;
 
-  Bound bound;
   glm::mat4 transform;
   VkDeviceAddress vertexBufferAddress;
 };
@@ -271,6 +265,7 @@ class Engine final {
   Camera m_camera;
 
   EngineStats m_stats{};
+  AllocatedBuffer m_gpuSceneDataBuffer;
 
  private:
   void init_window();

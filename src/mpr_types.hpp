@@ -112,7 +112,6 @@ struct MaterialInstance {
 };
 
 
-
 struct DrawContext;
 class IRenderable {
  public:
