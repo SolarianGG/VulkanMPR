@@ -1,10 +1,17 @@
+#define VMA_IMPLEMENTATION
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #define GLM_ENABLE_EXPERIMENTAL
+#define VOLK_IMPLEMENTATION
 #include "mpr_engine.hpp"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
 #include <VkBootstrap.h>
+#include <imgui.h>
+#include <imgui_impl_sdl3.h>
+#include <imgui_impl_vulkan.h>
+#include <vulkan/utility/vk_format_utils.h>
+#include <vulkan/vk_enum_string_helper.h>
 
 #include <algorithm>
 #include <chrono>
@@ -14,13 +21,6 @@
 #include <print>
 #include <ranges>
 #include <thread>
-
-#define VMA_IMPLEMENTATION
-#include <imgui.h>
-#include <imgui_impl_sdl3.h>
-#include <imgui_impl_vulkan.h>
-#include <vk_mem_alloc.h>
-#include <vulkan/vk_enum_string_helper.h>
 
 #include "glm/ext/matrix_clip_space.hpp"
 #include "glm/ext/matrix_transform.hpp"
@@ -53,7 +53,7 @@ get_required_instance_extensions_for_window() {
 }  // namespace
 
 namespace mp {
-void GLTFMetallic_Roughness::build_pipelines(Engine& engine) {
+void GltfMetallicRoughness::build_pipelines(Engine& engine) {
   VkShaderModule meshVertShader;
   if (!load_shader_module("../../src/compiled_shaders/mesh.vertex.spv",
                           engine.m_device, &meshVertShader)) {
@@ -66,20 +66,32 @@ void GLTFMetallic_Roughness::build_pipelines(Engine& engine) {
   }
 
   const VkPushConstantRange pushConstantRange{
-      .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+      .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
       .offset = 0,
       .size = static_cast<std::uint32_t>(sizeof(GpuPushConstants)),
   };
 
   {
-    DescriptorLayoutBuilder layoutBuilder;
-    layoutBuilder.add_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-    layoutBuilder.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-    layoutBuilder.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
     materialLayout =
-        layoutBuilder.build(engine.m_device, VK_SHADER_STAGE_VERTEX_BIT |
-                                                 VK_SHADER_STAGE_FRAGMENT_BIT);
+        DescriptorSetLayoutBuilder()
+            .add_binding(
+                0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 10000,
+                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+            .add_binding(1, VK_DESCRIPTOR_TYPE_SAMPLER, 10000,
+                         VK_SHADER_STAGE_FRAGMENT_BIT)
+            .add_binding(2, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 10000,
+                         VK_SHADER_STAGE_FRAGMENT_BIT)
+            .build(engine.m_device,
+                   VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
   }
+  descriptors =
+      DescriptorBuffer(engine.m_device, materialLayout,
+                       DescriptorBufferProperties::query(engine.m_chosenGpu));
+  descriptors.create_buffer([&engine](const std::size_t allocSize,
+                                      const VkBufferUsageFlags bufferUsage) {
+    return engine.create_buffer(allocSize, bufferUsage,
+                                VMA_MEMORY_USAGE_CPU_ONLY);
+  });
   const VkDescriptorSetLayout layouts[]{
       engine.m_gpuSceneDataDescriptorSetLayout, materialLayout};
   const VkPipelineLayoutCreateInfo layoutCreateInfo{
@@ -114,67 +126,75 @@ void GLTFMetallic_Roughness::build_pipelines(Engine& engine) {
 
   pipelineBuilder.set_multisampling_none();
   pipelineBuilder.disable_blending();
-  opaquePipeline.pipeline = pipelineBuilder.build_pipeline(engine.m_device);
+  opaquePipeline.pipeline = pipelineBuilder.build_pipeline(
+      engine.m_device, VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT);
 
   //---
   pipelineBuilder.pipelineLayout = transparentPipeline.pipelineLayout;
   pipelineBuilder.enable_depth_test(false, VK_COMPARE_OP_GREATER_OR_EQUAL);
   pipelineBuilder.enable_blending_additive();
-  transparentPipeline.pipeline =
-      pipelineBuilder.build_pipeline(engine.m_device);
+  transparentPipeline.pipeline = pipelineBuilder.build_pipeline(
+      engine.m_device, VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT);
   vkDestroyShaderModule(engine.m_device, meshVertShader, nullptr);
   vkDestroyShaderModule(engine.m_device, meshFragShader, nullptr);
 }
 
-void GLTFMetallic_Roughness::clear_resources(const VkDevice device) {
-  vkDestroyPipeline(device, opaquePipeline.pipeline, nullptr);
-  vkDestroyPipeline(device, transparentPipeline.pipeline, nullptr);
-  vkDestroyPipelineLayout(device, transparentPipeline.pipelineLayout, nullptr);
+void GltfMetallicRoughness::clear_resources(Engine& engine) {
+  vkDestroyPipeline(engine.m_device, opaquePipeline.pipeline, nullptr);
+  vkDestroyPipeline(engine.m_device, transparentPipeline.pipeline, nullptr);
+  vkDestroyPipelineLayout(engine.m_device, transparentPipeline.pipelineLayout,
+                          nullptr);
 
-  vkDestroyDescriptorSetLayout(device, materialLayout, nullptr);
+  vkDestroyDescriptorSetLayout(engine.m_device, materialLayout, nullptr);
+  engine.destroy_buffer(descriptors.get_buffer());
 }
 
-MaterialInstance GLTFMetallic_Roughness::write_material(
-    const VkDevice device, const MaterialPass matPass,
-    const MaterialResources& res, DescriptorAllocatorGrowable& allocator) {
-  MaterialInstance materialInstance{.passType = matPass};
-  if (matPass == MaterialPass::Opaque) {
-    materialInstance.pipeline = &opaquePipeline;
+std::uint32_t GltfMetallicRoughness::write_uniform_buffer(
+    const VkDeviceAddress uniformBuffer) {
+  descriptors.write_uniform_buffer(0, currentMaterialOffset, uniformBuffer,
+                                   sizeof(MaterialConstants));
+  return currentMaterialOffset++;
+}
 
-  } else if (matPass == MaterialPass::Transparent) {
-    materialInstance.pipeline = &transparentPipeline;
-  } else {
-    throw std::runtime_error("Unsupported pass type");
+std::uint32_t GltfMetallicRoughness::write_sampler(const VkSampler sampler) {
+  descriptors.write_sampler(1, currentSamplerOffset, sampler);
+  return currentSamplerOffset++;
+}
+
+std::uint32_t GltfMetallicRoughness::write_texture(
+    const VkImageView imageView) {
+  descriptors.write_sampled_image(2, currentTextureOffset, imageView,
+                                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  return currentTextureOffset++;
+}
+
+MaterialPipeline* GltfMetallicRoughness::select_pipeline(
+    const MaterialPass pass) {
+  if (pass == MaterialPass::Opaque) {
+    return &opaquePipeline;
   }
-
-  materialInstance.materialSet = allocator.allocate(device, materialLayout);
-  writer.clear();
-  writer.write_buffer(0, res.dataBuffer, sizeof(MaterialConstants),
-                      res.dataBufferOffset, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-  writer.write_image(1, res.colorImage.imageView, res.colorSampler,
-                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                     VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-  writer.write_image(2, res.metalRoughnessImage.imageView,
-                     res.metalRoughnessSampler,
-                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                     VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-  writer.update_set(device, materialInstance.materialSet);
-
-  return materialInstance;
+  if (pass == MaterialPass::Transparent) {
+    return &transparentPipeline;
+  }
+  return nullptr;
 }
+
 void MeshNode::draw(const glm::mat4& topMatrix, DrawContext& ctx) {
   glm::mat4 nodeMatrix = topMatrix * worldTransform;
   for (const auto& s : mesh->geoSurfaces) {
-    const RenderObject rObject(s.count, s.startIndex,
-                               mesh->meshBuffers.indexBuffer.buffer,
-                               &s.material->data, nodeMatrix,
-                               mesh->meshBuffers.vertexBufferDeviceAddr);
+    const RenderObject rObject{
+        .indexCount = s.count,
+        .firstIndex = s.startIndex,
+        .indexBuffer = mesh->meshBuffers.indexBuffer.buffer,
+        .vertexBufferAddress = mesh->meshBuffers.vertexBufferDeviceAddr};
     switch (s.material->data.passType) {
       case MaterialPass::Transparent: {
-        ctx.transparentSurfaces.push_back(rObject);
+        ctx.transparentRenderObjects[rObject].emplace_back(
+            nodeMatrix, s.material->data.indices);
       } break;
       case MaterialPass::Opaque: {
-        ctx.opaqueSurfaces.push_back(rObject);
+        ctx.opaqueRenderObjects[rObject].emplace_back(nodeMatrix,
+                                                      s.material->data.indices);
       } break;
       case MaterialPass::Other: {
         assert(false);
@@ -192,7 +212,6 @@ void LoadedGLTF::draw(const glm::mat4& topMatrix, DrawContext& ctx) {
 }
 
 void LoadedGLTF::clear_all() {
-  descriptorAllocator.destroy_pools(creator->m_device);
   creator->destroy_buffer(materialDataBuffer);
   for (const auto& mesh : vi::values(meshes)) {
     creator->destroy_buffer(mesh->meshBuffers.indexBuffer);
@@ -235,6 +254,7 @@ Engine::Engine() {
   gLoadedEngine = this;
   init_window();
   init_vulkan();
+  LoadDescriptorBufferExtensions(m_device);
   init_swapchain();
   init_commands();
   init_sync();
@@ -262,7 +282,6 @@ void Engine::draw() {
                   std::numeric_limits<std::uint64_t>::max()) >>
       chk;
   currentFrame.frameDeletionQueue.flush();
-  currentFrame.descriptorAllocator.clear_pools(m_device);
 
   // Get the current image from the swapchain
 
@@ -544,16 +563,18 @@ AllocatedImage Engine::create_image(void* data, const VkExtent3D extent,
                                     const VkFormat format,
                                     const VkImageUsageFlags imageUsage,
                                     const bool mipMapped) {
-  if (format != VK_FORMAT_R8G8B8A8_UNORM &&
-      format != VK_FORMAT_B8G8R8A8_UNORM) {
+  constexpr auto imagePixelSize = 4;  // NOTE: 8 + 8 + 8 + 8 = 32bits (4 bytes)
+  if (!(vkuFormatIs8bit(format) && vkuFormatComponentCount(format) == 4)) {
     throw std::runtime_error(std::format("Unsupported image format for now: {}",
                                          string_VkFormat(format)));
   }
-  constexpr auto imagePixelSize = 4;  // 8 + 8 + 8 + 8 = 32bits (4 bytes)
   const auto bufferSize =
       extent.width * extent.height * extent.depth * imagePixelSize;
-  const AllocatedImage image = create_image(
-      extent, format, imageUsage | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, mipMapped);
+  const AllocatedImage image =
+      create_image(extent, format,
+                   imageUsage | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                       VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                   mipMapped);
 
   const AllocatedBuffer stagingBuffer = create_buffer(
       bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
@@ -615,13 +636,13 @@ GpuMeshBuffers Engine::create_mesh_buffers(
           VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
       VMA_MEMORY_USAGE_GPU_ONLY);
 
-  const VkBufferDeviceAddressInfo bufferAddressInfo{
+  const VkBufferDeviceAddressInfo vertexBufferAddressInfo{
       .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
       .pNext = nullptr,
       .buffer = buffers.vertexBuffer.buffer,
   };
   buffers.vertexBufferDeviceAddr =
-      vkGetBufferDeviceAddress(m_device, &bufferAddressInfo);
+      vkGetBufferDeviceAddress(m_device, &vertexBufferAddressInfo);
   assert(buffers.vertexBufferDeviceAddr);
 
   buffers.indexBuffer = create_buffer(
@@ -629,7 +650,7 @@ GpuMeshBuffers Engine::create_mesh_buffers(
       VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
       VMA_MEMORY_USAGE_GPU_ONLY);
 
-  const AllocatedBuffer stagingBuffer = create_buffer(
+  AllocatedBuffer stagingBuffer = create_buffer(
       vertexBufferSize + indexBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
       VMA_MEMORY_USAGE_CPU_ONLY);
 
@@ -769,31 +790,9 @@ void Engine::draw_geometry(VkCommandBuffer cmd, VkImageView colorImageView,
   m_stats.triangleCount = 0;
   auto start = cn::steady_clock::now();
   auto* sceneData = static_cast<GpuSceneData*>(
-      m_gpuSceneDataBuffer.allocation->GetMappedData());
+      get_current_frame().sceneDataBuffer.allocation->GetMappedData());
   *sceneData = m_sceneData;
 
-  VkDescriptorSet globalDescSet =
-      get_current_frame().descriptorAllocator.allocate(
-          m_device, m_gpuSceneDataDescriptorSetLayout);
-  {
-    DescriptorWriter globalSceneWriter;
-    globalSceneWriter.write_buffer(0, m_gpuSceneDataBuffer.buffer,
-                                   sizeof(GpuSceneData), 0,
-                                   VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-    globalSceneWriter.update_set(m_device, globalDescSet);
-  }
-
-  auto opaqueSurfaces = vi::iota(0u, m_mainDrawContext.opaqueSurfaces.size()) |
-                        rn::to<std::vector>();
-  rn::sort(opaqueSurfaces, [&](const std::uint32_t ia, const std::uint32_t ib) {
-    const auto& a = m_mainDrawContext.opaqueSurfaces[ia];
-    const auto& b = m_mainDrawContext.opaqueSurfaces[ib];
-
-    if (a.material == b.material) {
-      return a.indexBuffer < b.indexBuffer;
-    }
-    return a.material < b.material;
-  });
   // ---
   const auto colorAttachment = utils::attachment_info(
       colorImageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
@@ -818,47 +817,72 @@ void Engine::draw_geometry(VkCommandBuffer cmd, VkImageView colorImageView,
   };
   vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-  MaterialInstance* lastMaterial = nullptr;
-  MaterialPipeline* lastPipeline = nullptr;
+  VkDescriptorBufferBindingInfoEXT bindingInfos[2]{};
+  bindingInfos[0] = {
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+      .address =
+          get_current_frame().sceneDataDescriptorBuffer.get_device_address(),
+      .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
+               VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT};
+
+  bindingInfos[1] = {
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+      .address = m_metalRoughness.descriptors.get_device_address(),
+      .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
+               VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT};
+  vkCmdBindDescriptorBuffersEXT(cmd, std::size(bindingInfos), bindingInfos);
+
+  const std::uint32_t bufferIndices[]{0, 1};
+  const VkDeviceSize offsets[]{0, 0};
+  vkCmdSetDescriptorBufferOffsetsEXT(
+      cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+      m_metalRoughness.opaquePipeline.pipelineLayout, 0, 2, bufferIndices,
+      offsets);
+
+  auto* instanceBuffer = static_cast<Instance*>(
+      get_current_frame().instanceBuffer.allocationInfo.pMappedData);
+  std::size_t currentInstanceBufferOffset = 0;
+
   VkBuffer lastIndexBuffer = nullptr;
-  auto drawContext = [&](const RenderObject& ctx) {
-    if (lastMaterial != ctx.material) {
-      if (ctx.material->pipeline != lastPipeline) {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          ctx.material->pipeline->pipeline);
-
-        lastPipeline = ctx.material->pipeline;
-      }
-      const VkDescriptorSet descSets[]{globalDescSet,
-                                       ctx.material->materialSet};
-      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                              ctx.material->pipeline->pipelineLayout, 0,
-                              std::size(descSets), descSets, 0, nullptr);
-
-      lastMaterial = ctx.material;
-    }
-
+  auto drawContext = [&](const RenderObject& ctx,
+                         const std::vector<Instance>& instances,
+                         const VkPipelineLayout pipelineLayout) {
     if (lastIndexBuffer != ctx.indexBuffer) {
       vkCmdBindIndexBuffer(cmd, ctx.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
       lastIndexBuffer = ctx.indexBuffer;
     }
-    const GpuPushConstants ctxPushConstant{
-        .transform = ctx.transform,
-        .vertexBufferDeviceAddr = ctx.vertexBufferAddress};
-    vkCmdPushConstants(cmd, ctx.material->pipeline->pipelineLayout,
-                       VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GpuPushConstants),
-                       &ctxPushConstant);
 
-    vkCmdDrawIndexed(cmd, ctx.indexCount, 1, ctx.firstIndex, 0, 0);
+    std::memcpy(instanceBuffer + currentInstanceBufferOffset, instances.data(),
+                instances.size() * sizeof(Instance));
+    const GpuPushConstants ctxPushConstant{
+        .vertexBufferDeviceAddr = ctx.vertexBufferAddress,
+        .instanceBufferDeviceAddr = get_current_frame().instanceBufferAddr,
+        .sceneDataBufferDeviceAddr = get_current_frame().sceneDataBufferAddr,
+    };
+
+    vkCmdPushConstants(
+        cmd, pipelineLayout,
+        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+        sizeof(GpuPushConstants), &ctxPushConstant);
+
+    vkCmdDrawIndexed(cmd, ctx.indexCount, instances.size(), ctx.firstIndex, 0,
+                     currentInstanceBufferOffset);
     m_stats.drawCallCount++;
-    m_stats.triangleCount += ctx.indexCount / 3;
+    m_stats.triangleCount += ctx.indexCount / 3 * instances.size();
+    currentInstanceBufferOffset += instances.size();
   };
-  for (const auto ctx : opaqueSurfaces) {
-    drawContext(m_mainDrawContext.opaqueSurfaces[ctx]);
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    m_metalRoughness.opaquePipeline.pipeline);
+  for (const auto& [ro, instances] : m_mainDrawContext.opaqueRenderObjects) {
+    drawContext(ro, instances, m_metalRoughness.opaquePipeline.pipelineLayout);
   }
-  for (const auto& ctx : m_mainDrawContext.transparentSurfaces) {
-    drawContext(ctx);
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    m_metalRoughness.transparentPipeline.pipeline);
+  for (const auto& [ro, instances] :
+       m_mainDrawContext.transparentRenderObjects) {
+    drawContext(ro, instances,
+                m_metalRoughness.transparentPipeline.pipelineLayout);
   }
 
   vkCmdEndRendering(cmd);
@@ -912,15 +936,31 @@ void Engine::init_vulkan() {
         std::format("Failed to create surface: {}", SDL_GetError()));
   }
 
-  constexpr VkPhysicalDeviceVulkan13Features features13{
+  VkPhysicalDeviceDescriptorBufferFeaturesEXT descriptorBufferFeatures{
+      .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_BUFFER_FEATURES_EXT,
+      .pNext = nullptr,
+      .descriptorBuffer = true,
+#if 0
+    .descriptorBufferImageLayoutIgnored = true,
+#endif
+  };
+
+  const VkPhysicalDeviceVulkan13Features features13{
       .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
       .synchronization2 = true,
       .dynamicRendering = true,
   };
 
-  constexpr VkPhysicalDeviceVulkan12Features features12{
+  const VkPhysicalDeviceVulkan12Features features12{
       .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+      .pNext = &descriptorBufferFeatures,
+      .drawIndirectCount = true,
       .descriptorIndexing = true,
+      .shaderSampledImageArrayNonUniformIndexing = true,
+      .descriptorBindingPartiallyBound = true,
+      .descriptorBindingVariableDescriptorCount = true,
+      .runtimeDescriptorArray = true,
+      .scalarBlockLayout = true,
       .bufferDeviceAddress = true,
   };
 
@@ -928,6 +968,7 @@ void Engine::init_vulkan() {
 
   const auto physicalDevice =
       selector.set_minimum_version(1, 3)
+          .add_required_extension(VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME)
           .set_required_features_13(features13)
           .set_required_features_12(features12)
           .set_surface(m_surface)
@@ -950,10 +991,12 @@ void Engine::init_vulkan() {
   m_queueFamilyIndex =
       vkbDevice.get_queue_index(vkb::QueueType::graphics).value();
 
+  VmaVulkanFunctions vulkanFunc[]{vkGetInstanceProcAddr, vkGetDeviceProcAddr};
   VmaAllocatorCreateInfo allocatorCreateInfo{
       .flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
       .physicalDevice = m_chosenGpu,
       .device = m_device,
+      .pVulkanFunctions = vulkanFunc,
       .instance = m_instance,
   };
 
@@ -1101,62 +1144,76 @@ void Engine::init_sync() {
 }
 
 void Engine::init_descriptors() {
-  std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> ratios{
-      {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1},
-      {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
-      {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2},
-  };
-
-  m_globalDescAllocator.init(m_device, 10, ratios);
   {
-    DescriptorLayoutBuilder builder;
-    builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-
     m_drawImageDescriptorSetLayout =
-        builder.build(m_device, VK_SHADER_STAGE_COMPUTE_BIT);
+        DescriptorSetLayoutBuilder()
+            .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
+                         VK_SHADER_STAGE_COMPUTE_BIT)
+            .build(m_device);
   }
   {
-    DescriptorLayoutBuilder builder;
-    builder.add_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-    m_gpuSceneDataDescriptorSetLayout = builder.build(
-        m_device, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
-  }
-  {
-    DescriptorLayoutBuilder builder;
-    builder.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-    m_texturedSetLayout = builder.build(
-        m_device, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+    m_gpuSceneDataDescriptorSetLayout =
+        DescriptorSetLayoutBuilder()
+            .add_binding(
+                0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
+                VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT)
+            .build(m_device,
+                   VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
   }
 
-  const std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> frameSizes = {
-      {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 3},
-      {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3},
-      {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 3},
-      {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4},
-  };
+  VkDescriptorPoolSize poolSize{.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                .descriptorCount = kNumberOfFrames};
+  VkDescriptorPoolCreateInfo poolCreateInfo{
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+      .pNext = nullptr,
+      .maxSets = kNumberOfFrames,
+      .poolSizeCount = 1,
+      .pPoolSizes = &poolSize};
+  vkCreateDescriptorPool(m_device, &poolCreateInfo, nullptr,
+                         &m_drawImageDescPool) >>
+      chk;
+  const VkDescriptorSetAllocateInfo allocateInfo{
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+      .descriptorPool = m_drawImageDescPool,
+      .descriptorSetCount = 1,
+      .pSetLayouts = &m_drawImageDescriptorSetLayout};
   for (auto& frame : m_frameData) {
-    auto& drawImageDescriptors = frame.drawImageDescriptorSet;
-    const auto& drawImage = frame.drawImage;
-    drawImageDescriptors = m_globalDescAllocator.allocate(
-        m_device, m_drawImageDescriptorSetLayout);
+    vkAllocateDescriptorSets(m_device, &allocateInfo,
+                             &frame.drawImageDescriptorSet) >>
+        chk;
 
-    DescriptorWriter writer;
-    writer.write_image(0, drawImage.imageView, nullptr, VK_IMAGE_LAYOUT_GENERAL,
-                       VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-    writer.update_set(m_device, drawImageDescriptors);
+    const VkDescriptorImageInfo imageInfo{
+        .imageView = frame.drawImage.imageView,
+        .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
+    const VkWriteDescriptorSet descWrite{
+        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .dstSet = frame.drawImageDescriptorSet,
+        .dstBinding = 0,
+        .descriptorCount = 1,
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+        .pImageInfo = &imageInfo,
+    };
+    vkUpdateDescriptorSets(m_device, 1, &descWrite, 0, nullptr);
 
-    frame.descriptorAllocator.init(m_device, 1000, frameSizes);
-    m_mainDeletionQueue.push_function(
-        [&] { frame.descriptorAllocator.destroy_pools(m_device); });
+    frame.sceneDataDescriptorBuffer =
+        DescriptorBuffer(m_device, m_gpuSceneDataDescriptorSetLayout,
+                         DescriptorBufferProperties::query(m_chosenGpu));
+    frame.sceneDataDescriptorBuffer.create_buffer(
+        [&](const std::size_t allocSize, const VkBufferUsageFlags bufferUsage) {
+          return create_buffer(allocSize, bufferUsage,
+                               VMA_MEMORY_USAGE_CPU_ONLY);
+        });
   }
 
   m_mainDeletionQueue.push_function([&] mutable {
-    m_globalDescAllocator.destroy_pools(m_device);
     vkDestroyDescriptorSetLayout(m_device, m_drawImageDescriptorSetLayout,
                                  nullptr);
     vkDestroyDescriptorSetLayout(m_device, m_gpuSceneDataDescriptorSetLayout,
                                  nullptr);
-    vkDestroyDescriptorSetLayout(m_device, m_texturedSetLayout, nullptr);
+    vkDestroyDescriptorPool(m_device, m_drawImageDescPool, nullptr);
+    for (auto& frame : m_frameData) {
+      destroy_buffer(frame.sceneDataDescriptorBuffer.get_buffer());
+    }
   });
 }
 
@@ -1276,8 +1333,6 @@ void Engine::init_imgui() {
   VkDescriptorPool imguiPool;
   vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &imguiPool) >> chk;
 
-  // 2: initialize imgui library
-
   // this initializes the core structures of imgui
   ImGui::CreateContext();
 
@@ -1293,6 +1348,7 @@ void Engine::init_imgui() {
   initInfo.MinImageCount = m_swapchainImages.size();
   initInfo.ImageCount = m_swapchainImages.size();
   initInfo.UseDynamicRendering = true;
+  initInfo.ApiVersion = VK_API_VERSION_1_3;
 
   // dynamic rendering parameters for imgui to use
   initInfo.PipelineRenderingCreateInfo = {
@@ -1302,6 +1358,15 @@ void Engine::init_imgui() {
       &m_swapchainImageFormat;
 
   initInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+
+  const bool res = ImGui_ImplVulkan_LoadFunctions(
+      VK_API_VERSION_1_3,
+      [](const char* function_name, void* vulkan_instance) {
+        return vkGetInstanceProcAddr(
+            *(reinterpret_cast<VkInstance*>(vulkan_instance)), function_name);
+      },
+      &m_instance);
+  assert(res);
 
   ImGui_ImplVulkan_Init(&initInfo);
 
@@ -1319,6 +1384,23 @@ void Engine::init_mesh_data() {
   auto structureFile = load_gltf(*this, structurePath).value();
 
   m_loadedScenes[structurePath] = std::move(structureFile);
+
+  constexpr auto kMaxInstances = 100'000;
+  for (auto& frame : m_frameData) {
+    frame.instanceBuffer =
+        create_buffer(sizeof(Instance) * kMaxInstances,
+                      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
+                          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                      VMA_MEMORY_USAGE_CPU_TO_GPU);
+    const VkBufferDeviceAddressInfo addrInfo{
+        .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+        .buffer = frame.instanceBuffer.buffer};
+    frame.instanceBufferAddr = vkGetBufferDeviceAddress(m_device, &addrInfo);
+  }
+
+  m_mainDeletionQueue.push_function([&] {
+    for (auto& frame : m_frameData) destroy_buffer(frame.instanceBuffer);
+  });
 }
 
 void Engine::init_default_data() {
@@ -1362,51 +1444,28 @@ void Engine::init_default_data() {
   vkCreateSampler(m_device, &samplerCreateInfo, nullptr,
                   &m_defaultSamplerNearest);
 
-  m_gpuSceneDataBuffer =
-      create_buffer(sizeof(GpuSceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                    VMA_MEMORY_USAGE_CPU_TO_GPU);
-
-  GLTFMetallic_Roughness::MaterialResources materialResources;
-  materialResources.colorImage = m_whiteImage;
-  materialResources.colorSampler = m_defaultSamplerLinear;
-  materialResources.metalRoughnessImage = m_whiteImage;
-  materialResources.metalRoughnessSampler = m_defaultSamplerLinear;
-
-  AllocatedBuffer matConstants = create_buffer(
-      sizeof(GLTFMetallic_Roughness::MaterialConstants),
-      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-      VMA_MEMORY_USAGE_GPU_ONLY);
-
-  const AllocatedBuffer stagingBuffer = create_buffer(
-      sizeof(GLTFMetallic_Roughness::MaterialConstants),
-      VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
-
-  auto* data = static_cast<GLTFMetallic_Roughness::MaterialConstants*>(
-      stagingBuffer.allocation->GetMappedData());
-  data->colorFactors = glm::vec4(1.0f);
-  data->metalRoughFactors = glm::vec4(1.0f, 0.5f, 0.0f, 0.0f);
-  immediate_submit([&](const VkCommandBuffer cmd) {
-    const VkBufferCopy region{
-        .srcOffset = 0,
-        .dstOffset = 0,
-        .size = sizeof(GLTFMetallic_Roughness::MaterialConstants),
+  for (auto& frame : m_frameData) {
+    frame.sceneDataBuffer =
+        create_buffer(sizeof(GpuSceneData),
+                      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
+                          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                      VMA_MEMORY_USAGE_CPU_TO_GPU);
+    const VkBufferDeviceAddressInfo addrInfo{
+        .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+        .buffer = frame.sceneDataBuffer.buffer,
     };
+    frame.sceneDataBufferAddr = vkGetBufferDeviceAddress(m_device, &addrInfo);
 
-    vkCmdCopyBuffer(cmd, stagingBuffer.buffer, matConstants.buffer, 1, &region);
-  });
+    frame.sceneDataDescriptorBuffer.write_uniform_buffer(
+        0, 0, frame.sceneDataBufferAddr, sizeof(GpuSceneData));
+  }
 
-  materialResources.dataBuffer = matConstants.buffer;
-  materialResources.dataBufferOffset = 0;
+  m_metalRoughness.write_sampler(m_defaultSamplerLinear);
+  m_metalRoughness.write_texture(m_whiteImage.imageView);
+  m_mainDeletionQueue.push_function([&] {
+    m_metalRoughness.clear_resources(*this);
 
-  m_defaultData = m_metalRoughness.write_material(
-      m_device, MaterialPass::Opaque, materialResources, m_globalDescAllocator);
-  destroy_buffer(stagingBuffer);
-  m_mainDeletionQueue.push_function([&, matConstants] {
-    m_defaultData = {};
-    m_metalRoughness.clear_resources(m_device);
-
-    destroy_buffer(matConstants);
-    destroy_buffer(m_gpuSceneDataBuffer);
+    for (auto& frame : m_frameData) destroy_buffer(frame.sceneDataBuffer);
 
     destroy_image(m_whiteImage);
     destroy_image(m_blackImage);
@@ -1442,7 +1501,7 @@ void Engine::create_swapchain(const std::uint32_t width,
           //.use_default_format_selection()
           .set_desired_format({.format = m_swapchainImageFormat,
                                .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
-          .set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
+          .set_desired_present_mode(VK_PRESENT_MODE_IMMEDIATE_KHR)
           .set_desired_extent(width, height)
           .add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                                  VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
@@ -1488,8 +1547,8 @@ void Engine::WindowCleaner::operator()(SDL_Window* window) const {
 void Engine::update_scene() {
   const auto start = cn::steady_clock::now();
   m_camera.update();
-  m_mainDrawContext.opaqueSurfaces.clear();
-  m_mainDrawContext.transparentSurfaces.clear();
+  m_mainDrawContext.opaqueRenderObjects.clear();
+  m_mainDrawContext.transparentRenderObjects.clear();
 
   for (const auto& mesh : m_loadedScenes | std::views::values) {
     mesh->draw(glm::mat4(1.0f), m_mainDrawContext);

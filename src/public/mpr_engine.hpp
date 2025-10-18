@@ -12,7 +12,6 @@ struct GLTFMaterial {
 };
 class Engine;
 
-
 struct GeoSurface {
   std::uint32_t startIndex;
   std::uint32_t count;
@@ -43,53 +42,71 @@ struct FrameData {
   DeletionQueue frameDeletionQueue;
   AllocatedImage drawImage;
   AllocatedImage depthImage;
-  DescriptorAllocatorGrowable descriptorAllocator;
+  AllocatedBuffer sceneDataBuffer;
+  VkDeviceAddress sceneDataBufferAddr;
+  DescriptorBuffer sceneDataDescriptorBuffer;
   VkDescriptorSet drawImageDescriptorSet;
+  AllocatedBuffer instanceBuffer;
+  VkDeviceAddress instanceBufferAddr;
 };
 
-struct GLTFMetallic_Roughness {
+struct GltfMetallicRoughness {
   MaterialPipeline opaquePipeline;
   MaterialPipeline transparentPipeline;
 
   VkDescriptorSetLayout materialLayout;
+  DescriptorBuffer descriptors;
+  std::uint32_t currentMaterialOffset = 0;
+  std::uint32_t currentSamplerOffset = 0;
+  std::uint32_t currentTextureOffset = 0;
 
   struct alignas(256) MaterialConstants {
     glm::vec4 colorFactors;
     glm::vec4 metalRoughFactors;
   };
 
-  struct MaterialResources {
-    AllocatedImage colorImage;
-    VkSampler colorSampler;
-    AllocatedImage metalRoughnessImage;
-    VkSampler metalRoughnessSampler;
-    VkBuffer dataBuffer;
-    std::uint32_t dataBufferOffset;
-  };
-
-  DescriptorWriter writer;
-
   void build_pipelines(Engine& engine);
-  void clear_resources(VkDevice device);
+  void clear_resources(Engine& engine);
 
-  MaterialInstance write_material(VkDevice device, MaterialPass matPass,
-                                  const MaterialResources& res,
-                                  DescriptorAllocatorGrowable& allocator);
+  std::uint32_t write_uniform_buffer(VkDeviceAddress uniformBuffer);
+  std::uint32_t write_sampler(VkSampler sampler);
+  std::uint32_t write_texture(VkImageView imageView);
+  MaterialPipeline* select_pipeline(const MaterialPass pass);
+
 };
 struct RenderObject {
   std::uint32_t indexCount;
   std::uint32_t firstIndex;
   VkBuffer indexBuffer;
-
-  MaterialInstance* material;
-
-  glm::mat4 transform;
   VkDeviceAddress vertexBufferAddress;
+
+  [[nodiscard]]
+  bool operator==(const RenderObject& other) const noexcept {
+    return indexCount == other.indexCount && firstIndex == other.firstIndex &&
+           indexBuffer == other.indexBuffer &&
+           vertexBufferAddress == other.vertexBufferAddress;
+  }
 };
 
 struct DrawContext {
-  std::vector<RenderObject> opaqueSurfaces;
-  std::vector<RenderObject> transparentSurfaces;
+  struct RenderObjectHash {
+    std::size_t operator()(const RenderObject& ro) const {
+      const auto h1 = std::hash<VkBuffer>{}(ro.indexBuffer);
+      const auto h2 = std::hash<VkDeviceAddress>{}(ro.vertexBufferAddress);
+      const auto h3 = std::hash<std::uint32_t>{}(ro.indexCount);
+      const auto h4 = std::hash<std::uint32_t>{}(ro.firstIndex);
+
+      std::size_t seed = h1;
+      seed ^= h2 + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+      seed ^= h3 + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+      seed ^= h4 + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+      return seed;
+    }
+  };
+  std::unordered_map<RenderObject, std::vector<Instance>, RenderObjectHash>
+      opaqueRenderObjects;
+  std::unordered_map<RenderObject, std::vector<Instance>, RenderObjectHash>
+      transparentRenderObjects;
 };
 
 struct Node : public IRenderable {
@@ -134,9 +151,8 @@ struct LoadedGLTF : public IRenderable {
 
   std::vector<VkSampler> samplers;
 
-  DescriptorAllocatorGrowable descriptorAllocator;
-
   AllocatedBuffer materialDataBuffer;
+  VkDeviceAddress materialDataBufferAddr;
 
   Engine* creator;
 
@@ -164,8 +180,8 @@ class Engine final {
 
   static Engine& get();
 
-  GpuMeshBuffers create_mesh_buffers(std::span<std::uint32_t> indices,
-                                     std::span<Vertex> vertices);
+  GpuMeshBuffers create_mesh_buffers(const std::span<std::uint32_t> indices,
+                                     const std::span<Vertex> vertices);
   void run();
 
   void immediate_submit(const std::function<void(VkCommandBuffer)>& function);
@@ -223,7 +239,6 @@ class Engine final {
   VmaAllocator m_allocator;
   VkExtent2D m_drawExtent;
   VkDescriptorSetLayout m_drawImageDescriptorSetLayout;
-  GpuSceneData m_sceneData;
   VkDescriptorSetLayout m_gpuSceneDataDescriptorSetLayout;
 
   VkPipelineLayout m_backgroundPipelineLayout;
@@ -238,7 +253,6 @@ class Engine final {
   int m_currentComputeEffect{0};
 
   VkPipeline m_meshPipeline;
-  VkPipelineLayout m_meshPipelineLayout;
 
   GpuPushConstants m_pushConstants;
 
@@ -252,12 +266,8 @@ class Engine final {
 
   VkSampler m_defaultSamplerLinear;
   VkSampler m_defaultSamplerNearest;
-  VkDescriptorSetLayout m_texturedSetLayout;
 
-  MaterialInstance m_defaultData;
-  GLTFMetallic_Roughness m_metalRoughness;
-
-  DescriptorAllocatorGrowable m_globalDescAllocator;
+  GltfMetallicRoughness m_metalRoughness;
 
   DrawContext m_mainDrawContext;
   std::unordered_map<std::string, std::shared_ptr<LoadedGLTF>> m_loadedScenes;
@@ -265,7 +275,11 @@ class Engine final {
   Camera m_camera;
 
   EngineStats m_stats{};
-  AllocatedBuffer m_gpuSceneDataBuffer;
+
+  GpuSceneData m_sceneData;
+
+  VkDescriptorPool m_drawImageDescPool;
+  
 
  private:
   void init_window();

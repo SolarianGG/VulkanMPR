@@ -5,8 +5,8 @@
     {
       "name": "imgui",
       "features": [
-        "vulkan-binding",
-        "sdl3-binding"
+        "sdl3-binding",
+        "vulkan-binding"
       ]
     },
     {
@@ -17,6 +17,7 @@
     },
     "stb",
     "vk-bootstrap",
-    "vulkan-memory-allocator"
+    "vulkan-memory-allocator",
+    "volk"
   ]
 }

@@ -15,6 +15,7 @@ set(SRC_PATH "${PROJECT_SOURCE_DIR}/src")
 set(INCLUDE_PATH "${SRC_PATH}/public/")
 set(COMP_PATH "${SRC_PATH}/private/")
 
+add_compile_definitions(IMGUI_IMPL_VULKAN_NO_PROTOTYPES)
 find_package(Vulkan REQUIRED)
 find_package(VulkanMemoryAllocator CONFIG REQUIRED)
 find_package(vk-bootstrap CONFIG REQUIRED)

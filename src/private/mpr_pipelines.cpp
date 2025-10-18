@@ -64,7 +64,7 @@ void PipelineBuilder::clear() {
   shaderStages.clear();
 }
 
-VkPipeline PipelineBuilder::build_pipeline(const VkDevice device) {
+VkPipeline PipelineBuilder::build_pipeline(const VkDevice device, const VkPipelineCreateFlags pipelineCreateFlags) {
   constexpr VkPipelineViewportStateCreateInfo viewportState{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
       .pNext = nullptr,
@@ -96,6 +96,7 @@ VkPipeline PipelineBuilder::build_pipeline(const VkDevice device) {
   const VkGraphicsPipelineCreateInfo createInfo{
       .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
       .pNext = &renderInfo,
+      .flags = pipelineCreateFlags,
       .stageCount = static_cast<std::uint32_t>(shaderStages.size()),
       .pStages = shaderStages.data(),
       .pVertexInputState = &vertexInputInfo,

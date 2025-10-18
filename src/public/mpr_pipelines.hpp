@@ -22,7 +22,7 @@ struct PipelineBuilder {
 
   void clear();
 
-  VkPipeline build_pipeline(VkDevice device);
+  VkPipeline build_pipeline(VkDevice device, VkPipelineCreateFlags pipelineCreateFlags = 0);
 
   void add_shader(const VkShaderModule shaderModule,
                   const VkShaderStageFlagBits shaderType,

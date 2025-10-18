@@ -30,7 +30,6 @@ VkFilter extract_filter(const fastgltf::Filter filter) {
     case fastgltf::Filter::Linear:
     case fastgltf::Filter::LinearMipMapNearest:
     case fastgltf::Filter::LinearMipMapLinear:
-    default:
       return VK_FILTER_LINEAR;
   }
 }
@@ -93,8 +92,7 @@ std::optional<mp::AllocatedImage> load_image(mp::Engine& engine,
 
     constexpr VkFormat imageFormat = VK_FORMAT_R8G8B8A8_UNORM;
     constexpr VkImageUsageFlags imageUsage = VK_IMAGE_USAGE_SAMPLED_BIT;
-    newImage =
-        engine.create_image(data, extent, imageFormat, imageUsage, true);
+    newImage = engine.create_image(data, extent, imageFormat, imageUsage, true);
   } else {
     return std::nullopt;
   }
@@ -152,13 +150,6 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(
   scene->creator = &engine;
   LoadedGLTF& file = *scene;
 
-  const std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> sizes{
-      {.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .ratio = 1},
-      {.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .ratio = 2},
-  };
-
-  file.descriptorAllocator.init(engine.m_device, asset.materials.size(), sizes);
-
   for (auto& sampler : asset.samplers) {
     const VkSamplerCreateInfo samplerCreateInfo{
         .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
@@ -194,19 +185,29 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(
   }
 
   file.materialDataBuffer = engine.create_buffer(
-      sizeof(GLTFMetallic_Roughness::MaterialConstants) *
-          asset.materials.size(),
-      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+      sizeof(GltfMetallicRoughness::MaterialConstants) * asset.materials.size(),
+      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
+          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+      VMA_MEMORY_USAGE_CPU_TO_GPU);
+  const VkBufferDeviceAddressInfo addrInfo{
+      .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+      .pNext = nullptr,
+      .buffer = file.materialDataBuffer.buffer,
+  };
+  file.materialDataBufferAddr =
+      vkGetBufferDeviceAddress(engine.m_device, &addrInfo);
   int dataIndex = 0;
   auto* sceneMaterialsConstants =
-      static_cast<GLTFMetallic_Roughness::MaterialConstants*>(
+      static_cast<GltfMetallicRoughness::MaterialConstants*>(
           file.materialDataBuffer.allocationInfo.pMappedData);
 
+  std::unordered_map<std::size_t, std::uint32_t> texturesCache;
+  std::unordered_map<std::size_t, std::uint32_t> samplersCache;
   for (auto& material : asset.materials) {
     auto newMat = std::make_shared<GLTFMaterial>();
     file.materials[material.name.c_str()] = newMat;
 
-    GLTFMetallic_Roughness::MaterialConstants materialConstants;
+    GltfMetallicRoughness::MaterialConstants materialConstants;
     materialConstants.colorFactors = {material.pbrData.baseColorFactor[0],
                                       material.pbrData.baseColorFactor[1],
                                       material.pbrData.baseColorFactor[2],
@@ -220,25 +221,46 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(
     if (material.alphaMode == fastgltf::AlphaMode::Blend) {
       passType = MaterialPass::Transparent;
     }
+    newMat->data.passType = passType;
+    newMat->data.pipeline = engine.m_metalRoughness.select_pipeline(passType);
+    newMat->data.indices = {
+        .materialID = engine.m_metalRoughness.write_uniform_buffer(
+            file.materialDataBufferAddr +
+            dataIndex * sizeof(GltfMetallicRoughness::MaterialConstants)),
+        .colorTextureID = 0,
+        .colorSamplerID = 0,
+        .metalRoughnessTextureID = 0,
+        .metalRoughnessSamplerID = 0};
 
-    GLTFMetallic_Roughness::MaterialResources materialResources{
-        .colorImage = engine.m_whiteImage,
-        .colorSampler = engine.m_defaultSamplerLinear,
-        .metalRoughnessImage = engine.m_whiteImage,
-        .metalRoughnessSampler = engine.m_defaultSamplerLinear,
-        .dataBuffer = file.materialDataBuffer.buffer,
-        .dataBufferOffset = static_cast<std::uint32_t>(
-            dataIndex * sizeof(GLTFMetallic_Roughness::MaterialConstants)),
+    auto getCached =
+        [&](const std::size_t resourceIndex,
+            std::unordered_map<std::size_t, std::uint32_t>& cache,
+            const std::function<std::uint32_t(std::size_t)>& getIndexFunc) {
+          if (const auto it = texturesCache.find(resourceIndex);
+              it != texturesCache.end()) {
+            return it->second;
+          }
+          const auto index = getIndexFunc(resourceIndex);
+          cache.try_emplace(resourceIndex, index);
+          return index;
+        };
+    auto getTextureIndex = [&engine, &images](const std::size_t index) {
+      return engine.m_metalRoughness.write_texture(images[index].imageView);
     };
 
+    auto getSamplerIndex = [&engine, &file](const std::size_t index) {
+      return engine.m_metalRoughness.write_sampler(file.samplers[index]);
+    };
     if (material.pbrData.baseColorTexture.has_value()) {
       const auto textureIndex =
           material.pbrData.baseColorTexture.value().textureIndex;
       const auto imgIndex = asset.textures[textureIndex].imageIndex.value();
       const auto samplerIndex =
           asset.textures[textureIndex].samplerIndex.value();
-      materialResources.colorImage = images[imgIndex];
-      materialResources.colorSampler = file.samplers[samplerIndex];
+      newMat->data.indices.colorTextureID =
+          getCached(imgIndex, texturesCache, getTextureIndex);
+      newMat->data.indices.colorSamplerID =
+          getCached(samplerIndex, samplersCache, getSamplerIndex);
     }
     if (material.pbrData.metallicRoughnessTexture.has_value()) {
       const auto textureIndex =
@@ -246,11 +268,11 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(
       const auto imgIndex = asset.textures[textureIndex].imageIndex.value();
       const auto samplerIndex =
           asset.textures[textureIndex].samplerIndex.value();
-      materialResources.metalRoughnessImage = images[imgIndex];
-      materialResources.metalRoughnessSampler = file.samplers[samplerIndex];
+      newMat->data.indices.metalRoughnessTextureID =
+          getCached(imgIndex, texturesCache, getTextureIndex);
+      newMat->data.indices.metalRoughnessSamplerID =
+          getCached(samplerIndex, samplersCache, getSamplerIndex);
     }
-    newMat->data = engine.m_metalRoughness.write_material(
-        engine.m_device, passType, materialResources, file.descriptorAllocator);
 
     materials.push_back(std::move(newMat));
     dataIndex++;
