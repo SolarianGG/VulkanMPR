@@ -6,3 +6,6 @@ out/
 
 build/
 
+CMakePresets.json
+
+CMakeUserPresets.json

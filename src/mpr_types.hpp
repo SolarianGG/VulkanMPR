@@ -14,77 +14,12 @@
 #include <functional>
 #include <cinttypes>
 
-#include <vulkan/vulkan.h>
+#include <volk.h>
 #include <vk_mem_alloc.h>
 
 #include <glm/glm.hpp>
 
 // clang-format on
-
-inline PFN_vkCmdBindDescriptorBuffersEXT pfnVkCmdBindDescriptorBuffersEXT = nullptr;
-inline PFN_vkGetDescriptorSetLayoutSizeEXT pfnVkGetDescriptorSetLayoutSizeEXT =
-    nullptr;
-inline PFN_vkGetDescriptorSetLayoutBindingOffsetEXT
-    pfnVkGetDescriptorSetLayoutBindingOffsetEXT = nullptr;
-inline PFN_vkGetDescriptorEXT pfnVkGetDescriptorEXT = nullptr;
-inline PFN_vkCmdSetDescriptorBufferOffsetsEXT pfnVkCmdSetDescriptorBufferOffsetsEXT =
-    nullptr;
-
-inline void LoadDescriptorBufferExtensions(VkDevice device) {
-  pfnVkCmdBindDescriptorBuffersEXT =
-      reinterpret_cast<PFN_vkCmdBindDescriptorBuffersEXT>(
-          vkGetDeviceProcAddr(device, "vkCmdBindDescriptorBuffersEXT"));
-
-  pfnVkGetDescriptorSetLayoutSizeEXT =
-      reinterpret_cast<PFN_vkGetDescriptorSetLayoutSizeEXT>(
-          vkGetDeviceProcAddr(device, "vkGetDescriptorSetLayoutSizeEXT"));
-
-  pfnVkGetDescriptorSetLayoutBindingOffsetEXT =
-      reinterpret_cast<PFN_vkGetDescriptorSetLayoutBindingOffsetEXT>(
-          vkGetDeviceProcAddr(device,
-                              "vkGetDescriptorSetLayoutBindingOffsetEXT"));
-
-  pfnVkGetDescriptorEXT = reinterpret_cast<PFN_vkGetDescriptorEXT>(
-      vkGetDeviceProcAddr(device, "vkGetDescriptorEXT"));
-
-  pfnVkCmdSetDescriptorBufferOffsetsEXT =
-      reinterpret_cast<PFN_vkCmdSetDescriptorBufferOffsetsEXT>(
-          vkGetDeviceProcAddr(device, "vkCmdSetDescriptorBufferOffsetsEXT"));
-}
-
-inline void vkCmdBindDescriptorBuffersEXT(
-    VkCommandBuffer commandBuffer, uint32_t bufferCount,
-    const VkDescriptorBufferBindingInfoEXT* pBindingInfos) {
-  pfnVkCmdBindDescriptorBuffersEXT(commandBuffer, bufferCount, pBindingInfos);
-}
-
-inline void vkGetDescriptorSetLayoutSizeEXT(VkDevice device,
-                                            VkDescriptorSetLayout layout,
-                                            VkDeviceSize* pLayoutSizeInBytes) {
-  pfnVkGetDescriptorSetLayoutSizeEXT(device, layout, pLayoutSizeInBytes);
-}
-
-inline void vkGetDescriptorSetLayoutBindingOffsetEXT(
-    VkDevice device, VkDescriptorSetLayout layout, uint32_t binding,
-    VkDeviceSize* pOffset) {
-  pfnVkGetDescriptorSetLayoutBindingOffsetEXT(device, layout, binding, pOffset);
-}
-
-inline void vkGetDescriptorEXT(VkDevice device,
-                               const VkDescriptorGetInfoEXT* pDescriptorInfo,
-                               size_t dataSize, void* pDescriptor) {
-  pfnVkGetDescriptorEXT(device, pDescriptorInfo, dataSize, pDescriptor);
-}
-
-inline void vkCmdSetDescriptorBufferOffsetsEXT(
-    VkCommandBuffer commandBuffer, VkPipelineBindPoint pipelineBindPoint,
-    VkPipelineLayout layout, uint32_t firstSet, uint32_t setCount,
-    const uint32_t* pBufferIndices, const VkDeviceSize* pOffsets) {
-  pfnVkCmdSetDescriptorBufferOffsetsEXT(commandBuffer, pipelineBindPoint,
-                                        layout, firstSet, setCount,
-                                        pBufferIndices, pOffsets);
-}
-
 namespace mp {
 
 struct DeletionQueue {

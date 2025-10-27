@@ -254,7 +254,6 @@ Engine::Engine() {
   gLoadedEngine = this;
   init_window();
   init_vulkan();
-  LoadDescriptorBufferExtensions(m_device);
   init_swapchain();
   init_commands();
   init_sync();
@@ -650,7 +649,7 @@ GpuMeshBuffers Engine::create_mesh_buffers(
       VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
       VMA_MEMORY_USAGE_GPU_ONLY);
 
-  AllocatedBuffer stagingBuffer = create_buffer(
+  const AllocatedBuffer stagingBuffer = create_buffer(
       vertexBufferSize + indexBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
       VMA_MEMORY_USAGE_CPU_ONLY);
 
@@ -788,7 +787,7 @@ void Engine::draw_geometry(VkCommandBuffer cmd, VkImageView colorImageView,
                            const VkExtent2D imageExtent) {
   m_stats.drawCallCount = 0;
   m_stats.triangleCount = 0;
-  auto start = cn::steady_clock::now();
+  const auto start = cn::steady_clock::now();
   auto* sceneData = static_cast<GpuSceneData*>(
       get_current_frame().sceneDataBuffer.allocation->GetMappedData());
   *sceneData = m_sceneData;
@@ -887,8 +886,8 @@ void Engine::draw_geometry(VkCommandBuffer cmd, VkImageView colorImageView,
 
   vkCmdEndRendering(cmd);
 
-  auto end = cn::steady_clock::now();
-  auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
+  const auto end = cn::steady_clock::now();
+  const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
   m_stats.meshDrawTime = elapsed.count() / 1000.0f;
 }
 
@@ -914,6 +913,7 @@ void Engine::init_window() {
 }
 
 void Engine::init_vulkan() {
+  volkInitialize() >> chk;
   const auto [numberOfRequiredExtensions, requiredExtensions] =
       get_required_instance_extensions_for_window();
   const auto result =
@@ -929,6 +929,8 @@ void Engine::init_vulkan() {
   }
   m_instance = result.value().instance;
   m_debugMessenger = result.value().debug_messenger;
+
+  volkLoadInstance(m_instance);
 
   if (!SDL_Vulkan_CreateSurface(m_window.get(), m_instance, nullptr,
                                 &m_surface)) {
@@ -990,6 +992,8 @@ void Engine::init_vulkan() {
   m_queue = vkbDevice.get_queue(vkb::QueueType::graphics).value();
   m_queueFamilyIndex =
       vkbDevice.get_queue_index(vkb::QueueType::graphics).value();
+
+  volkLoadDevice(m_device);
 
   VmaVulkanFunctions vulkanFunc[]{vkGetInstanceProcAddr, vkGetDeviceProcAddr};
   VmaAllocatorCreateInfo allocatorCreateInfo{
@@ -1163,7 +1167,7 @@ void Engine::init_descriptors() {
 
   VkDescriptorPoolSize poolSize{.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
                                 .descriptorCount = kNumberOfFrames};
-  VkDescriptorPoolCreateInfo poolCreateInfo{
+  const VkDescriptorPoolCreateInfo poolCreateInfo{
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
       .pNext = nullptr,
       .maxSets = kNumberOfFrames,
@@ -1348,29 +1352,15 @@ void Engine::init_imgui() {
   initInfo.MinImageCount = m_swapchainImages.size();
   initInfo.ImageCount = m_swapchainImages.size();
   initInfo.UseDynamicRendering = true;
-  initInfo.ApiVersion = VK_API_VERSION_1_3;
-
-  // dynamic rendering parameters for imgui to use
-  initInfo.PipelineRenderingCreateInfo = {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
-  initInfo.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
-  initInfo.PipelineRenderingCreateInfo.pColorAttachmentFormats =
-      &m_swapchainImageFormat;
-
-  initInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
-
-  const bool res = ImGui_ImplVulkan_LoadFunctions(
-      VK_API_VERSION_1_3,
-      [](const char* function_name, void* vulkan_instance) {
-        return vkGetInstanceProcAddr(
-            *(reinterpret_cast<VkInstance*>(vulkan_instance)), function_name);
-      },
-      &m_instance);
-  assert(res);
+  initInfo.ApiVersion = VK_API_VERSION_1_4;
+  initInfo.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+  initInfo.PipelineInfoMain.PipelineRenderingCreateInfo = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+      .colorAttachmentCount = 1,
+      .pColorAttachmentFormats = &m_swapchainImageFormat,
+  };
 
   ImGui_ImplVulkan_Init(&initInfo);
-
-  ImGui_ImplVulkan_CreateFontsTexture();
 
   m_mainDeletionQueue.push_function([&, imguiPool] {
     ImGui_ImplVulkan_Shutdown();

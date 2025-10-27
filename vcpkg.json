@@ -3,13 +3,6 @@
     "fastgltf",
     "glm",
     {
-      "name": "imgui",
-      "features": [
-        "sdl3-binding",
-        "vulkan-binding"
-      ]
-    },
-    {
       "name": "sdl3",
       "features": [
         "vulkan"
@@ -17,7 +10,7 @@
     },
     "stb",
     "vk-bootstrap",
-    "vulkan-memory-allocator",
-    "volk"
+    "volk",
+    "vulkan-memory-allocator"
   ]
 }
