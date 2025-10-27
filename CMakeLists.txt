@@ -1,4 +1,4 @@
-﻿cmake_minimum_required (VERSION 3.29)
+﻿cmake_minimum_required (VERSION 3.28)
 
 if (POLICY CMP0141)
   cmake_policy(SET CMP0141 NEW)
@@ -59,7 +59,13 @@ add_executable(VulkanMPR "${SRC_PATH}/VulkanMPR.cpp"
                          "${COMP_PATH}/mpr_loader.cpp" 
                           "${COMP_PATH}/mpr_camera.cpp")
 
-target_include_directories(VulkanMPR PRIVATE ${INCLUDE_PATH} ${SRC_PATH} ${IMGUI_PATH} "${IMGUI_PATH}/backends")
+target_include_directories(VulkanMPR PRIVATE 
+  "${VULKAN_SDK}/Include"
+  ${INCLUDE_PATH} 
+  ${SRC_PATH} 
+  ${IMGUI_PATH} 
+  "${IMGUI_PATH}/backends")
+
 target_link_libraries(VulkanMPR PRIVATE 
   Vulkan::Vulkan 
   GPUOpen::VulkanMemoryAllocator

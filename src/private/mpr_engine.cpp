@@ -1370,7 +1370,7 @@ void Engine::init_imgui() {
 }
 
 void Engine::init_mesh_data() {
-  const std::string structurePath = "../../assets/structure.glb";
+  const std::string structurePath = "../../assets/Sponza/glTF/Sponza.gltf";
   auto structureFile = load_gltf(*this, structurePath).value();
 
   m_loadedScenes[structurePath] = std::move(structureFile);
