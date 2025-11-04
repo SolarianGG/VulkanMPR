@@ -725,6 +725,7 @@ void Engine::run() {
     // ImGui UI
     if (ImGui::Begin("Other")) {
       ImGui::DragFloat("Render scale", &m_renderScale, 0.01f, 0.01f, 1.0f);
+      ImGui::DragFloat("Camera speed", &m_camera.cameraSpeed, 0.01f, 0.01f, 100.0f);
     }
     ImGui::End();
 
@@ -1370,7 +1371,7 @@ void Engine::init_imgui() {
 }
 
 void Engine::init_mesh_data() {
-  const std::string structurePath = "../../assets/Sponza/glTF/Sponza.gltf";
+  const std::string structurePath = "../../assets/structure.glb";
   auto structureFile = load_gltf(*this, structurePath).value();
 
   m_loadedScenes[structurePath] = std::move(structureFile);
@@ -1536,7 +1537,7 @@ void Engine::WindowCleaner::operator()(SDL_Window* window) const {
 
 void Engine::update_scene() {
   const auto start = cn::steady_clock::now();
-  m_camera.update();
+  m_camera.update(m_stats.frameTime);
   m_mainDrawContext.opaqueRenderObjects.clear();
   m_mainDrawContext.transparentRenderObjects.clear();
 

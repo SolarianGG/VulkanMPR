@@ -7,9 +7,9 @@
 #include <SDL3/SDL.h>
 
 namespace mp {
-void Camera::update() {
+void Camera::update(const float deltaTime) {
   const glm::mat4 cameraRotation = get_rotation_matrix();
-  position += glm::vec3(cameraRotation * glm::vec4(velocity * 0.5f, 0.f));
+  position += glm::vec3(cameraRotation * glm::vec4(velocity * 0.5f * deltaTime * cameraSpeed, 0.f));
 }
 
 void Camera::process_sdl_event(SDL_Event& e) {
