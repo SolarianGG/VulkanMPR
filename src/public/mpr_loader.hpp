@@ -8,8 +8,7 @@
 #include "mpr_engine.hpp"
 
 namespace mp {
-
-std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(
+bool load_gltf(
     mp::Engine& engine, const std::filesystem::path& filePath);
 
 }

@@ -205,33 +205,56 @@ void MeshNode::draw(const glm::mat4& topMatrix, DrawContext& ctx) {
   Node::draw(topMatrix, ctx);
 }
 
-void LoadedGLTF::draw(const glm::mat4& topMatrix, DrawContext& ctx) {
+void Scene::draw(const glm::mat4& topMatrix, DrawContext& ctx) {
   for (const auto& node : topNodes) {
     node->draw(topMatrix, ctx);
   }
 }
 
-void LoadedGLTF::clear_all() {
-  creator->destroy_buffer(materialDataBuffer);
-  for (const auto& mesh : vi::values(meshes)) {
-    creator->destroy_buffer(mesh->meshBuffers.indexBuffer);
-    creator->destroy_buffer(mesh->meshBuffers.vertexBuffer);
+void Scene::add_mesh(std::shared_ptr<MeshAsset> mesh) {
+  static std::atomic_uint64_t counter = 0;
+  meshes[counter++] = std::move(mesh);
+}
+void Scene::add_image(std::string imageName, const AllocatedImage& image) {
+  static std::atomic_uint64_t counter = 0;
+  images[counter++] = {std::move(imageName), image};
+}
+
+void Scene::add_material(std::string materialName,
+                         std::shared_ptr<GLTFMaterial> material) {
+  static std::atomic_uint64_t counter = 0;
+  materials[counter++] = {std::move(materialName), std::move(material)};
+}
+
+std::uint64_t Scene::add_node(std::shared_ptr<Node> node) {
+  static std::atomic_uint64_t counter = 0;
+  nodes[counter] = std::move(node);
+  return counter++;
+}
+
+void Scene::clear_all(Engine& engine) {
+  for (auto& buffer : materialBuffers | std::views::keys) {
+    engine.destroy_buffer(buffer);
   }
-  for (const auto& image : vi::values(images)) {
-    if (image.image != creator->m_errorImage.image) {
-      creator->destroy_image(image);
+  for (const auto& mesh : vi::values(meshes)) {
+    engine.destroy_buffer(mesh->meshBuffers.indexBuffer);
+    engine.destroy_buffer(mesh->meshBuffers.vertexBuffer);
+  }
+  for (const auto& image : vi::values(vi::values(images))) {
+    if (image.image != engine.m_errorImage.image) {
+      engine.destroy_image(image);
     }
   }
 
   for (const auto& sampler : samplers) {
-    vkDestroySampler(creator->m_device, sampler, nullptr);
+    vkDestroySampler(engine.m_device, sampler, nullptr);
   }
 }
 
 Engine::~Engine() {
   if (m_isInitialized) {
     vkDeviceWaitIdle(m_device);
-    m_loadedScenes.clear();
+    m_scene.clear_all(*this);
     for (auto& frame : m_frameData) {
       frame.frameDeletionQueue.flush();
     }
@@ -446,6 +469,46 @@ void Engine::draw() {
     swapchainPresentResult >> chk;
   }
   ++m_frameNumber;
+}
+
+std::uint64_t Engine::render_scene_tree_ui(Scene& scene,
+                                           std::uint64_t nodeIndex,
+                                           std::uint64_t selectedNode) {
+  const bool isLeaf = scene.nodes.at(nodeIndex)->children.empty();
+  ImGuiTreeNodeFlags flags =
+      isLeaf ? ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_Bullet : 0;
+  if (nodeIndex == selectedNode) {
+    flags |= ImGuiTreeNodeFlags_Selected;
+  }
+
+  const ImVec4 color =
+      isLeaf ? ImVec4(0.7f, 0.7f, 0.2f, 1.0f) : ImVec4(0.2f, 0.7f, 0.7f, 1.0f);
+
+  ImGui::PushStyleColor(ImGuiCol_Text, color);
+  const bool isOpened =
+      ImGui::TreeNodeEx(&scene.nodes.at(nodeIndex), flags, "%s",
+                        scene.nodes[nodeIndex]->name.c_str());
+  ImGui::PopStyleColor();
+
+  ImGui::PushID(nodeIndex);
+  if (ImGui::IsItemClicked() && isLeaf) {
+    std::println("Selected Node: {}", nodeIndex);
+    selectedNode = nodeIndex;
+  }
+
+  if (isOpened) {
+    for (auto& child : scene.nodes.at(nodeIndex)->children) {
+      if (auto subNode =
+              render_scene_tree_ui(scene, child->nodeIndex, selectedNode);
+          subNode != UINT64_MAX) {
+        selectedNode = subNode;
+      }
+    }
+    ImGui::TreePop();
+  }
+  ImGui::PopID();
+
+  return selectedNode;
 }
 
 void Engine::draw_background(const VkCommandBuffer cmd) {
@@ -725,7 +788,8 @@ void Engine::run() {
     // ImGui UI
     if (ImGui::Begin("Other")) {
       ImGui::DragFloat("Render scale", &m_renderScale, 0.01f, 0.01f, 1.0f);
-      ImGui::DragFloat("Camera speed", &m_camera.cameraSpeed, 0.01f, 0.01f, 100.0f);
+      ImGui::DragFloat("Camera speed", &m_camera.cameraSpeed, 0.01f, 0.01f,
+                       100.0f);
     }
     ImGui::End();
 
@@ -756,6 +820,30 @@ void Engine::run() {
           "Data 4", reinterpret_cast<float*>(&currentComputeEffect.data.data4));
     }
     ImGui::End();
+
+    // TODO: Fix scene graph problems when nodes from different scenes have same
+    // name
+    {
+      const ImGuiViewport* v = ImGui::GetMainViewport();
+      ImGui::SetNextWindowPos(ImVec2(10, 200));
+      ImGui::SetNextWindowSize(ImVec2(v->WorkSize.x / 6, v->WorkSize.y - 210));
+      ImGui::Begin("Scene graph", nullptr,
+                   ImGuiWindowFlags_NoFocusOnAppearing |
+                       ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize);
+      ImGui::Separator();
+      for (const auto& topNode : m_scene.topNodes) {
+        m_selectedNode =
+            render_scene_tree_ui(m_scene, topNode->nodeIndex, m_selectedNode);
+      }
+      ImGui::Separator();
+      ImGui::End();
+    }
+
+#if 0
+    if (m_selectedNode != UINT64_MAX) {
+      edit_node(m_selectedNode);
+    }
+#endif
     // ImGui UI end
 
     ImGui::Render();
@@ -1371,10 +1459,21 @@ void Engine::init_imgui() {
 }
 
 void Engine::init_mesh_data() {
+#ifndef LOADING_SPONZA
   const std::string structurePath = "../../assets/structure.glb";
-  auto structureFile = load_gltf(*this, structurePath).value();
+  if (!load_gltf(*this, structurePath)) {
+    throw std::runtime_error("Failed to load glTF file: " + structurePath);
+  }
+  const std::string sponzaPath = "../../assets/Sponza/glTF/sponza.gltf";
+  if (!load_gltf(*this, sponzaPath)) {
+    throw std::runtime_error("Failed to load glTF file: " + sponzaPath);
+  }
+#else
+  const std::string sponzaPath = "../../assets/Sponza/glTF/sponza.gltf";
+  auto sponzaFile = load_gltf(*this, sponzaPath).value();
 
-  m_loadedScenes[structurePath] = std::move(structureFile);
+  m_loadedScenes[sponzaPath] = std::move(sponzaFile);
+#endif
 
   constexpr auto kMaxInstances = 100'000;
   for (auto& frame : m_frameData) {
@@ -1541,9 +1640,7 @@ void Engine::update_scene() {
   m_mainDrawContext.opaqueRenderObjects.clear();
   m_mainDrawContext.transparentRenderObjects.clear();
 
-  for (const auto& mesh : m_loadedScenes | std::views::values) {
-    mesh->draw(glm::mat4(1.0f), m_mainDrawContext);
-  }
+  m_scene.draw(glm::mat4(1.0f), m_mainDrawContext);
 
   const glm::mat4 proj = glm::perspective(
       glm::radians(90.0f),

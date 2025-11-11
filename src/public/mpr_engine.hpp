@@ -72,7 +72,6 @@ struct GltfMetallicRoughness {
   std::uint32_t write_sampler(VkSampler sampler);
   std::uint32_t write_texture(VkImageView imageView);
   MaterialPipeline* select_pipeline(const MaterialPass pass);
-
 };
 struct RenderObject {
   std::uint32_t indexCount;
@@ -90,6 +89,7 @@ struct RenderObject {
 
 struct DrawContext {
   struct RenderObjectHash {
+    static constexpr auto kHashCombineMagicValue = 0x9e3779b9;
     std::size_t operator()(const RenderObject& ro) const {
       const auto h1 = std::hash<VkBuffer>{}(ro.indexBuffer);
       const auto h2 = std::hash<VkDeviceAddress>{}(ro.vertexBufferAddress);
@@ -97,9 +97,9 @@ struct DrawContext {
       const auto h4 = std::hash<std::uint32_t>{}(ro.firstIndex);
 
       std::size_t seed = h1;
-      seed ^= h2 + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-      seed ^= h3 + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-      seed ^= h4 + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+      seed ^= h2 + kHashCombineMagicValue + (seed << 6) + (seed >> 2);
+      seed ^= h3 + kHashCombineMagicValue + (seed << 6) + (seed >> 2);
+      seed ^= h4 + kHashCombineMagicValue + (seed << 6) + (seed >> 2);
       return seed;
     }
   };
@@ -111,6 +111,8 @@ struct DrawContext {
 
 struct Node : public IRenderable {
   std::weak_ptr<Node> parent;
+  std::string name;
+  std::uint64_t nodeIndex;
   std::vector<std::shared_ptr<Node>> children;
 
   glm::mat4 localTransform;
@@ -131,7 +133,7 @@ struct Node : public IRenderable {
 };
 struct MeshAsset;
 
-struct MeshNode : public Node {
+struct MeshNode final : public Node {
   std::shared_ptr<MeshAsset> mesh;
 
   MeshNode() = default;
@@ -140,32 +142,36 @@ struct MeshNode : public Node {
   void draw(const glm::mat4& topMatrix, DrawContext& ctx) override;
 };
 
-struct LoadedGLTF : public IRenderable {
-  std::unordered_map<std::string, std::shared_ptr<MeshAsset>> meshes;
-  std::unordered_map<std::string, std::shared_ptr<Node>> nodes;
-  std::unordered_map<std::string, AllocatedImage> images;
-  std::unordered_map<std::string, std::shared_ptr<struct GLTFMaterial>>
+struct Scene final : public IRenderable {
+  std::unordered_map<std::uint64_t, std::shared_ptr<MeshAsset>> meshes;
+  std::unordered_map<std::uint64_t, std::shared_ptr<Node>> nodes;
+  std::unordered_map<std::uint64_t, std::pair<std::string, AllocatedImage>>
+      images;
+  std::unordered_map<
+      std::uint64_t,
+      std::pair<std::string, std::shared_ptr<GLTFMaterial>>>
       materials;
 
   std::vector<std::shared_ptr<Node>> topNodes;
 
   std::vector<VkSampler> samplers;
 
-  AllocatedBuffer materialDataBuffer;
-  VkDeviceAddress materialDataBufferAddr;
+  std::vector<std::pair<AllocatedBuffer, VkDeviceAddress>> materialBuffers;
 
-  Engine* creator;
-
-  LoadedGLTF() = default;
-  LoadedGLTF(const LoadedGLTF& other) = delete;
-  LoadedGLTF(LoadedGLTF&& other) noexcept = delete;
-  LoadedGLTF& operator=(const LoadedGLTF& other) = delete;
-  LoadedGLTF& operator=(LoadedGLTF&& other) noexcept = delete;
-  ~LoadedGLTF() override { clear_all(); }
+  Scene() = default;
+  Scene(const Scene& other) = delete;
+  Scene(Scene&& other) noexcept = delete;
+  Scene& operator=(const Scene& other) = delete;
+  Scene& operator=(Scene&& other) noexcept = delete;
+  ~Scene() override = default;
+  // ---
   void draw(const glm::mat4& topMatrix, DrawContext& ctx) override;
-
- private:
-  void clear_all();
+  void add_mesh(std::shared_ptr<MeshAsset> mesh);
+  void add_image(std::string imageName, const AllocatedImage& image);
+  void add_material(std::string materialName,
+                    std::shared_ptr<GLTFMaterial> material);
+  std::uint64_t add_node(std::shared_ptr<Node> node);
+  void clear_all(Engine& engine);
 };
 
 class Engine final {
@@ -270,7 +276,7 @@ class Engine final {
   GltfMetallicRoughness m_metalRoughness;
 
   DrawContext m_mainDrawContext;
-  std::unordered_map<std::string, std::shared_ptr<LoadedGLTF>> m_loadedScenes;
+  Scene m_scene;
 
   Camera m_camera;
 
@@ -279,7 +285,8 @@ class Engine final {
   GpuSceneData m_sceneData;
 
   VkDescriptorPool m_drawImageDescPool;
-  
+
+  std::uint64_t m_selectedNode = UINT64_MAX;
 
  private:
   void init_window();
@@ -294,6 +301,9 @@ class Engine final {
   void init_mesh_data();
   void init_default_data();
   void draw();
+  static std::uint64_t render_scene_tree_ui(
+      Scene& scene, std::uint64_t nodeIndex,
+      std::uint64_t selectedNode);
   void draw_background(VkCommandBuffer cmd);
   void draw_imgui(VkCommandBuffer cmd, VkImageView targetImageView);
   void draw_geometry(VkCommandBuffer cmd, VkImageView colorImageView,

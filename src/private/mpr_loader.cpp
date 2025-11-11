@@ -106,13 +106,12 @@ std::optional<mp::AllocatedImage> load_image(mp::Engine& engine,
 }  // namespace
 
 namespace mp {
-std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(
-    mp::Engine& engine, const std::filesystem::path& filePath) {
+bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
   if (!std::filesystem::exists(filePath)) {
     std::println(
         "Provided file path: {} is not a regular file or does not exists",
         filePath.string());
-    return std::nullopt;
+    return false;
   }
   std::println("Loading GLTF: {}", filePath.string());
 
@@ -120,7 +119,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(
   if (!gltfFile) {
     std::println("Failed to open glTF file: {}",
                  fastgltf::getErrorMessage(gltfFile.error()));
-    return std::nullopt;
+    return false;
   }
 
   constexpr auto supportedExtensions =
@@ -141,14 +140,12 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(
   if (load.error() != fastgltf::Error::None) {
     std::println("Failed to load glTF: {}",
                  fastgltf::getErrorMessage(load.error()));
-    return std::nullopt;
+    return false;
   }
   fastgltf::Asset asset = std::move(load.get());
 
   assert(asset.lights.empty());
-  auto scene = std::make_shared<LoadedGLTF>();
-  scene->creator = &engine;
-  LoadedGLTF& file = *scene;
+  Scene& file = engine.m_scene;
 
   for (auto& sampler : asset.samplers) {
     const VkSamplerCreateInfo samplerCreateInfo{
@@ -177,35 +174,36 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(
   for (auto& image : asset.images) {
     if (auto img = load_image(engine, asset, image); img.has_value()) {
       images.push_back(img.value());
-      file.images[std::format("{}{}", images.size(), image.name)] = img.value();
+      file.add_image(image.name.c_str(), img.value());
     } else {
       images.push_back(engine.m_errorImage);
       std::println("Failed to load texture: {}", image.name);
     }
   }
 
-  file.materialDataBuffer = engine.create_buffer(
-      sizeof(GltfMetallicRoughness::MaterialConstants) * asset.materials.size(),
-      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
-          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-      VMA_MEMORY_USAGE_CPU_TO_GPU);
+  auto& [currentBuff, currentBuffAddr] = file.materialBuffers.emplace_back(
+      engine.create_buffer(sizeof(GltfMetallicRoughness::MaterialConstants) *
+                               asset.materials.size(),
+                           VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
+                               VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                           VMA_MEMORY_USAGE_CPU_TO_GPU),
+      VkDeviceAddress{0});
   const VkBufferDeviceAddressInfo addrInfo{
       .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
       .pNext = nullptr,
-      .buffer = file.materialDataBuffer.buffer,
+      .buffer = currentBuff.buffer,
   };
-  file.materialDataBufferAddr =
-      vkGetBufferDeviceAddress(engine.m_device, &addrInfo);
+  currentBuffAddr = vkGetBufferDeviceAddress(engine.m_device, &addrInfo);
   int dataIndex = 0;
   auto* sceneMaterialsConstants =
       static_cast<GltfMetallicRoughness::MaterialConstants*>(
-          file.materialDataBuffer.allocationInfo.pMappedData);
+          currentBuff.allocationInfo.pMappedData);
 
   std::unordered_map<std::size_t, std::uint32_t> texturesCache;
   std::unordered_map<std::size_t, std::uint32_t> samplersCache;
   for (auto& material : asset.materials) {
     auto newMat = std::make_shared<GLTFMaterial>();
-    file.materials[material.name.c_str()] = newMat;
+    file.add_material(material.name.c_str(), newMat);
 
     GltfMetallicRoughness::MaterialConstants materialConstants;
     materialConstants.colorFactors = {material.pbrData.baseColorFactor[0],
@@ -225,7 +223,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(
     newMat->data.pipeline = engine.m_metalRoughness.select_pipeline(passType);
     newMat->data.indices = {
         .materialID = engine.m_metalRoughness.write_uniform_buffer(
-            file.materialDataBufferAddr +
+            currentBuffAddr +
             dataIndex * sizeof(GltfMetallicRoughness::MaterialConstants)),
         .colorTextureID = 0,
         .colorSamplerID = 0,
@@ -369,9 +367,10 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(
     newMesh.meshBuffers = engine.create_mesh_buffers(indices, vertices);
 
     meshes.emplace_back(std::make_shared<MeshAsset>(std::move(newMesh)));
-    file.meshes[mesh.name.c_str()] = meshes.back();
+    file.add_mesh(meshes.back());
   }
 
+  // Adding nodes
   for (auto& node : asset.nodes) {
     std::shared_ptr<Node> newNode;
     if (node.meshIndex.has_value()) {
@@ -380,8 +379,13 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(
       newNode = std::make_shared<Node>();
     }
 
+    if (node.name.empty()) {
+      node.name =
+          std::format("Node_{}_{}", filePath.filename().string(), nodes.size());
+    }
+    newNode->name = node.name;
     nodes.push_back(newNode);
-    file.nodes[node.name.c_str()] = newNode;
+    newNode->nodeIndex = file.add_node(newNode);
 
     std::visit(
         fastgltf::visitor{
@@ -421,6 +425,6 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf(
     }
   }
 
-  return std::optional{std::move(scene)};
+  return true;
 }
 }  // namespace mp
