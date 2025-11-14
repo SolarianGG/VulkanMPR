@@ -1,3 +1,4 @@
+// clang-format off
 #define VMA_IMPLEMENTATION
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #define GLM_ENABLE_EXPERIMENTAL
@@ -10,8 +11,12 @@
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_vulkan.h>
+#include <ImGuizmo.h>
 #include <vulkan/utility/vk_format_utils.h>
 #include <vulkan/vk_enum_string_helper.h>
+#include <glm/ext/matrix_clip_space.hpp>
+#include <glm/ext/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -22,13 +27,12 @@
 #include <ranges>
 #include <thread>
 
-#include "glm/ext/matrix_clip_space.hpp"
-#include "glm/ext/matrix_transform.hpp"
 #include "mpr_error_check.hpp"
 #include "mpr_image.hpp"
 #include "mpr_init_vk_stucts.hpp"
 #include "mpr_loader.hpp"
 #include "mpr_pipelines.hpp"
+// clang-format on
 
 using namespace std::chrono_literals;
 namespace rn = std::ranges;
@@ -511,6 +515,69 @@ std::uint64_t Engine::render_scene_tree_ui(Scene& scene,
   return selectedNode;
 }
 
+bool Engine::edit_transform_ui(glm::mat4& view, glm::mat4& projection,
+                               glm::mat4& globalTransform) {
+  static ImGuizmo::OPERATION gizmoOperation(ImGuizmo::TRANSLATE);
+
+  ImGui::Text("Transforms:");
+
+  if (ImGui::RadioButton("Translate", gizmoOperation == ImGuizmo::TRANSLATE))
+    gizmoOperation = ImGuizmo::TRANSLATE;
+
+  if (ImGui::RadioButton("Rotate", gizmoOperation == ImGuizmo::ROTATE))
+    gizmoOperation = ImGuizmo::ROTATE;
+
+  ImGuiIO& io = ImGui::GetIO();
+  ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
+  return ImGuizmo::Manipulate(glm::value_ptr(view), glm::value_ptr(projection),
+                              gizmoOperation, ImGuizmo::WORLD,
+                              glm::value_ptr(globalTransform));
+}
+
+void Engine::edit_node(Scene& scene, const std::uint64_t nodeIndex) {
+  ImGuizmo::SetOrthographic(false);
+  ImGuizmo::BeginFrame();
+
+  auto& node = scene.nodes[nodeIndex];
+
+  auto& name = node->name;
+  std::string label =
+      name.empty() ? (std::string("Node") + std::to_string(nodeIndex)) : name;
+  label = "Node: " + label;
+
+  if (const ImGuiViewport* v = ImGui::GetMainViewport()) {
+    ImGui::SetNextWindowPos(ImVec2(v->WorkSize.x * 0.83f, 200));
+    ImGui::SetNextWindowSize(ImVec2(v->WorkSize.x / 6, v->WorkSize.y - 210));
+  }
+  ImGui::Begin("Editor", nullptr,
+               ImGuiWindowFlags_NoFocusOnAppearing |
+                   ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize);
+  if (!name.empty()) ImGui::Text("%s", label.c_str());
+
+  ImGui::Separator();
+  ImGuizmo::PushID(1);
+
+  auto& globalTransform = node->worldTransform;
+  auto& srcTransform = globalTransform;
+  auto& localTransform = node->localTransform;
+
+  if (edit_transform_ui(m_sceneData.view, m_sceneData.proj, globalTransform)) {
+    const glm::mat4 deltaTransform =
+        glm::inverse(srcTransform) * globalTransform;
+    node->localTransform =
+        localTransform * deltaTransform;  // modify local transform
+  }
+
+  ImGui::Separator();
+#if 0
+    ImGui::Text("%s", "Material");
+
+    editMaterialUI(scene, meshData, node, outUpdateMaterialIndex, textureCache);
+#endif
+  ImGuizmo::PopID();
+  ImGui::End();
+}
+
 void Engine::draw_background(const VkCommandBuffer cmd) {
   const VkDescriptorSet& descSet = get_current_frame().drawImageDescriptorSet;
   const auto& currentComputeEffect = m_computeEffects[m_currentComputeEffect];
@@ -765,7 +832,7 @@ void Engine::run() {
       if (e.type == SDL_EVENT_WINDOW_MAXIMIZED) {
         m_isRenderStopped = false;
       }
-      m_camera.process_sdl_event(e);
+      m_camera.process_sdl_event(e, m_window.get());
       ImGui_ImplSDL3_ProcessEvent(&e);
 
       if (ImGui::GetIO().WantCaptureMouse || ImGui::GetIO().WantCaptureKeyboard)
@@ -821,8 +888,6 @@ void Engine::run() {
     }
     ImGui::End();
 
-    // TODO: Fix scene graph problems when nodes from different scenes have same
-    // name
     {
       const ImGuiViewport* v = ImGui::GetMainViewport();
       ImGui::SetNextWindowPos(ImVec2(10, 200));
@@ -839,11 +904,9 @@ void Engine::run() {
       ImGui::End();
     }
 
-#if 0
     if (m_selectedNode != UINT64_MAX) {
-      edit_node(m_selectedNode);
+      edit_node(m_scene, m_selectedNode);
     }
-#endif
     // ImGui UI end
 
     ImGui::Render();
@@ -1298,7 +1361,7 @@ void Engine::init_descriptors() {
         });
   }
 
-  m_mainDeletionQueue.push_function([&] mutable {
+  m_mainDeletionQueue.push_function([&] () mutable {
     vkDestroyDescriptorSetLayout(m_device, m_drawImageDescriptorSetLayout,
                                  nullptr);
     vkDestroyDescriptorSetLayout(m_device, m_gpuSceneDataDescriptorSetLayout,

@@ -301,14 +301,18 @@ class Engine final {
   void init_mesh_data();
   void init_default_data();
   void draw();
-  static std::uint64_t render_scene_tree_ui(
-      Scene& scene, std::uint64_t nodeIndex,
-      std::uint64_t selectedNode);
   void draw_background(VkCommandBuffer cmd);
   void draw_imgui(VkCommandBuffer cmd, VkImageView targetImageView);
   void draw_geometry(VkCommandBuffer cmd, VkImageView colorImageView,
                      VkImageView depthImageView, VkExtent2D imageExtent);
   void update_scene();
+
+
+  static std::uint64_t render_scene_tree_ui(
+      Scene& scene, std::uint64_t nodeIndex,
+      std::uint64_t selectedNode);
+  bool edit_transform_ui(glm::mat4& view, glm::mat4& projection, glm::mat4& globalTransform);
+  void edit_node(Scene& scene, std::uint64_t nodeIndex);
 };
 
 }  // namespace mp

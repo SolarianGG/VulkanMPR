@@ -15,9 +15,11 @@ class Camera {
   glm::mat4 get_view_matrix();
   glm::mat4 get_rotation_matrix();
 
-  void process_sdl_event(SDL_Event& e);
+  void process_sdl_event(SDL_Event& e, SDL_Window* window);
 
   void update(float deltaTime);
+private:
+  bool m_bIsRightMouseButtonClicked = false;
 };
 
 }  // namespace mp

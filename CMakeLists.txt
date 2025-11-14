@@ -16,6 +16,7 @@ set(SRC_PATH "${PROJECT_SOURCE_DIR}/src")
 set(INCLUDE_PATH "${SRC_PATH}/public/")
 set(COMP_PATH "${SRC_PATH}/private/")
 set(IMGUI_PATH "${PROJECT_SOURCE_DIR}/external/imgui")
+set(IMGUIZMO_PATH "${PROJECT_SOURCE_DIR}/external/imguizmo")
 
 find_package(Vulkan REQUIRED)
 find_package(volk CONFIG REQUIRED)
@@ -50,6 +51,17 @@ target_link_libraries(ImGui PRIVATE
   SDL3::SDL3
 )
 
+add_library(ImGuizmo STATIC 
+  "${IMGUIZMO_PATH}/ImGuizmo.cpp"
+  "${IMGUIZMO_PATH}/ImSequencer.cpp"
+  "${IMGUIZMO_PATH}/GraphEditor.cpp"
+  "${IMGUIZMO_PATH}/ImCurveEdit.cpp"
+  "${IMGUIZMO_PATH}/ImGradient.cpp"
+)
+
+target_include_directories(ImGuizmo PRIVATE ${IMGUIZMO_PATH} ${IMGUI_PATH})
+target_link_libraries(ImGuizmo PRIVATE ImGui)
+
 add_executable(VulkanMPR "${SRC_PATH}/VulkanMPR.cpp"
                          "${COMP_PATH}/mpr_engine.cpp"
                          "${COMP_PATH}/mpr_error_check.cpp"
@@ -64,6 +76,7 @@ target_include_directories(VulkanMPR PRIVATE
   ${INCLUDE_PATH} 
   ${SRC_PATH} 
   ${IMGUI_PATH} 
+  ${IMGUIZMO_PATH}
   "${IMGUI_PATH}/backends")
 
 target_link_libraries(VulkanMPR PRIVATE 
@@ -76,5 +89,6 @@ target_link_libraries(VulkanMPR PRIVATE
   fastgltf::fastgltf
   volk::volk volk::volk_headers
   ImGui
+  ImGuizmo
 )
 
