@@ -311,7 +311,7 @@ class Engine final {
   static std::uint64_t render_scene_tree_ui(
       Scene& scene, std::uint64_t nodeIndex,
       std::uint64_t selectedNode);
-  bool edit_transform_ui(glm::mat4& view, glm::mat4& projection, glm::mat4& globalTransform);
+  bool edit_transform_ui(const glm::mat4& view, const glm::mat4& projection, glm::mat4& globalTransform);
   void edit_node(Scene& scene, std::uint64_t nodeIndex);
 };
 

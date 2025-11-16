@@ -114,7 +114,7 @@ inline VkRenderingAttachmentInfo attachment_info(const VkImageView view,
 inline VkRenderingAttachmentInfo depth_attachment(
     const VkImageView view, const VkImageLayout imageLayout) {
   constexpr VkClearDepthStencilValue depthStencilValue{
-      .depth = 0.0f,
+      .depth = 1.0f,
   };
   const VkClearValue clearValue{.depthStencil = depthStencilValue};
   return attachment_info(view, &clearValue, imageLayout);

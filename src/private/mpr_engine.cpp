@@ -1,6 +1,6 @@
 // clang-format off
 #define VMA_IMPLEMENTATION
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
+// #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #define GLM_ENABLE_EXPERIMENTAL
 #define VOLK_IMPLEMENTATION
 #include "mpr_engine.hpp"
@@ -118,7 +118,7 @@ void GltfMetallicRoughness::build_pipelines(Engine& engine) {
   pipelineBuilder.pipelineLayout = opaquePipeline.pipelineLayout;
   pipelineBuilder.add_shader(meshVertShader, VK_SHADER_STAGE_VERTEX_BIT);
   pipelineBuilder.add_shader(meshFragShader, VK_SHADER_STAGE_FRAGMENT_BIT);
-  pipelineBuilder.enable_depth_test(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
+  pipelineBuilder.enable_depth_test(true, VK_COMPARE_OP_LESS_OR_EQUAL);
   pipelineBuilder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
   pipelineBuilder.set_polygon_mode(VK_POLYGON_MODE_FILL);
   pipelineBuilder.set_color_attachment_format(
@@ -135,7 +135,7 @@ void GltfMetallicRoughness::build_pipelines(Engine& engine) {
 
   //---
   pipelineBuilder.pipelineLayout = transparentPipeline.pipelineLayout;
-  pipelineBuilder.enable_depth_test(false, VK_COMPARE_OP_GREATER_OR_EQUAL);
+  pipelineBuilder.enable_depth_test(false, VK_COMPARE_OP_LESS_OR_EQUAL);
   pipelineBuilder.enable_blending_additive();
   transparentPipeline.pipeline = pipelineBuilder.build_pipeline(
       engine.m_device, VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT);
@@ -515,17 +515,36 @@ std::uint64_t Engine::render_scene_tree_ui(Scene& scene,
   return selectedNode;
 }
 
-bool Engine::edit_transform_ui(glm::mat4& view, glm::mat4& projection,
+bool Engine::edit_transform_ui(const glm::mat4& view,
+                               const glm::mat4& projection,
                                glm::mat4& globalTransform) {
   static ImGuizmo::OPERATION gizmoOperation(ImGuizmo::TRANSLATE);
 
   ImGui::Text("Transforms:");
+
+  if (ImGui::IsKeyPressed(ImGuiKey_W)) gizmoOperation = ImGuizmo::TRANSLATE;
+  if (ImGui::IsKeyPressed(ImGuiKey_E)) gizmoOperation = ImGuizmo::ROTATE;
+  if (ImGui::IsKeyPressed(ImGuiKey_R)) gizmoOperation = ImGuizmo::SCALE;
 
   if (ImGui::RadioButton("Translate", gizmoOperation == ImGuizmo::TRANSLATE))
     gizmoOperation = ImGuizmo::TRANSLATE;
 
   if (ImGui::RadioButton("Rotate", gizmoOperation == ImGuizmo::ROTATE))
     gizmoOperation = ImGuizmo::ROTATE;
+
+  if (ImGui::RadioButton("Scale", gizmoOperation == ImGuizmo::SCALE))
+    gizmoOperation = ImGuizmo::SCALE;
+
+  float matrixTranslation[3], matrixRotation[3], matrixScale[3];
+  ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(globalTransform),
+                                        matrixTranslation, matrixRotation,
+                                          matrixScale);
+  ImGui::InputFloat3("Tr", matrixTranslation);
+  ImGui::InputFloat3("Rt", matrixRotation);
+  ImGui::InputFloat3("Sc", matrixScale);
+  ImGuizmo::RecomposeMatrixFromComponents(matrixTranslation, matrixRotation,
+                                          matrixScale,
+                                          glm::value_ptr(globalTransform));
 
   ImGuiIO& io = ImGui::GetIO();
   ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
@@ -558,14 +577,14 @@ void Engine::edit_node(Scene& scene, const std::uint64_t nodeIndex) {
   ImGuizmo::PushID(1);
 
   auto& globalTransform = node->worldTransform;
-  auto& srcTransform = globalTransform;
-  auto& localTransform = node->localTransform;
-
   if (edit_transform_ui(m_sceneData.view, m_sceneData.proj, globalTransform)) {
-    const glm::mat4 deltaTransform =
-        glm::inverse(srcTransform) * globalTransform;
-    node->localTransform =
-        localTransform * deltaTransform;  // modify local transform
+    if (auto parent = node->parent.lock(); parent) {
+      glm::mat4 parentWorldTransform = parent->worldTransform;
+      node->localTransform =
+          glm::inverse(parentWorldTransform) * globalTransform;
+    } else {
+      node->localTransform = globalTransform;
+    }
   }
 
   ImGui::Separator();
@@ -1361,7 +1380,7 @@ void Engine::init_descriptors() {
         });
   }
 
-  m_mainDeletionQueue.push_function([&] () mutable {
+  m_mainDeletionQueue.push_function([&]() mutable {
     vkDestroyDescriptorSetLayout(m_device, m_drawImageDescriptorSetLayout,
                                  nullptr);
     vkDestroyDescriptorSetLayout(m_device, m_gpuSceneDataDescriptorSetLayout,
@@ -1707,8 +1726,8 @@ void Engine::update_scene() {
 
   const glm::mat4 proj = glm::perspective(
       glm::radians(90.0f),
-      static_cast<float>(m_drawExtent.width) / m_drawExtent.height, 1000.0f,
-      0.001f);
+      static_cast<float>(m_drawExtent.width) / m_drawExtent.height, 0.001f,
+      1000.0f);
 
   m_sceneData.view = m_camera.get_view_matrix();
   m_sceneData.proj = proj;
