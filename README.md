@@ -33,8 +33,9 @@ It focuses on learning GPU resource management, descriptor systems, shader refle
 - cmake --build build
 
 ### Screenshots:
-![Screenshot1](./screenshots/structure.png)
-![Screenshot2](./screenshots/sponza.png)
+![Structure](./screenshots/structure.png)
+![Sponza](./screenshots/sponza.png)
+![Scenegraph](./screenshots/scene-manip-tr.png)
 
 ### Implemented Features:
 - Vulkan forward renderer
@@ -42,6 +43,7 @@ It focuses on learning GPU resource management, descriptor systems, shader refle
 - Bindless material model via descriptor buffers extension
 - Slang shader language integration
 - Batching and instancing
+- Scene graph (transforms, nodes, cameras, lights, materials)
 
 ### Planned Features
 **Rendering & Lighting**
@@ -51,7 +53,6 @@ It focuses on learning GPU resource management, descriptor systems, shader refle
 - Environment mapping, skybox, global illumination
 
 **Architecture**
-- Scene graph
 - Frame graph
 - Multithreaded rendering (TaskFlow)
 - GPU-driven & mesh shader-based rendering
