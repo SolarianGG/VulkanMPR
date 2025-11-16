@@ -1,6 +1,5 @@
 // clang-format off
 #define VMA_IMPLEMENTATION
-// #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #define GLM_ENABLE_EXPERIMENTAL
 #define VOLK_IMPLEMENTATION
 #include "mpr_engine.hpp"
