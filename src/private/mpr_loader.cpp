@@ -182,7 +182,7 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
   }
 
   auto& [currentBuff, currentBuffAddr] = file.materialBuffers.emplace_back(
-      engine.create_buffer(sizeof(GltfMetallicRoughness::MaterialConstants) *
+      engine.create_buffer(sizeof(GLTFMetallicRoughness::MaterialConstants) *
                                asset.materials.size(),
                            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
                                VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
@@ -196,7 +196,7 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
   currentBuffAddr = vkGetBufferDeviceAddress(engine.m_device, &addrInfo);
   int dataIndex = 0;
   auto* sceneMaterialsConstants =
-      static_cast<GltfMetallicRoughness::MaterialConstants*>(
+      static_cast<GLTFMetallicRoughness::MaterialConstants*>(
           currentBuff.allocationInfo.pMappedData);
 
   std::unordered_map<std::size_t, std::uint32_t> texturesCache;
@@ -205,7 +205,7 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
     auto newMat = std::make_shared<GLTFMaterial>();
     file.add_material(material.name.c_str(), newMat);
 
-    GltfMetallicRoughness::MaterialConstants materialConstants;
+    GLTFMetallicRoughness::MaterialConstants materialConstants;
     materialConstants.colorFactors = {material.pbrData.baseColorFactor[0],
                                       material.pbrData.baseColorFactor[1],
                                       material.pbrData.baseColorFactor[2],
@@ -224,7 +224,7 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
     newMat->data.indices = {
         .materialID = engine.m_metalRoughness.write_uniform_buffer(
             currentBuffAddr +
-            dataIndex * sizeof(GltfMetallicRoughness::MaterialConstants)),
+            dataIndex * sizeof(GLTFMetallicRoughness::MaterialConstants)),
         .colorTextureID = 0,
         .colorSamplerID = 0,
         .metalRoughnessTextureID = 0,

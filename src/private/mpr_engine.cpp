@@ -56,7 +56,7 @@ get_required_instance_extensions_for_window() {
 }  // namespace
 
 namespace mp {
-void GltfMetallicRoughness::build_pipelines(Engine& engine) {
+void GLTFMetallicRoughness::build_pipelines(Engine& engine) {
   VkShaderModule meshVertShader;
   if (!load_shader_module("../../src/compiled_shaders/mesh.vertex.spv",
                           engine.m_device, &meshVertShader)) {
@@ -142,7 +142,7 @@ void GltfMetallicRoughness::build_pipelines(Engine& engine) {
   vkDestroyShaderModule(engine.m_device, meshFragShader, nullptr);
 }
 
-void GltfMetallicRoughness::clear_resources(Engine& engine) {
+void GLTFMetallicRoughness::clear_resources(Engine& engine) {
   vkDestroyPipeline(engine.m_device, opaquePipeline.pipeline, nullptr);
   vkDestroyPipeline(engine.m_device, transparentPipeline.pipeline, nullptr);
   vkDestroyPipelineLayout(engine.m_device, transparentPipeline.pipelineLayout,
@@ -152,26 +152,26 @@ void GltfMetallicRoughness::clear_resources(Engine& engine) {
   engine.destroy_buffer(descriptors.get_buffer());
 }
 
-std::uint32_t GltfMetallicRoughness::write_uniform_buffer(
+std::uint32_t GLTFMetallicRoughness::write_uniform_buffer(
     const VkDeviceAddress uniformBuffer) {
   descriptors.write_uniform_buffer(0, currentMaterialOffset, uniformBuffer,
                                    sizeof(MaterialConstants));
   return currentMaterialOffset++;
 }
 
-std::uint32_t GltfMetallicRoughness::write_sampler(const VkSampler sampler) {
+std::uint32_t GLTFMetallicRoughness::write_sampler(const VkSampler sampler) {
   descriptors.write_sampler(1, currentSamplerOffset, sampler);
   return currentSamplerOffset++;
 }
 
-std::uint32_t GltfMetallicRoughness::write_texture(
+std::uint32_t GLTFMetallicRoughness::write_texture(
     const VkImageView imageView) {
   descriptors.write_sampled_image(2, currentTextureOffset, imageView,
                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   return currentTextureOffset++;
 }
 
-MaterialPipeline* GltfMetallicRoughness::select_pipeline(
+MaterialPipeline* GLTFMetallicRoughness::select_pipeline(
     const MaterialPass pass) {
   if (pass == MaterialPass::Opaque) {
     return &opaquePipeline;

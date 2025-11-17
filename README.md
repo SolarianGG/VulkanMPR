@@ -14,6 +14,7 @@ It focuses on learning GPU resource management, descriptor systems, shader refle
 - fastgltf 
 - Volk
 - Imgui
+- Imguizmo
 - Vulkan Memory Allocator
 - Vulkan-bootstrap
 - Stb

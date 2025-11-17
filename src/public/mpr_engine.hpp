@@ -50,7 +50,7 @@ struct FrameData {
   VkDeviceAddress instanceBufferAddr;
 };
 
-struct GltfMetallicRoughness {
+struct GLTFMetallicRoughness {
   MaterialPipeline opaquePipeline;
   MaterialPipeline transparentPipeline;
 
@@ -273,7 +273,7 @@ class Engine final {
   VkSampler m_defaultSamplerLinear;
   VkSampler m_defaultSamplerNearest;
 
-  GltfMetallicRoughness m_metalRoughness;
+  GLTFMetallicRoughness m_metalRoughness;
 
   DrawContext m_mainDrawContext;
   Scene m_scene;
