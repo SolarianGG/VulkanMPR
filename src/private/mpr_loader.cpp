@@ -48,6 +48,18 @@ VkSamplerMipmapMode extract_mip_map_mode(const fastgltf::Filter filter) {
   }
 }
 
+std::uint32_t GetCached(
+    const std::size_t resourceIndex,
+    std::unordered_map<std::size_t, std::uint32_t>& cache,
+    const std::function<std::uint32_t(std::size_t)>& getIndexFunc) {
+  if (const auto it = cache.find(resourceIndex); it != cache.end()) {
+    return it->second;
+  }
+  const auto index = getIndexFunc(resourceIndex);
+  cache.try_emplace(resourceIndex, index);
+  return index;
+};
+
 std::optional<mp::AllocatedImage> load_image(mp::Engine& engine,
                                              fastgltf::Asset& asset,
                                              fastgltf::Image& image) {
@@ -230,18 +242,6 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
         .metalRoughnessTextureID = 0,
         .metalRoughnessSamplerID = 0};
 
-    auto getCached =
-        [&](const std::size_t resourceIndex,
-            std::unordered_map<std::size_t, std::uint32_t>& cache,
-            const std::function<std::uint32_t(std::size_t)>& getIndexFunc) {
-          if (const auto it = texturesCache.find(resourceIndex);
-              it != texturesCache.end()) {
-            return it->second;
-          }
-          const auto index = getIndexFunc(resourceIndex);
-          cache.try_emplace(resourceIndex, index);
-          return index;
-        };
     auto getTextureIndex = [&engine, &images](const std::size_t index) {
       return engine.m_metalRoughness.write_texture(images[index].imageView);
     };
@@ -256,9 +256,9 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
       const auto samplerIndex =
           asset.textures[textureIndex].samplerIndex.value();
       newMat->data.indices.colorTextureID =
-          getCached(imgIndex, texturesCache, getTextureIndex);
+          GetCached(imgIndex, texturesCache, getTextureIndex);
       newMat->data.indices.colorSamplerID =
-          getCached(samplerIndex, samplersCache, getSamplerIndex);
+          GetCached(samplerIndex, samplersCache, getSamplerIndex);
     }
     if (material.pbrData.metallicRoughnessTexture.has_value()) {
       const auto textureIndex =
@@ -267,9 +267,9 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
       const auto samplerIndex =
           asset.textures[textureIndex].samplerIndex.value();
       newMat->data.indices.metalRoughnessTextureID =
-          getCached(imgIndex, texturesCache, getTextureIndex);
+          GetCached(imgIndex, texturesCache, getTextureIndex);
       newMat->data.indices.metalRoughnessSamplerID =
-          getCached(samplerIndex, samplersCache, getSamplerIndex);
+          GetCached(samplerIndex, samplersCache, getSamplerIndex);
     }
 
     materials.push_back(std::move(newMat));

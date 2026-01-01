@@ -96,7 +96,7 @@ void GLTFMetallicRoughness::build_pipelines(Engine& engine) {
                                 VMA_MEMORY_USAGE_CPU_ONLY);
   });
   const VkDescriptorSetLayout layouts[]{
-      engine.m_gpuSceneDataDescriptorSetLayout, materialLayout};
+      engine.m_forwardRendererSceneDataDescriptorSetLayout, materialLayout};
   const VkPipelineLayoutCreateInfo layoutCreateInfo{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
       .setLayoutCount = std::size(layouts),
@@ -537,7 +537,7 @@ bool Engine::edit_transform_ui(const glm::mat4& view,
   float matrixTranslation[3], matrixRotation[3], matrixScale[3];
   ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(globalTransform),
                                         matrixTranslation, matrixRotation,
-                                          matrixScale);
+                                        matrixScale);
   ImGui::InputFloat3("Tr", matrixTranslation);
   ImGui::InputFloat3("Rt", matrixRotation);
   ImGui::InputFloat3("Sc", matrixScale);
@@ -597,16 +597,25 @@ void Engine::edit_node(Scene& scene, const std::uint64_t nodeIndex) {
 }
 
 void Engine::draw_background(const VkCommandBuffer cmd) {
-  const VkDescriptorSet& descSet = get_current_frame().drawImageDescriptorSet;
   const auto& currentComputeEffect = m_computeEffects[m_currentComputeEffect];
 
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                     currentComputeEffect.pipeline);
 
-  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                          m_backgroundPipelineLayout, 0, 1, &descSet, 0,
-                          nullptr);
+  VkDescriptorBufferBindingInfoEXT buffersInfo[]{
+      {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+       .pNext = nullptr,
+       .address =
+           get_current_frame().drawImageDescriptorBuffer.get_device_address(),
+       .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
+                VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT}};
+  vkCmdBindDescriptorBuffersEXT(cmd, std::size(buffersInfo), buffersInfo);
 
+  std::uint32_t indices[]{0};
+  VkDeviceSize offsets[]{0};
+  vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                     m_backgroundPipelineLayout, 0,
+                                     std::size(offsets), indices, offsets);
   vkCmdPushConstants(cmd, m_backgroundPipelineLayout,
                      VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ConstantPushRange),
                      &currentComputeEffect.data);
@@ -1323,10 +1332,10 @@ void Engine::init_descriptors() {
         DescriptorSetLayoutBuilder()
             .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
                          VK_SHADER_STAGE_COMPUTE_BIT)
-            .build(m_device);
+            .build(m_device, VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
   }
   {
-    m_gpuSceneDataDescriptorSetLayout =
+    m_forwardRendererSceneDataDescriptorSetLayout =
         DescriptorSetLayoutBuilder()
             .add_binding(
                 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
@@ -1334,44 +1343,23 @@ void Engine::init_descriptors() {
             .build(m_device,
                    VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
   }
-
-  VkDescriptorPoolSize poolSize{.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-                                .descriptorCount = kNumberOfFrames};
-  const VkDescriptorPoolCreateInfo poolCreateInfo{
-      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-      .pNext = nullptr,
-      .maxSets = kNumberOfFrames,
-      .poolSizeCount = 1,
-      .pPoolSizes = &poolSize};
-  vkCreateDescriptorPool(m_device, &poolCreateInfo, nullptr,
-                         &m_drawImageDescPool) >>
-      chk;
-  const VkDescriptorSetAllocateInfo allocateInfo{
-      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-      .descriptorPool = m_drawImageDescPool,
-      .descriptorSetCount = 1,
-      .pSetLayouts = &m_drawImageDescriptorSetLayout};
   for (auto& frame : m_frameData) {
-    vkAllocateDescriptorSets(m_device, &allocateInfo,
-                             &frame.drawImageDescriptorSet) >>
-        chk;
-
-    const VkDescriptorImageInfo imageInfo{
-        .imageView = frame.drawImage.imageView,
-        .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
-    const VkWriteDescriptorSet descWrite{
-        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .dstSet = frame.drawImageDescriptorSet,
-        .dstBinding = 0,
-        .descriptorCount = 1,
-        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-        .pImageInfo = &imageInfo,
-    };
-    vkUpdateDescriptorSets(m_device, 1, &descWrite, 0, nullptr);
-
-    frame.sceneDataDescriptorBuffer =
-        DescriptorBuffer(m_device, m_gpuSceneDataDescriptorSetLayout,
+    frame.drawImageDescriptorBuffer =
+        DescriptorBuffer(m_device, m_drawImageDescriptorSetLayout,
                          DescriptorBufferProperties::query(m_chosenGpu));
+
+    frame.drawImageDescriptorBuffer.create_buffer(
+        [&](const std::size_t allocSize, const VkBufferUsageFlags bufferUsage) {
+          return create_buffer(allocSize, bufferUsage,
+                               VMA_MEMORY_USAGE_CPU_ONLY);
+        });
+
+    frame.drawImageDescriptorBuffer.write_storage_image(
+        0, 0, frame.drawImage.imageView, VK_IMAGE_LAYOUT_GENERAL);
+
+    frame.sceneDataDescriptorBuffer = DescriptorBuffer(
+        m_device, m_forwardRendererSceneDataDescriptorSetLayout,
+        DescriptorBufferProperties::query(m_chosenGpu));
     frame.sceneDataDescriptorBuffer.create_buffer(
         [&](const std::size_t allocSize, const VkBufferUsageFlags bufferUsage) {
           return create_buffer(allocSize, bufferUsage,
@@ -1382,11 +1370,11 @@ void Engine::init_descriptors() {
   m_mainDeletionQueue.push_function([&]() mutable {
     vkDestroyDescriptorSetLayout(m_device, m_drawImageDescriptorSetLayout,
                                  nullptr);
-    vkDestroyDescriptorSetLayout(m_device, m_gpuSceneDataDescriptorSetLayout,
-                                 nullptr);
-    vkDestroyDescriptorPool(m_device, m_drawImageDescPool, nullptr);
+    vkDestroyDescriptorSetLayout(
+        m_device, m_forwardRendererSceneDataDescriptorSetLayout, nullptr);
     for (auto& frame : m_frameData) {
       destroy_buffer(frame.sceneDataDescriptorBuffer.get_buffer());
+      destroy_buffer(frame.drawImageDescriptorBuffer.get_buffer());
     }
   });
 }
@@ -1441,7 +1429,7 @@ void Engine::init_background_pipelines() {
   VkComputePipelineCreateInfo createInfo{
       .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
       .pNext = nullptr,
-      .flags = 0,
+      .flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT,
       .stage = shaderStage,
       .layout = m_backgroundPipelineLayout,
   };

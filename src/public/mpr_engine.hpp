@@ -45,7 +45,7 @@ struct FrameData {
   AllocatedBuffer sceneDataBuffer;
   VkDeviceAddress sceneDataBufferAddr;
   DescriptorBuffer sceneDataDescriptorBuffer;
-  VkDescriptorSet drawImageDescriptorSet;
+  DescriptorBuffer drawImageDescriptorBuffer;
   AllocatedBuffer instanceBuffer;
   VkDeviceAddress instanceBufferAddr;
 };
@@ -60,7 +60,7 @@ struct GLTFMetallicRoughness {
   std::uint32_t currentSamplerOffset = 0;
   std::uint32_t currentTextureOffset = 0;
 
-  struct alignas(256) MaterialConstants {
+  struct MaterialConstants {
     glm::vec4 colorFactors;
     glm::vec4 metalRoughFactors;
   };
@@ -212,7 +212,7 @@ class Engine final {
   void destroy_swapchain();
   void resize_swapchain();
 
-  VkExtent2D m_windowExtent{1920, 1080};
+  VkExtent2D m_windowExtent{1600, 900};
   std::uint64_t m_frameNumber = 0;
   bool m_isInitialized = false;
   bool m_isRenderStopped = false;
@@ -245,7 +245,7 @@ class Engine final {
   VmaAllocator m_allocator;
   VkExtent2D m_drawExtent;
   VkDescriptorSetLayout m_drawImageDescriptorSetLayout;
-  VkDescriptorSetLayout m_gpuSceneDataDescriptorSetLayout;
+  VkDescriptorSetLayout m_forwardRendererSceneDataDescriptorSetLayout;
 
   VkPipelineLayout m_backgroundPipelineLayout;
 
@@ -283,8 +283,6 @@ class Engine final {
   EngineStats m_stats{};
 
   GpuSceneData m_sceneData;
-
-  VkDescriptorPool m_drawImageDescPool;
 
   std::uint64_t m_selectedNode = UINT64_MAX;
 

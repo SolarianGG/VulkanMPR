@@ -51,10 +51,10 @@ struct VSOutput
     float3 norm;
     float3 col;
     float2 uv;
-    uint colorTextureID;
-    uint colorSamplerID;
-    uint metalRoughTextureID;
-    uint metalRoughSamplerID;
+    uint colorTextureID : nointerpolation;
+    uint colorSamplerID : nointerpolation;
+    uint metalRoughTextureID : nointerpolation;
+    uint metalRoughSamplerID : nointerpolation;
 };
 
 [shader("vertex")]

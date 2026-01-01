@@ -72,7 +72,7 @@ add_executable(VulkanMPR "${SRC_PATH}/VulkanMPR.cpp"
                           "${COMP_PATH}/mpr_camera.cpp")
 
 target_include_directories(VulkanMPR PRIVATE 
-  "${VULKAN_SDK}/Include"
+  "$ENV{VULKAN_SDK}/Include"
   ${INCLUDE_PATH} 
   ${SRC_PATH} 
   ${IMGUI_PATH} 
