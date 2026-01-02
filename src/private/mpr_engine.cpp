@@ -96,7 +96,7 @@ void GLTFMetallicRoughness::build_pipelines(Engine& engine) {
                                 VMA_MEMORY_USAGE_CPU_ONLY);
   });
   const VkDescriptorSetLayout layouts[]{
-      engine.m_forwardRendererSceneDataDescriptorSetLayout, materialLayout};
+      materialLayout};
   const VkPipelineLayoutCreateInfo layoutCreateInfo{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
       .setLayoutCount = std::size(layouts),
@@ -995,26 +995,20 @@ void Engine::draw_geometry(VkCommandBuffer cmd, VkImageView colorImageView,
   };
   vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-  VkDescriptorBufferBindingInfoEXT bindingInfos[2]{};
-  bindingInfos[0] = {
-      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-      .address =
-          get_current_frame().sceneDataDescriptorBuffer.get_device_address(),
-      .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
-               VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT};
+  VkDescriptorBufferBindingInfoEXT bindingInfos[1]{};
 
-  bindingInfos[1] = {
+  bindingInfos[0] = {
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
       .address = m_metalRoughness.descriptors.get_device_address(),
       .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
                VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT};
   vkCmdBindDescriptorBuffersEXT(cmd, std::size(bindingInfos), bindingInfos);
 
-  const std::uint32_t bufferIndices[]{0, 1};
-  const VkDeviceSize offsets[]{0, 0};
+  const std::uint32_t bufferIndices[]{0};
+  const VkDeviceSize offsets[]{0};
   vkCmdSetDescriptorBufferOffsetsEXT(
       cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-      m_metalRoughness.opaquePipeline.pipelineLayout, 0, 2, bufferIndices,
+      m_metalRoughness.opaquePipeline.pipelineLayout, 0, std::size(bufferIndices), bufferIndices,
       offsets);
 
   auto* instanceBuffer = static_cast<Instance*>(
@@ -1334,15 +1328,6 @@ void Engine::init_descriptors() {
                          VK_SHADER_STAGE_COMPUTE_BIT)
             .build(m_device, VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
   }
-  {
-    m_forwardRendererSceneDataDescriptorSetLayout =
-        DescriptorSetLayoutBuilder()
-            .add_binding(
-                0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
-                VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT)
-            .build(m_device,
-                   VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
-  }
   for (auto& frame : m_frameData) {
     frame.drawImageDescriptorBuffer =
         DescriptorBuffer(m_device, m_drawImageDescriptorSetLayout,
@@ -1357,23 +1342,12 @@ void Engine::init_descriptors() {
     frame.drawImageDescriptorBuffer.write_storage_image(
         0, 0, frame.drawImage.imageView, VK_IMAGE_LAYOUT_GENERAL);
 
-    frame.sceneDataDescriptorBuffer = DescriptorBuffer(
-        m_device, m_forwardRendererSceneDataDescriptorSetLayout,
-        DescriptorBufferProperties::query(m_chosenGpu));
-    frame.sceneDataDescriptorBuffer.create_buffer(
-        [&](const std::size_t allocSize, const VkBufferUsageFlags bufferUsage) {
-          return create_buffer(allocSize, bufferUsage,
-                               VMA_MEMORY_USAGE_CPU_ONLY);
-        });
   }
 
   m_mainDeletionQueue.push_function([&]() mutable {
     vkDestroyDescriptorSetLayout(m_device, m_drawImageDescriptorSetLayout,
                                  nullptr);
-    vkDestroyDescriptorSetLayout(
-        m_device, m_forwardRendererSceneDataDescriptorSetLayout, nullptr);
     for (auto& frame : m_frameData) {
-      destroy_buffer(frame.sceneDataDescriptorBuffer.get_buffer());
       destroy_buffer(frame.drawImageDescriptorBuffer.get_buffer());
     }
   });
@@ -1614,9 +1588,6 @@ void Engine::init_default_data() {
         .buffer = frame.sceneDataBuffer.buffer,
     };
     frame.sceneDataBufferAddr = vkGetBufferDeviceAddress(m_device, &addrInfo);
-
-    frame.sceneDataDescriptorBuffer.write_uniform_buffer(
-        0, 0, frame.sceneDataBufferAddr, sizeof(GpuSceneData));
   }
 
   m_metalRoughness.write_sampler(m_defaultSamplerLinear);

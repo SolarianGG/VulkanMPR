@@ -6,6 +6,8 @@
 
 struct SDL_Window;
 
+// TODO: Refactor the whole code 
+
 namespace mp {
 struct GLTFMaterial {
   MaterialInstance data;
@@ -44,7 +46,6 @@ struct FrameData {
   AllocatedImage depthImage;
   AllocatedBuffer sceneDataBuffer;
   VkDeviceAddress sceneDataBufferAddr;
-  DescriptorBuffer sceneDataDescriptorBuffer;
   DescriptorBuffer drawImageDescriptorBuffer;
   AllocatedBuffer instanceBuffer;
   VkDeviceAddress instanceBufferAddr;
@@ -245,7 +246,6 @@ class Engine final {
   VmaAllocator m_allocator;
   VkExtent2D m_drawExtent;
   VkDescriptorSetLayout m_drawImageDescriptorSetLayout;
-  VkDescriptorSetLayout m_forwardRendererSceneDataDescriptorSetLayout;
 
   VkPipelineLayout m_backgroundPipelineLayout;
 

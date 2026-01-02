@@ -38,9 +38,9 @@ struct PushConstants {
     Instance *instances;
     SceneData *sceneData;
 };
-[[vk::binding(0, 1)]] ConstantBuffer<GLTFMaterialData> materials[];
-[[vk::binding(1, 1)]] SamplerState samplers[];
-[[vk::binding(2, 1)]] Texture2D textures[];
+[[vk::binding(0, 0)]] ConstantBuffer<GLTFMaterialData> materials[];
+[[vk::binding(1, 0)]] SamplerState samplers[];
+[[vk::binding(2, 0)]] Texture2D textures[];
 
 [[vk::push_constant]]
 PushConstants pushConstants;
