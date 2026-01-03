@@ -16,7 +16,8 @@ struct PipelineBuilder {
   VkPipelineLayout pipelineLayout;
   VkPipelineDepthStencilStateCreateInfo depthStencil;
   VkPipelineRenderingCreateInfo renderInfo;
-  VkFormat colorAttachmentFormat;
+  std::vector<
+  VkFormat> colorAttachmentFormats;
 
   PipelineBuilder() { clear(); }
 
@@ -40,7 +41,7 @@ struct PipelineBuilder {
 
   void disable_blending();
 
-  void set_color_attachment_format(VkFormat format);
+  void add_color_attachment_format(VkFormat format);
 
   void set_depth_format(VkFormat format);
 

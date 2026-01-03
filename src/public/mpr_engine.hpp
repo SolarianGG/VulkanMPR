@@ -42,6 +42,12 @@ struct FrameData {
   VkFence fence;
   VkSemaphore swapchainSemaphore;
   DeletionQueue frameDeletionQueue;
+  struct {
+    AllocatedImage position; 
+    AllocatedImage normal; 
+    AllocatedImage diffuse; 
+    AllocatedImage specular; 
+  } gBuffer;
   AllocatedImage drawImage;
   AllocatedImage depthImage;
   AllocatedBuffer sceneDataBuffer;
@@ -53,7 +59,9 @@ struct FrameData {
 
 struct GLTFMetallicRoughness {
   MaterialPipeline opaquePipeline;
+#if 0
   MaterialPipeline transparentPipeline;
+#endif
 
   VkDescriptorSetLayout materialLayout;
   DescriptorBuffer descriptors;
@@ -301,8 +309,7 @@ class Engine final {
   void draw();
   void draw_background(VkCommandBuffer cmd);
   void draw_imgui(VkCommandBuffer cmd, VkImageView targetImageView);
-  void draw_geometry(VkCommandBuffer cmd, VkImageView colorImageView,
-                     VkImageView depthImageView, VkExtent2D imageExtent);
+  void draw_geometry(VkCommandBuffer cmd);
   void update_scene();
 
 

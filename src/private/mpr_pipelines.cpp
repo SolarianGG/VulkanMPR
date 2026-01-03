@@ -64,7 +64,12 @@ void PipelineBuilder::clear() {
   shaderStages.clear();
 }
 
-VkPipeline PipelineBuilder::build_pipeline(const VkDevice device, const VkPipelineCreateFlags pipelineCreateFlags) {
+VkPipeline PipelineBuilder::build_pipeline(
+    const VkDevice device, const VkPipelineCreateFlags pipelineCreateFlags) {
+  renderInfo.colorAttachmentCount =
+      static_cast<std::uint32_t>(colorAttachmentFormats.size());
+  renderInfo.pColorAttachmentFormats = colorAttachmentFormats.data();
+
   constexpr VkPipelineViewportStateCreateInfo viewportState{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
       .pNext = nullptr,
@@ -72,13 +77,16 @@ VkPipeline PipelineBuilder::build_pipeline(const VkDevice device, const VkPipeli
       .scissorCount = 1,
   };
 
+  std::vector<VkPipelineColorBlendAttachmentState> colorBlends(
+      colorAttachmentFormats.size(), colorBlend);
   const VkPipelineColorBlendStateCreateInfo colorBlendState{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
       .pNext = nullptr,
       .logicOpEnable = VK_FALSE,
       .logicOp = VK_LOGIC_OP_COPY,
-      .attachmentCount = 1,
-      .pAttachments = &colorBlend,
+      .attachmentCount =
+          static_cast<std::uint32_t>(colorBlends.size()),
+      .pAttachments = colorBlends.data(),
   };
 
   constexpr VkPipelineVertexInputStateCreateInfo vertexInputInfo{
@@ -153,12 +161,8 @@ void PipelineBuilder::set_multisampling_none() {
   multisampling.alphaToOneEnable = VK_FALSE;
 }
 
-
-void PipelineBuilder::set_color_attachment_format(const VkFormat format) {
-  colorAttachmentFormat = format;
-
-  renderInfo.colorAttachmentCount = 1;
-  renderInfo.pColorAttachmentFormats = &colorAttachmentFormat;
+void PipelineBuilder::add_color_attachment_format(const VkFormat format) {
+  colorAttachmentFormats.push_back(format);
 }
 
 void PipelineBuilder::set_depth_format(const VkFormat format) {
@@ -177,7 +181,8 @@ void PipelineBuilder::disable_depth_test() {
   depthStencil.maxDepthBounds = 1.f;
 }
 
-void PipelineBuilder::enable_depth_test(const bool enableDepthWrite, const VkCompareOp depthCompareOp) {
+void PipelineBuilder::enable_depth_test(const bool enableDepthWrite,
+                                        const VkCompareOp depthCompareOp) {
   depthStencil.depthTestEnable = VK_TRUE;
   depthStencil.depthWriteEnable = enableDepthWrite;
   depthStencil.depthCompareOp = depthCompareOp;

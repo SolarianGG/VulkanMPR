@@ -122,16 +122,18 @@ inline VkRenderingAttachmentInfo depth_attachment(
 
 inline VkRenderingInfo rendering_info(
     const VkExtent2D swapchainExtent,
-    const VkRenderingAttachmentInfo* colorAttachment,
+    const std::uint32_t colorAttachmentCount,
+    const VkRenderingAttachmentInfo* colorAttachments,
     const VkRenderingAttachmentInfo* depthAttachment) {
-  assert(colorAttachment);
+  assert(colorAttachments);
+  assert(colorAttachmentCount >= 1);
   const VkRenderingInfo renderingInfo{
       .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
       .pNext = nullptr,
       .renderArea = {.extent = swapchainExtent},
       .layerCount = 1,
-      .colorAttachmentCount = 1,
-      .pColorAttachments = colorAttachment,
+      .colorAttachmentCount = colorAttachmentCount,
+      .pColorAttachments = colorAttachments,
       .pDepthAttachment = depthAttachment,
       .pStencilAttachment = nullptr,
   };

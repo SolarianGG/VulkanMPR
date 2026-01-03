@@ -95,8 +95,7 @@ void GLTFMetallicRoughness::build_pipelines(Engine& engine) {
     return engine.create_buffer(allocSize, bufferUsage,
                                 VMA_MEMORY_USAGE_CPU_ONLY);
   });
-  const VkDescriptorSetLayout layouts[]{
-      materialLayout};
+  const VkDescriptorSetLayout layouts[]{materialLayout};
   const VkPipelineLayoutCreateInfo layoutCreateInfo{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
       .setLayoutCount = std::size(layouts),
@@ -110,7 +109,9 @@ void GLTFMetallicRoughness::build_pipelines(Engine& engine) {
   vkCreatePipelineLayout(engine.m_device, &layoutCreateInfo, nullptr,
                          &layout) >>
       chk;
+#if 0
   transparentPipeline.pipelineLayout = layout;
+#endif
   opaquePipeline.pipelineLayout = layout;
 
   PipelineBuilder pipelineBuilder;
@@ -120,8 +121,14 @@ void GLTFMetallicRoughness::build_pipelines(Engine& engine) {
   pipelineBuilder.enable_depth_test(true, VK_COMPARE_OP_LESS_OR_EQUAL);
   pipelineBuilder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
   pipelineBuilder.set_polygon_mode(VK_POLYGON_MODE_FILL);
-  pipelineBuilder.set_color_attachment_format(
-      engine.m_frameData.at(0).drawImage.imageFormat);
+  pipelineBuilder.add_color_attachment_format(
+      engine.m_frameData.at(0).gBuffer.position.imageFormat);
+  pipelineBuilder.add_color_attachment_format(
+      engine.m_frameData.at(0).gBuffer.normal.imageFormat);
+  pipelineBuilder.add_color_attachment_format(
+      engine.m_frameData.at(0).gBuffer.diffuse.imageFormat);
+  pipelineBuilder.add_color_attachment_format(
+      engine.m_frameData.at(0).gBuffer.specular.imageFormat);
   pipelineBuilder.set_depth_format(
       engine.m_frameData.at(0).depthImage.imageFormat);
   pipelineBuilder.set_cull_mode(VK_CULL_MODE_BACK_BIT,
@@ -133,21 +140,26 @@ void GLTFMetallicRoughness::build_pipelines(Engine& engine) {
       engine.m_device, VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT);
 
   //---
+  // TODO: Add OIT or forward rendering for transparent object, for now no
+  // transparency
+#if 0
   pipelineBuilder.pipelineLayout = transparentPipeline.pipelineLayout;
   pipelineBuilder.enable_depth_test(false, VK_COMPARE_OP_LESS_OR_EQUAL);
   pipelineBuilder.enable_blending_additive();
   transparentPipeline.pipeline = pipelineBuilder.build_pipeline(
       engine.m_device, VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT);
+#endif
   vkDestroyShaderModule(engine.m_device, meshVertShader, nullptr);
   vkDestroyShaderModule(engine.m_device, meshFragShader, nullptr);
 }
 
 void GLTFMetallicRoughness::clear_resources(Engine& engine) {
   vkDestroyPipeline(engine.m_device, opaquePipeline.pipeline, nullptr);
+#if 0
   vkDestroyPipeline(engine.m_device, transparentPipeline.pipeline, nullptr);
-  vkDestroyPipelineLayout(engine.m_device, transparentPipeline.pipelineLayout,
+#endif
+  vkDestroyPipelineLayout(engine.m_device, opaquePipeline.pipelineLayout,
                           nullptr);
-
   vkDestroyDescriptorSetLayout(engine.m_device, materialLayout, nullptr);
   engine.destroy_buffer(descriptors.get_buffer());
 }
@@ -176,9 +188,11 @@ MaterialPipeline* GLTFMetallicRoughness::select_pipeline(
   if (pass == MaterialPass::Opaque) {
     return &opaquePipeline;
   }
+#if 0
   if (pass == MaterialPass::Transparent) {
     return &transparentPipeline;
   }
+#endif
   return nullptr;
 }
 
@@ -338,6 +352,7 @@ void Engine::draw() {
 
   const AllocatedImage& currentDrawingImage = currentFrame.drawImage;
   const AllocatedImage& currentDepthImage = currentFrame.depthImage;
+  auto& gBuffer = currentFrame.gBuffer;
   m_drawExtent.width =
       std::min(currentDrawingImage.imageExtent.width, m_swapchainExtent.width) *
       m_renderScale;
@@ -348,29 +363,37 @@ void Engine::draw() {
   vkBeginCommandBuffer(cmd, &beginInfo) >> chk;
 
   utils::BarrierBuilder barrierBuilder;
+
+  // GPass
   {
     barrierBuilder.add_image_barrier(
-        currentDrawingImage.image, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-        VK_ACCESS_2_SHADER_WRITE_BIT_KHR, VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_GENERAL,
-        utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
-
-    barrierBuilder.barrier(cmd);
-  }
-
-  draw_background(cmd);
-
-  {
-    barrierBuilder.add_image_barrier(
-        currentDrawingImage.image, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
-        VK_ACCESS_2_SHADER_WRITE_BIT,
+        gBuffer.position.image, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
         VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-        VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT |
-            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-        VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+            VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
         utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
-
+    barrierBuilder.add_image_barrier(
+        gBuffer.normal.image, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+            VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+    barrierBuilder.add_image_barrier(
+        gBuffer.diffuse.image, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+            VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+    barrierBuilder.add_image_barrier(
+        gBuffer.specular.image, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+            VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
     barrierBuilder.add_image_barrier(
         currentDepthImage.image, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
         VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
@@ -382,17 +405,88 @@ void Engine::draw() {
     barrierBuilder.barrier(cmd);
   }
 
-  draw_geometry(cmd, currentDrawingImage.imageView, currentDepthImage.imageView,
-                m_drawExtent);
+  draw_geometry(cmd);
+
+#if 0
+  // Light pass
+  {
+    barrierBuilder.add_image_barrier(
+        gBuffer.position.image, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+            VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+    barrierBuilder.add_image_barrier(
+        gBuffer.normal.image, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+            VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+    barrierBuilder.add_image_barrier(
+        gBuffer.diffuse.image, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+            VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+    barrierBuilder.add_image_barrier(
+        gBuffer.specular.image, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+            VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+    barrierBuilder.add_image_barrier(
+        currentDrawingImage.image, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        VK_ACCESS_2_SHADER_WRITE_BIT_KHR, VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_GENERAL,
+        utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+
+    barrierBuilder.barrier(cmd);
+  }
+#endif
 
   {
     barrierBuilder.add_image_barrier(
-        currentDrawingImage.image,
-        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-        VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT |
-            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+        gBuffer.diffuse.image, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+            VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
         VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+    barrierBuilder.add_image_barrier(
+        swapchainImage, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+        VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+
+    barrierBuilder.barrier(cmd);
+  }
+
+  utils::copy_to_image(
+      cmd, gBuffer.diffuse.image, swapchainImage,
+      {gBuffer.diffuse.imageExtent.width, gBuffer.diffuse.imageExtent.height},
+      m_swapchainExtent);
+
+#if 0
+   draw_background(cmd);
+#endif
+
+#if 0
+  // Imgui + swapchain copy
+  {
+    barrierBuilder.add_image_barrier(
+        currentDrawingImage.image, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+        VK_ACCESS_2_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL,
         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
 
@@ -406,6 +500,7 @@ void Engine::draw() {
 
   utils::copy_to_image(cmd, currentDrawingImage.image, swapchainImage,
                        m_drawExtent, m_swapchainExtent);
+#endif
 
   {
     barrierBuilder.add_image_barrier(
@@ -952,7 +1047,7 @@ void Engine::draw_imgui(const VkCommandBuffer cmd,
   const auto colorAttachment = utils::attachment_info(
       targetImageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
   const auto renderingInfo =
-      utils::rendering_info(m_swapchainExtent, &colorAttachment, nullptr);
+      utils::rendering_info(m_swapchainExtent, 1, &colorAttachment, nullptr);
 
   vkCmdBeginRendering(cmd, &renderingInfo);
 
@@ -961,37 +1056,54 @@ void Engine::draw_imgui(const VkCommandBuffer cmd,
   vkCmdEndRendering(cmd);
 }
 
-void Engine::draw_geometry(VkCommandBuffer cmd, VkImageView colorImageView,
-                           VkImageView depthImageView,
-                           const VkExtent2D imageExtent) {
+void Engine::draw_geometry(VkCommandBuffer cmd) {
   m_stats.drawCallCount = 0;
   m_stats.triangleCount = 0;
   const auto start = cn::steady_clock::now();
   auto* sceneData = static_cast<GpuSceneData*>(
       get_current_frame().sceneDataBuffer.allocation->GetMappedData());
   *sceneData = m_sceneData;
+  auto& gBuffer = get_current_frame().gBuffer;
+  auto& depthImage = get_current_frame().depthImage;
+  const VkExtent2D gBufferExtent = {gBuffer.position.imageExtent.width,
+                                    gBuffer.position.imageExtent.height};
 
   // ---
-  const auto colorAttachment = utils::attachment_info(
-      colorImageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+  VkClearValue val{.color = {0.0f, 0.0f, 0.0f, 1.0f}};
+  const auto positionAttachment =
+      utils::attachment_info(gBuffer.position.imageView, &val,
+                             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+  const auto normalAttachment =
+      utils::attachment_info(gBuffer.normal.imageView, &val,
+                             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+  const auto diffuseAttachment =
+      utils::attachment_info(gBuffer.diffuse.imageView, &val,
+                             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+  const auto specularAttachment =
+      utils::attachment_info(gBuffer.specular.imageView, &val,
+                             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
   const auto depthAttachment = utils::depth_attachment(
-      depthImageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
-  const auto renderInfo =
-      utils::rendering_info(imageExtent, &colorAttachment, &depthAttachment);
+      depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+
+  VkRenderingAttachmentInfo attachments[]{positionAttachment, normalAttachment,
+                                          diffuseAttachment,
+                                          specularAttachment};
+  const auto renderInfo = utils::rendering_info(
+      gBufferExtent, std::size(attachments), attachments, &depthAttachment);
 
   vkCmdBeginRendering(cmd, &renderInfo);
   const VkViewport viewport{
       .x = 0,
-      .y = static_cast<float>(imageExtent.height),
-      .width = static_cast<float>(imageExtent.width),
-      .height = -static_cast<float>(imageExtent.height),
+      .y = static_cast<float>(gBufferExtent.height),
+      .width = static_cast<float>(gBufferExtent.width),
+      .height = -static_cast<float>(gBufferExtent.height),
       .minDepth = 0.0f,
       .maxDepth = 1.0f,
   };
   vkCmdSetViewport(cmd, 0, 1, &viewport);
 
   const VkRect2D scissor{
-      .extent = imageExtent,
+      .extent = gBufferExtent,
   };
   vkCmdSetScissor(cmd, 0, 1, &scissor);
 
@@ -1008,8 +1120,8 @@ void Engine::draw_geometry(VkCommandBuffer cmd, VkImageView colorImageView,
   const VkDeviceSize offsets[]{0};
   vkCmdSetDescriptorBufferOffsetsEXT(
       cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-      m_metalRoughness.opaquePipeline.pipelineLayout, 0, std::size(bufferIndices), bufferIndices,
-      offsets);
+      m_metalRoughness.opaquePipeline.pipelineLayout, 0,
+      std::size(bufferIndices), bufferIndices, offsets);
 
   auto* instanceBuffer = static_cast<Instance*>(
       get_current_frame().instanceBuffer.allocationInfo.pMappedData);
@@ -1038,8 +1150,10 @@ void Engine::draw_geometry(VkCommandBuffer cmd, VkImageView colorImageView,
         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
         sizeof(GpuPushConstants), &ctxPushConstant);
 
-    vkCmdDrawIndexed(cmd, ctx.indexCount, instances.size(), ctx.firstIndex, 0,
-                     currentInstanceBufferOffset);
+    vkCmdDrawIndexed(cmd, ctx.indexCount,
+                     static_cast<std::uint32_t>(instances.size()),
+                     ctx.firstIndex, 0,
+                     static_cast<std::uint32_t>(currentInstanceBufferOffset));
     m_stats.drawCallCount++;
     m_stats.triangleCount += ctx.indexCount / 3 * instances.size();
     currentInstanceBufferOffset += instances.size();
@@ -1049,6 +1163,7 @@ void Engine::draw_geometry(VkCommandBuffer cmd, VkImageView colorImageView,
   for (const auto& [ro, instances] : m_mainDrawContext.opaqueRenderObjects) {
     drawContext(ro, instances, m_metalRoughness.opaquePipeline.pipelineLayout);
   }
+#if 0
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     m_metalRoughness.transparentPipeline.pipeline);
   for (const auto& [ro, instances] :
@@ -1056,6 +1171,7 @@ void Engine::draw_geometry(VkCommandBuffer cmd, VkImageView colorImageView,
     drawContext(ro, instances,
                 m_metalRoughness.transparentPipeline.pipelineLayout);
   }
+#endif
 
   vkCmdEndRendering(cmd);
 
@@ -1256,7 +1372,33 @@ void Engine::init_swapchain() {
   for (auto& frame : m_frameData) {
     create_draw_image(frame.drawImage, drawImageExtent);
     create_depth_image(frame.depthImage, drawImageExtent);
+
+    frame.gBuffer.position = create_image(
+        drawImageExtent, VK_FORMAT_R32G32B32A32_SFLOAT,
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+            VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+    frame.gBuffer.normal = create_image(
+        drawImageExtent, VK_FORMAT_R32G32B32A32_SFLOAT,
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+            VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+    frame.gBuffer.diffuse = create_image(
+        drawImageExtent, VK_FORMAT_R8G8B8A8_UNORM,
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+            VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+    frame.gBuffer.specular = create_image(
+        drawImageExtent, VK_FORMAT_R8G8B8A8_UNORM,
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+            VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
   }
+
+  m_mainDeletionQueue.push_function([this]() {
+    for (auto& frame : m_frameData) {
+      destroy_image(frame.gBuffer.position);
+      destroy_image(frame.gBuffer.normal);
+      destroy_image(frame.gBuffer.diffuse);
+      destroy_image(frame.gBuffer.specular);
+    }
+  });
 }
 
 void Engine::init_commands() {
@@ -1326,7 +1468,8 @@ void Engine::init_descriptors() {
         DescriptorSetLayoutBuilder()
             .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
                          VK_SHADER_STAGE_COMPUTE_BIT)
-            .build(m_device, VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
+            .build(m_device,
+                   VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
   }
   for (auto& frame : m_frameData) {
     frame.drawImageDescriptorBuffer =
@@ -1341,7 +1484,6 @@ void Engine::init_descriptors() {
 
     frame.drawImageDescriptorBuffer.write_storage_image(
         0, 0, frame.drawImage.imageView, VK_IMAGE_LAYOUT_GENERAL);
-
   }
 
   m_mainDeletionQueue.push_function([&]() mutable {
@@ -1690,10 +1832,6 @@ void Engine::update_scene() {
   m_sceneData.view = m_camera.get_view_matrix();
   m_sceneData.proj = proj;
   m_sceneData.projView = proj * m_sceneData.view;
-  m_sceneData.ambientColor = glm::vec4(0.1f, 0.1f, 0.1f, 1.0f);
-  m_sceneData.sunlightColor = glm::vec4(1.0f);
-  m_sceneData.sunlightDirection =
-      glm::normalize(glm::vec4(.77f, 0.2f, 0.5f, 1.0f));
   const auto end = cn::steady_clock::now();
   const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
 
