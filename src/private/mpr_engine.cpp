@@ -1073,9 +1073,8 @@ void Engine::draw_geometry(VkCommandBuffer cmd) {
   const auto positionAttachment =
       utils::attachment_info(gBuffer.position.imageView, &val,
                              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-  const auto normalAttachment =
-      utils::attachment_info(gBuffer.normal.imageView, &val,
-                             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+  const auto normalAttachment = utils::attachment_info(
+      gBuffer.normal.imageView, &val, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
   const auto diffuseAttachment =
       utils::attachment_info(gBuffer.diffuse.imageView, &val,
                              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
@@ -1644,21 +1643,10 @@ void Engine::init_imgui() {
 }
 
 void Engine::init_mesh_data() {
-#ifndef LOADING_SPONZA
-  const std::string structurePath = "../../assets/structure.glb";
-  if (!load_gltf(*this, structurePath)) {
-    throw std::runtime_error("Failed to load glTF file: " + structurePath);
-  }
   const std::string sponzaPath = "../../assets/Sponza/glTF/sponza.gltf";
   if (!load_gltf(*this, sponzaPath)) {
     throw std::runtime_error("Failed to load glTF file: " + sponzaPath);
   }
-#else
-  const std::string sponzaPath = "../../assets/Sponza/glTF/sponza.gltf";
-  auto sponzaFile = load_gltf(*this, sponzaPath).value();
-
-  m_loadedScenes[sponzaPath] = std::move(sponzaFile);
-#endif
 
   constexpr auto kMaxInstances = 100'000;
   for (auto& frame : m_frameData) {

@@ -98,10 +98,13 @@ PSOutput fragmentMain(VSOutput input)
 
 
 
+  
   PSOutput output;
   output.pos = input.worldPos;
   output.normal = float4(normalize(input.norm), 0.0f); 
   output.diffuse = materialData.colorFactors * float4(input.col, 1.0f) * baseColor;
+  if (output.diffuse.w < 0.1)
+      discard;
   output.specular = materialData.metalRoughnessFactors * metalRoughness;
   return output;
 };
