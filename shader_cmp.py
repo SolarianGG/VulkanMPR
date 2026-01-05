@@ -29,7 +29,7 @@ def compile_shaders(input_dir="src/shaders", output_dir="src/compiled_shaders"):
                 source = f.read()
 
             matches = re.findall(
-                r'\[shader\("(\w+)"\)\]\s*[^\S\r\n]*[\w<>\s:*&]+\s+(\w+)\s*\(',
+                r'\[shader\("(\w+)"\)\](?:\s*\[[^\]]+\]\s*)*\s*[\w<>\s:*&]+\s+(\w+)\s*\(',
                 source
             )
 

@@ -407,7 +407,6 @@ void Engine::draw() {
 
   draw_geometry(cmd);
 
-#if 0
   // Light pass
   {
     barrierBuilder.add_image_barrier(
@@ -451,36 +450,9 @@ void Engine::draw() {
 
     barrierBuilder.barrier(cmd);
   }
-#endif
 
-  {
-    barrierBuilder.add_image_barrier(
-        gBuffer.diffuse.image, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
-            VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
-        VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
-        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
-    barrierBuilder.add_image_barrier(
-        swapchainImage, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
-        VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+  draw_background(cmd);
 
-    barrierBuilder.barrier(cmd);
-  }
-
-  utils::copy_to_image(
-      cmd, gBuffer.diffuse.image, swapchainImage,
-      {gBuffer.diffuse.imageExtent.width, gBuffer.diffuse.imageExtent.height},
-      m_swapchainExtent);
-
-#if 0
-   draw_background(cmd);
-#endif
-
-#if 0
   // Imgui + swapchain copy
   {
     barrierBuilder.add_image_barrier(
@@ -500,7 +472,6 @@ void Engine::draw() {
 
   utils::copy_to_image(cmd, currentDrawingImage.image, swapchainImage,
                        m_drawExtent, m_swapchainExtent);
-#endif
 
   {
     barrierBuilder.add_image_barrier(
@@ -692,10 +663,7 @@ void Engine::edit_node(Scene& scene, const std::uint64_t nodeIndex) {
 }
 
 void Engine::draw_background(const VkCommandBuffer cmd) {
-  const auto& currentComputeEffect = m_computeEffects[m_currentComputeEffect];
-
-  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                    currentComputeEffect.pipeline);
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_LightPassPipeline);
 
   VkDescriptorBufferBindingInfoEXT buffersInfo[]{
       {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
@@ -709,11 +677,11 @@ void Engine::draw_background(const VkCommandBuffer cmd) {
   std::uint32_t indices[]{0};
   VkDeviceSize offsets[]{0};
   vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                     m_backgroundPipelineLayout, 0,
+                                     m_LightPassPipelineLayout, 0,
                                      std::size(offsets), indices, offsets);
-  vkCmdPushConstants(cmd, m_backgroundPipelineLayout,
-                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ConstantPushRange),
-                     &currentComputeEffect.data);
+  vkCmdPushConstants(cmd, m_LightPassPipelineLayout,
+                     VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                     sizeof(LightPassConstantRange), &m_LightPassConstants);
 
   vkCmdDispatch(cmd, std::ceil(m_drawExtent.width / 16.0f),
                 std::ceil(m_drawExtent.height / 16.0f), 1);
@@ -935,11 +903,6 @@ void Engine::run() {
   SDL_Event e;
   bool bIsRunning = true;
 
-  const auto effectsNames =
-      m_computeEffects |
-      vi::transform([](const auto& effect) { return effect.name; }) |
-      rn::to<std::vector>();
-
   while (bIsRunning) {
     auto start = cn::steady_clock::now();
     while (SDL_PollEvent(&e)) {
@@ -988,26 +951,6 @@ void Engine::run() {
     ImGui::Text("Scene update tim: %f ms", m_stats.sceneUpdateTime);
     ImGui::Text("Amount of draw calls: %i", m_stats.drawCallCount);
     ImGui::Text("Amount of triangles: %i", m_stats.triangleCount);
-    ImGui::End();
-
-    if (ImGui::Begin("Effects")) {
-      ImGui::ListBox("Select compute effect", &m_currentComputeEffect,
-                     effectsNames.data(), effectsNames.size());
-
-      ComputeEffect& currentComputeEffect =
-          m_computeEffects[m_currentComputeEffect];
-      ImGui::ColorPicker4(
-          "Data 1", reinterpret_cast<float*>(&currentComputeEffect.data.data1));
-      ImGui::Spacing();
-      ImGui::ColorPicker4(
-          "Data 2", reinterpret_cast<float*>(&currentComputeEffect.data.data2));
-      ImGui::Spacing();
-      ImGui::ColorPicker4(
-          "Data 3", reinterpret_cast<float*>(&currentComputeEffect.data.data3));
-      ImGui::Spacing();
-      ImGui::ColorPicker4(
-          "Data 4", reinterpret_cast<float*>(&currentComputeEffect.data.data4));
-    }
     ImGui::End();
 
     {
@@ -1495,16 +1438,15 @@ void Engine::init_descriptors() {
 }
 
 void Engine::init_pipelines() {
-  init_background_pipelines();
+  init_light_pass_pipeline();
   m_metalRoughness.build_pipelines(*this);
 }
 
-void Engine::init_background_pipelines() {
-  m_computeEffects.reserve(2);
+void Engine::init_light_pass_pipeline() {
   constexpr VkPushConstantRange pushConstantRange{
       .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
       .offset = 0,
-      .size = static_cast<std::uint32_t>(sizeof(ConstantPushRange)),
+      .size = static_cast<std::uint32_t>(sizeof(LightPassConstantRange)),
   };
 
   const VkPipelineLayoutCreateInfo layoutCreateInfo{
@@ -1517,27 +1459,21 @@ void Engine::init_background_pipelines() {
       .pPushConstantRanges = &pushConstantRange,
   };
   vkCreatePipelineLayout(m_device, &layoutCreateInfo, nullptr,
-                         &m_backgroundPipelineLayout) >>
+                         &m_LightPassPipelineLayout) >>
       chk;
 
-  VkShaderModule gradientShader;
-  if (!mp::load_shader_module(
-          "../../src/compiled_shaders/gradient_color.comp.spv", m_device,
-          &gradientShader)) {
-    throw std::runtime_error("Failed to load a shader");
-  }
-
-  VkShaderModule skyShader;
-  if (!mp::load_shader_module("../../src/compiled_shaders/sky.comp.spv",
-                              m_device, &skyShader)) {
-    throw std::runtime_error("Failed to load a shader");
+  VkShaderModule lightPassShader;
+  if (!load_shader_module(
+          "../../src/compiled_shaders/light_pass.compute.spv", m_device,
+          &lightPassShader)) {
+    throw std::runtime_error("Failed to load a light pass shader");
   }
 
   const VkPipelineShaderStageCreateInfo shaderStage{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
       .pNext = nullptr,
       .stage = VK_SHADER_STAGE_COMPUTE_BIT,
-      .module = gradientShader,
+      .module = lightPassShader,
       .pName = "main",
   };
 
@@ -1546,41 +1482,18 @@ void Engine::init_background_pipelines() {
       .pNext = nullptr,
       .flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT,
       .stage = shaderStage,
-      .layout = m_backgroundPipelineLayout,
+      .layout = m_LightPassPipelineLayout,
   };
 
-  ComputeEffect gradientComputeEffect{};
-
-  gradientComputeEffect.pipelineLayout = m_backgroundPipelineLayout;
-  gradientComputeEffect.name = "gradient";
-  gradientComputeEffect.data =
-      ConstantPushRange{.data1 = glm::vec4{1.0f, 0.0f, 0.0f, 1.0f},
-                        .data2 = glm::vec4{0.0f, 1.0f, 0.0f, 1.0f}};
   vkCreateComputePipelines(m_device, nullptr, 1, &createInfo, nullptr,
-                           &gradientComputeEffect.pipeline) >>
+                           &m_LightPassPipeline) >>
       chk;
 
-  createInfo.stage.module = skyShader;
-
-  ComputeEffect skyComputeEffect{};
-  skyComputeEffect.name = "sky";
-  skyComputeEffect.pipelineLayout = m_backgroundPipelineLayout;
-  skyComputeEffect.data.data1 = {0.1f, 0.2f, 0.4f, 0.97f};
-  vkCreateComputePipelines(m_device, nullptr, 1, &createInfo, nullptr,
-                           &skyComputeEffect.pipeline) >>
-      chk;
-
-  m_computeEffects.push_back(gradientComputeEffect);
-  m_computeEffects.push_back(skyComputeEffect);
-
-  vkDestroyShaderModule(m_device, gradientShader, nullptr);
-  vkDestroyShaderModule(m_device, skyShader, nullptr);
-  m_mainDeletionQueue.push_function(
-      [&, gradientComputeEffect, skyComputeEffect] {
-        vkDestroyPipeline(m_device, gradientComputeEffect.pipeline, nullptr);
-        vkDestroyPipeline(m_device, skyComputeEffect.pipeline, nullptr);
-        vkDestroyPipelineLayout(m_device, m_backgroundPipelineLayout, nullptr);
-      });
+  vkDestroyShaderModule(m_device, lightPassShader, nullptr);
+  m_mainDeletionQueue.push_function([this] {
+    vkDestroyPipeline(m_device, m_LightPassPipeline, nullptr);
+    vkDestroyPipelineLayout(m_device, m_LightPassPipelineLayout, nullptr);
+  });
 }
 
 void Engine::init_imgui() {

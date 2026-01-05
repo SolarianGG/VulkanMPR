@@ -255,7 +255,9 @@ class Engine final {
   VkExtent2D m_drawExtent;
   VkDescriptorSetLayout m_drawImageDescriptorSetLayout;
 
-  VkPipelineLayout m_backgroundPipelineLayout;
+  VkPipelineLayout m_LightPassPipelineLayout;
+  VkPipeline m_LightPassPipeline;
+  LightPassConstantRange m_LightPassConstants;
 
   // Simple immediate submit structures
   // For future optimizations consider adding queue
@@ -263,12 +265,9 @@ class Engine final {
   VkCommandBuffer m_immCommandBuffer;
   VkFence m_immFence;
 
-  std::vector<ComputeEffect> m_computeEffects;
-  int m_currentComputeEffect{0};
-
   VkPipeline m_meshPipeline;
 
-  GpuPushConstants m_pushConstants;
+  GpuPushConstants m_MeshPassPushConstants;
 
   bool m_bSwapchainResizeRequest = false;
   float m_renderScale{1.0f};
@@ -302,7 +301,7 @@ class Engine final {
   void init_sync();
   void init_descriptors();
   void init_pipelines();
-  void init_background_pipelines();
+  void init_light_pass_pipeline();
   void init_imgui();
   void init_mesh_data();
   void init_default_data();
