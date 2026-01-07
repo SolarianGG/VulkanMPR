@@ -90,6 +90,7 @@ struct GpuPushConstants {
   VkDeviceAddress sceneDataBufferDeviceAddr;
 };
 
+
 struct GpuSceneData {
   glm::mat4 view;
   glm::mat4 proj;
@@ -120,6 +121,22 @@ class IRenderable {
   IRenderable& operator=(const IRenderable& other) = default;
   IRenderable& operator=(IRenderable&& other) noexcept = default;
   virtual ~IRenderable() = default;
+};
+
+struct GLTFMaterial {
+  MaterialInstance data;
+};
+struct GeoSurface {
+  std::uint32_t startIndex;
+  std::uint32_t count;
+  std::shared_ptr<GLTFMaterial> material;
+};
+
+struct MeshAsset {
+  std::string name;
+
+  std::vector<GeoSurface> geoSurfaces;
+  GpuMeshBuffers meshBuffers;
 };
 
 }  // namespace mp

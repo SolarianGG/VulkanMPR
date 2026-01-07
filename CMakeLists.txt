@@ -69,7 +69,12 @@ add_executable(VulkanMPR "${SRC_PATH}/VulkanMPR.cpp"
                          "${COMP_PATH}/mpr_descriptors.cpp"
                          "${COMP_PATH}/mpr_pipelines.cpp"
                          "${COMP_PATH}/mpr_loader.cpp" 
-                          "${COMP_PATH}/mpr_camera.cpp")
+                          "${COMP_PATH}/mpr_camera.cpp"
+                          "${COMP_PATH}/mpr_materials.cpp"
+                          "${COMP_PATH}/mpr_scene.cpp"
+
+
+)
 
 target_include_directories(VulkanMPR PRIVATE 
   "$ENV{VULKAN_SDK}/Include"

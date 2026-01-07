@@ -3,29 +3,12 @@
 #include "mpr_camera.hpp"
 #include "mpr_descriptors.hpp"
 #include "mpr_types.hpp"
+#include "mpr_materials.hpp"
+#include "mpr_scene.hpp"
 
 struct SDL_Window;
 
-// TODO: Refactor the whole code 
-
 namespace mp {
-struct GLTFMaterial {
-  MaterialInstance data;
-};
-class Engine;
-
-struct GeoSurface {
-  std::uint32_t startIndex;
-  std::uint32_t count;
-  std::shared_ptr<GLTFMaterial> material;
-};
-
-struct MeshAsset {
-  std::string name;
-
-  std::vector<GeoSurface> geoSurfaces;
-  GpuMeshBuffers meshBuffers;
-};
 
 struct EngineStats {
   float frameTime;
@@ -57,131 +40,6 @@ struct FrameData {
   VkDeviceAddress instanceBufferAddr;
 };
 
-struct GLTFMetallicRoughness {
-  MaterialPipeline opaquePipeline;
-#if 0
-  MaterialPipeline transparentPipeline;
-#endif
-
-  VkDescriptorSetLayout materialLayout;
-  DescriptorBuffer descriptors;
-  std::uint32_t currentMaterialOffset = 0;
-  std::uint32_t currentSamplerOffset = 0;
-  std::uint32_t currentTextureOffset = 0;
-
-  struct MaterialConstants {
-    glm::vec4 colorFactors;
-    glm::vec4 metalRoughFactors;
-  };
-
-  void build_pipelines(Engine& engine);
-  void clear_resources(Engine& engine);
-
-  std::uint32_t write_uniform_buffer(VkDeviceAddress uniformBuffer);
-  std::uint32_t write_sampler(VkSampler sampler);
-  std::uint32_t write_texture(VkImageView imageView);
-  MaterialPipeline* select_pipeline(const MaterialPass pass);
-};
-struct RenderObject {
-  std::uint32_t indexCount;
-  std::uint32_t firstIndex;
-  VkBuffer indexBuffer;
-  VkDeviceAddress vertexBufferAddress;
-
-  [[nodiscard]]
-  bool operator==(const RenderObject& other) const noexcept {
-    return indexCount == other.indexCount && firstIndex == other.firstIndex &&
-           indexBuffer == other.indexBuffer &&
-           vertexBufferAddress == other.vertexBufferAddress;
-  }
-};
-
-struct DrawContext {
-  struct RenderObjectHash {
-    static constexpr auto kHashCombineMagicValue = 0x9e3779b9;
-    std::size_t operator()(const RenderObject& ro) const {
-      const auto h1 = std::hash<VkBuffer>{}(ro.indexBuffer);
-      const auto h2 = std::hash<VkDeviceAddress>{}(ro.vertexBufferAddress);
-      const auto h3 = std::hash<std::uint32_t>{}(ro.indexCount);
-      const auto h4 = std::hash<std::uint32_t>{}(ro.firstIndex);
-
-      std::size_t seed = h1;
-      seed ^= h2 + kHashCombineMagicValue + (seed << 6) + (seed >> 2);
-      seed ^= h3 + kHashCombineMagicValue + (seed << 6) + (seed >> 2);
-      seed ^= h4 + kHashCombineMagicValue + (seed << 6) + (seed >> 2);
-      return seed;
-    }
-  };
-  std::unordered_map<RenderObject, std::vector<Instance>, RenderObjectHash>
-      opaqueRenderObjects;
-  std::unordered_map<RenderObject, std::vector<Instance>, RenderObjectHash>
-      transparentRenderObjects;
-};
-
-struct Node : public IRenderable {
-  std::weak_ptr<Node> parent;
-  std::string name;
-  std::uint64_t nodeIndex;
-  std::vector<std::shared_ptr<Node>> children;
-
-  glm::mat4 localTransform;
-  glm::mat4 worldTransform;
-
-  void refresh_transform(const glm::mat4& parentMatrix) {
-    worldTransform = parentMatrix * localTransform;
-    for (auto& c : children) {
-      c->refresh_transform(worldTransform);
-    }
-  }
-
-  void draw(const glm::mat4& topMatrix, DrawContext& ctx) override {
-    for (auto& c : children) {
-      c->draw(topMatrix, ctx);
-    }
-  }
-};
-struct MeshAsset;
-
-struct MeshNode final : public Node {
-  std::shared_ptr<MeshAsset> mesh;
-
-  MeshNode() = default;
-  explicit MeshNode(std::shared_ptr<MeshAsset> mesh_)
-      : mesh(std::move(mesh_)) {}
-  void draw(const glm::mat4& topMatrix, DrawContext& ctx) override;
-};
-
-struct Scene final : public IRenderable {
-  std::unordered_map<std::uint64_t, std::shared_ptr<MeshAsset>> meshes;
-  std::unordered_map<std::uint64_t, std::shared_ptr<Node>> nodes;
-  std::unordered_map<std::uint64_t, std::pair<std::string, AllocatedImage>>
-      images;
-  std::unordered_map<
-      std::uint64_t,
-      std::pair<std::string, std::shared_ptr<GLTFMaterial>>>
-      materials;
-
-  std::vector<std::shared_ptr<Node>> topNodes;
-
-  std::vector<VkSampler> samplers;
-
-  std::vector<std::pair<AllocatedBuffer, VkDeviceAddress>> materialBuffers;
-
-  Scene() = default;
-  Scene(const Scene& other) = delete;
-  Scene(Scene&& other) noexcept = delete;
-  Scene& operator=(const Scene& other) = delete;
-  Scene& operator=(Scene&& other) noexcept = delete;
-  ~Scene() override = default;
-  // ---
-  void draw(const glm::mat4& topMatrix, DrawContext& ctx) override;
-  void add_mesh(std::shared_ptr<MeshAsset> mesh);
-  void add_image(std::string imageName, const AllocatedImage& image);
-  void add_material(std::string materialName,
-                    std::shared_ptr<GLTFMaterial> material);
-  std::uint64_t add_node(std::shared_ptr<Node> node);
-  void clear_all(Engine& engine);
-};
 
 class Engine final {
  public:
