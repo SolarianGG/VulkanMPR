@@ -679,6 +679,9 @@ void Engine::draw_background(const VkCommandBuffer cmd) {
   vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                                      m_LightPassPipelineLayout, 0,
                                      std::size(offsets), indices, offsets);
+
+  m_LightPassConstants.sceneDataBufferDeviceAddr =
+      get_current_frame().sceneDataBufferAddr;
   vkCmdPushConstants(cmd, m_LightPassPipelineLayout,
                      VK_SHADER_STAGE_COMPUTE_BIT, 0,
                      sizeof(LightPassConstantRange), &m_LightPassConstants);
@@ -1087,6 +1090,7 @@ void Engine::draw_geometry(VkCommandBuffer cmd) {
         .sceneDataBufferDeviceAddr = get_current_frame().sceneDataBufferAddr,
     };
 
+
     vkCmdPushConstants(
         cmd, pipelineLayout,
         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
@@ -1410,6 +1414,14 @@ void Engine::init_descriptors() {
         DescriptorSetLayoutBuilder()
             .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
                          VK_SHADER_STAGE_COMPUTE_BIT)
+            .add_binding(1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1,
+                         VK_SHADER_STAGE_COMPUTE_BIT)
+            .add_binding(2, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1,
+                         VK_SHADER_STAGE_COMPUTE_BIT)
+            .add_binding(3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1,
+                         VK_SHADER_STAGE_COMPUTE_BIT)
+            .add_binding(4, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1,
+                         VK_SHADER_STAGE_COMPUTE_BIT)
             .build(m_device,
                    VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
   }
@@ -1426,6 +1438,18 @@ void Engine::init_descriptors() {
 
     frame.drawImageDescriptorBuffer.write_storage_image(
         0, 0, frame.drawImage.imageView, VK_IMAGE_LAYOUT_GENERAL);
+    frame.drawImageDescriptorBuffer.write_sampled_image(
+        1, 0, frame.gBuffer.position.imageView,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    frame.drawImageDescriptorBuffer.write_sampled_image(
+        2, 0, frame.gBuffer.normal.imageView,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    frame.drawImageDescriptorBuffer.write_sampled_image(
+        3, 0, frame.gBuffer.diffuse.imageView,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    frame.drawImageDescriptorBuffer.write_sampled_image(
+        4, 0, frame.gBuffer.specular.imageView,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   }
 
   m_mainDeletionQueue.push_function([&]() mutable {
