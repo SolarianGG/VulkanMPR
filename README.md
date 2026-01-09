@@ -39,7 +39,7 @@ It focuses on learning GPU resource management, descriptor systems, shader refle
 ![Scenegraph](./screenshots/scene-manip-tr.png)
 
 ### Implemented Features:
-- Vulkan forward renderer
+- Vulkan deferred renderer
 - GLTF model loading
 - Bindless material model via descriptor buffers extension
 - Slang shader language integration
@@ -47,19 +47,12 @@ It focuses on learning GPU resource management, descriptor systems, shader refle
 - Scene graph (transforms, nodes, cameras, lights, materials)
 
 ### Planned Features
-**Rendering & Lighting**
-- Local illumination models (Blinn-Phong, Lambert)
-- Shadow mapping & Cascaded shadow maps
-- PBR (Cook-Torrance)
-- Environment mapping, skybox, global illumination
-
-**Architecture**
-- Frame graph
-- Multithreaded rendering (TaskFlow)
-- GPU-driven & mesh shader-based rendering
-
-**Effects**
-- Post-processing
-- Particle system
-- Hybrid rasterization and ray tracing
+- Normal mapping
+- Directional shadows
+- HDR + tonemap
+- PBR
+- IBL
+- Bloom
+- CSM
+- SSAO
 

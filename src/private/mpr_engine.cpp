@@ -441,6 +441,8 @@ void Engine::edit_node(Scene& scene, const std::uint64_t nodeIndex) {
     }
   }
 
+  node->edit();
+
   ImGui::Separator();
 #if 0
     ImGui::Text("%s", "Material");
@@ -469,8 +471,6 @@ void Engine::draw_background(const VkCommandBuffer cmd) {
                                      m_LightPassPipelineLayout, 0,
                                      std::size(offsets), indices, offsets);
 
-  m_LightPassConstants.sceneDataBufferDeviceAddr =
-      get_current_frame().sceneDataBufferAddr;
   vkCmdPushConstants(cmd, m_LightPassPipelineLayout,
                      VK_SHADER_STAGE_COMPUTE_BIT, 0,
                      sizeof(LightPassConstantRange), &m_LightPassConstants);
@@ -758,6 +758,20 @@ void Engine::run() {
             render_scene_tree_ui(m_scene, topNode->nodeIndex, m_selectedNode);
       }
       ImGui::Separator();
+      if (ImGui::Button("Add light")) {
+        const auto nodeIndex = m_scene.add_node(std::make_shared<LightNode>(
+            LightData{.lightType = 0,
+                      .padding0 = 0,
+                      .data0 = {0.0f, 0.0f, 0.0f, 1.0f},
+                      .data1 = {1.0f, 1.0f, 1.0f, 1.0f}}));
+
+        auto& node = m_scene.nodes.find(nodeIndex)->second;
+        node->worldTransform = glm::mat4(1.0f);
+        node->localTransform = glm::mat4(1.0f);
+        node->name = "Light";
+        node->nodeIndex = nodeIndex;
+        m_scene.topNodes.push_back(node);
+      }
       ImGui::End();
     }
 
@@ -878,7 +892,6 @@ void Engine::draw_geometry(VkCommandBuffer cmd) {
         .instanceBufferDeviceAddr = get_current_frame().instanceBufferAddr,
         .sceneDataBufferDeviceAddr = get_current_frame().sceneDataBufferAddr,
     };
-
 
     vkCmdPushConstants(
         cmd, pipelineLayout,
@@ -1276,9 +1289,8 @@ void Engine::init_light_pass_pipeline() {
       chk;
 
   VkShaderModule lightPassShader;
-  if (!load_shader_module(
-          "../../src/compiled_shaders/light_pass.compute.spv", m_device,
-          &lightPassShader)) {
+  if (!load_shader_module("../../src/compiled_shaders/light_pass.compute.spv",
+                          m_device, &lightPassShader)) {
     throw std::runtime_error("Failed to load a light pass shader");
   }
 
@@ -1444,6 +1456,18 @@ void Engine::init_default_data() {
         .buffer = frame.sceneDataBuffer.buffer,
     };
     frame.sceneDataBufferAddr = vkGetBufferDeviceAddress(m_device, &addrInfo);
+
+    frame.lightDataBuffer =
+        create_buffer(sizeof(LightData) * 10'000,
+                      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
+                          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                      VMA_MEMORY_USAGE_CPU_TO_GPU);
+    const VkBufferDeviceAddressInfo lightAddrInfo{
+        .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+        .buffer = frame.lightDataBuffer.buffer,
+    };
+    frame.lightDataBufferAddr =
+        vkGetBufferDeviceAddress(m_device, &lightAddrInfo);
   }
 
   m_metalRoughness.write_sampler(m_defaultSamplerLinear);
@@ -1451,7 +1475,10 @@ void Engine::init_default_data() {
   m_mainDeletionQueue.push_function([&] {
     m_metalRoughness.clear_resources(*this);
 
-    for (auto& frame : m_frameData) destroy_buffer(frame.sceneDataBuffer);
+    for (auto& frame : m_frameData) {
+      destroy_buffer(frame.sceneDataBuffer);
+      destroy_buffer(frame.lightDataBuffer);
+    }
 
     destroy_image(m_whiteImage);
     destroy_image(m_blackImage);
@@ -1535,6 +1562,7 @@ void Engine::update_scene() {
   m_camera.update(m_stats.frameTime);
   m_mainDrawContext.opaqueRenderObjects.clear();
   m_mainDrawContext.transparentRenderObjects.clear();
+  m_mainDrawContext.lights.clear();
 
   m_scene.draw(glm::mat4(1.0f), m_mainDrawContext);
 
@@ -1546,6 +1574,17 @@ void Engine::update_scene() {
   m_sceneData.view = m_camera.get_view_matrix();
   m_sceneData.proj = proj;
   m_sceneData.projView = proj * m_sceneData.view;
+  m_sceneData.cameraPos = m_camera.position;
+  m_sceneData.padding0 = 0.0f;
+
+  m_LightPassConstants.sceneDataBufferDeviceAddr =
+      get_current_frame().sceneDataBufferAddr;
+  m_LightPassConstants.lightDataBufferDeviceAddr =
+      get_current_frame().lightDataBufferAddr;
+  m_LightPassConstants.lightCount = m_mainDrawContext.lights.size();
+  std::memcpy(get_current_frame().lightDataBuffer.allocationInfo.pMappedData,
+              m_mainDrawContext.lights.data(),
+              m_mainDrawContext.lights.size() * sizeof(LightData));
   const auto end = cn::steady_clock::now();
   const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
 

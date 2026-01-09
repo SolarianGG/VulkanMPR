@@ -35,6 +35,8 @@ struct FrameData {
   AllocatedImage depthImage;
   AllocatedBuffer sceneDataBuffer;
   VkDeviceAddress sceneDataBufferAddr;
+  AllocatedBuffer lightDataBuffer;
+  VkDeviceAddress lightDataBufferAddr;
   DescriptorBuffer drawImageDescriptorBuffer;
   AllocatedBuffer instanceBuffer;
   VkDeviceAddress instanceBufferAddr;

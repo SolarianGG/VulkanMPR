@@ -73,7 +73,6 @@ add_executable(VulkanMPR "${SRC_PATH}/VulkanMPR.cpp"
                           "${COMP_PATH}/mpr_materials.cpp"
                           "${COMP_PATH}/mpr_scene.cpp"
 
-
 )
 
 target_include_directories(VulkanMPR PRIVATE 

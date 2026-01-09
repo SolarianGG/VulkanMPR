@@ -40,6 +40,7 @@ struct DrawContext {
       opaqueRenderObjects;
   std::unordered_map<RenderObject, std::vector<Instance>, RenderObjectHash>
       transparentRenderObjects;
+  std::vector<LightData> lights;
 };
 
 struct Node : public IRenderable {
@@ -63,6 +64,10 @@ struct Node : public IRenderable {
       c->draw(topMatrix, ctx);
     }
   }
+
+  virtual void edit() {
+    
+  }
 };
 struct MeshAsset;
 
@@ -73,6 +78,16 @@ struct MeshNode final : public Node {
   explicit MeshNode(std::shared_ptr<MeshAsset> mesh_)
       : mesh(std::move(mesh_)) {}
   void draw(const glm::mat4& topMatrix, DrawContext& ctx) override;
+};
+
+struct LightNode final : public Node {
+  LightData lightData;
+  LightNode() = default;
+  explicit LightNode(LightData data) : lightData(std::move(data)) {}
+
+  void draw(const glm::mat4& topMatrix, DrawContext& ctx) override;
+
+  void edit() override;
 };
 
 struct Scene final : public IRenderable {

@@ -49,6 +49,8 @@ struct AllocatedImage {
 
 struct LightPassConstantRange {
   VkDeviceAddress sceneDataBufferDeviceAddr;
+  VkDeviceAddress lightDataBufferDeviceAddr;
+  std::uint32_t lightCount;
 };
 
 struct AllocatedBuffer {
@@ -95,6 +97,16 @@ struct GpuSceneData {
   glm::mat4 view;
   glm::mat4 proj;
   glm::mat4 projView;
+  glm::vec3 cameraPos;
+  float padding0;
+};
+
+struct LightData {
+  std::int32_t lightType; // directional - 0, point - 1
+  std::int32_t padding0[3];
+
+  glm::vec4 data0;
+  glm::vec4 data1;
 };
 
 enum class MaterialPass : std::uint8_t { Opaque, Transparent, Other };
