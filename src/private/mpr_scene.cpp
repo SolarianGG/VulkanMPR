@@ -38,7 +38,7 @@ void MeshNode::draw(const glm::mat4& topMatrix, DrawContext& ctx) {
 void LightNode::draw(const glm::mat4& topMatrix, DrawContext& ctx) {
   if (lightData.lightType == 0) {
     const glm::vec3 lightDirection =
-        glm::normalize(-glm::vec3(worldTransform[2]));
+        glm::normalize(glm::vec3(worldTransform[2]));
     lightData.data0 = glm::vec4{lightDirection, lightData.data0.w};
   }
   if (lightData.lightType == 1) {
