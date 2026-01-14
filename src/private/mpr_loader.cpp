@@ -240,7 +240,10 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
         .colorTextureID = 0,
         .colorSamplerID = 0,
         .metalRoughnessTextureID = 0,
-        .metalRoughnessSamplerID = 0};
+        .metalRoughnessSamplerID = 0,
+        .normalTextureID = 2,  // NOTE: Normal fallback texture index
+        .normalSamplerID = 0,
+    };
 
     auto getTextureIndex = [&engine, &images](const std::size_t index) {
       return engine.m_metalRoughness.write_texture(images[index].imageView);
@@ -249,6 +252,17 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
     auto getSamplerIndex = [&engine, &file](const std::size_t index) {
       return engine.m_metalRoughness.write_sampler(file.samplers[index]);
     };
+
+    if (material.normalTexture.has_value()) {
+      const auto textureIndex = material.normalTexture.value().textureIndex;
+      const auto imgIndex = asset.textures[textureIndex].imageIndex.value();
+      const auto samplerIndex =
+          asset.textures[textureIndex].samplerIndex.value();
+      newMat->data.indices.normalTextureID =
+          GetCached(imgIndex, texturesCache, getTextureIndex);
+      newMat->data.indices.normalSamplerID =
+          GetCached(samplerIndex, samplersCache, getSamplerIndex);
+    }
     if (material.pbrData.baseColorTexture.has_value()) {
       const auto textureIndex =
           material.pbrData.baseColorTexture.value().textureIndex;
@@ -333,6 +347,7 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
             });
       }
 
+
       // load UVs
       auto uv = p.findAttribute("TEXCOORD_0");
       if (uv != p.attributes.end()) {
@@ -341,6 +356,15 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
             [&](const glm::vec2 v, const size_t index) {
               vertices[initialVtx + index].u = v.x;
               vertices[initialVtx + index].v = v.y;
+            });
+      }
+      auto tangent = p.findAttribute("TANGENT");
+      if (tangent != p.attributes.end()) {
+        assert(uv != p.attributes.end());
+        fastgltf::iterateAccessorWithIndex<glm::vec4>(
+            asset, asset.accessors[tangent->accessorIndex],
+            [&](const glm::vec4 v, const std::size_t index) {
+              vertices[initialVtx + index].tangent = v;
             });
       }
 

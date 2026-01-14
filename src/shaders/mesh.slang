@@ -4,6 +4,7 @@ struct Vertex
     float u;
     float3 norm;
     float v;
+    float4 tangent;
     float4 col;
 };
 
@@ -15,6 +16,8 @@ struct Instance
     uint colorSamplerID;
     uint metalRoughTextureID;
     uint metalRoughSamplerID;
+    uint normalTextureID;
+    uint normalSamplerID;
 };
 
 struct SceneData 
@@ -45,14 +48,16 @@ struct VSOutput
 {
     float4 pos : SV_Position;
     float4 worldPos;
-    float3 norm;
     float3 col;
     float2 uv;
+    float3x3 TBN;
     nointerpolation uint materialID;
     nointerpolation uint colorTextureID;
     nointerpolation uint colorSamplerID;
     nointerpolation uint metalRoughTextureID;
     nointerpolation uint metalRoughSamplerID;
+    nointerpolation uint normalTextureID;
+    nointerpolation uint normalSamplerID;
 };
 
 [shader("vertex")]
@@ -66,15 +71,22 @@ VSOutput vertexMain(uint vertexID : SV_VulkanVertexID, uint instanceID : SV_Vulk
     output.pos = mul(scene.projView, mul(instance.worldTransform, vertexPos));
     output.worldPos = mul(instance.worldTransform, vertexPos);
     output.col = vertex.col.xyz;
-    // Shader supports only uniform scaling
-    float3x3 normalMatrix = (float3x3)instance.worldTransform;
-    output.norm = normalize(mul(normalMatrix, vertex.norm));
+    // Normal mapping TBN
+    float3 T = normalize(mul((float3x3)instance.worldTransform, vertex.tangent.xyz));
+    float3 N = normalize(mul((float3x3)instance.worldTransform, vertex.norm));
+    T = normalize(T - dot(T, N) * N);
+    float3 B = cross(N, T);
+    float3x3 TBN = float3x3(T, B, N);
+    output.TBN = TBN;
+
     output.uv = float2(vertex.u, vertex.v);
 
     output.colorTextureID = instance.colorTextureID;
     output.metalRoughTextureID = instance.metalRoughTextureID;
     output.colorSamplerID = instance.colorSamplerID;
     output.metalRoughSamplerID = instance.metalRoughSamplerID;
+    output.normalTextureID = instance.normalTextureID;
+    output.normalSamplerID = instance.normalSamplerID;
     return output;
 };
 
@@ -96,12 +108,12 @@ PSOutput fragmentMain(VSOutput input)
 
   float4 metalRoughness = textures[NonUniformResourceIndex(input.metalRoughTextureID)].Sample( samplers[NonUniformResourceIndex(input.metalRoughSamplerID)], input.uv);
 
-
-
+  float3 bumpMapNormal = textures[NonUniformResourceIndex(input.normalTextureID)] .Sample(samplers[NonUniformResourceIndex(input.normalSamplerID)], input.uv) .rgb;
+  bumpMapNormal = normalize(bumpMapNormal * 2.0f - float3(1.0f, 1.0f, 1.0f));
   
   PSOutput output;
   output.pos = input.worldPos;
-  output.normal = float4(normalize(input.norm), 0.0f); 
+  output.normal = float4(mul(bumpMapNormal, input.TBN), 1.0f);
   output.diffuse = materialData.colorFactors * float4(input.col, 1.0f) * baseColor;
   if (output.diffuse.w < 0.1)
       discard;

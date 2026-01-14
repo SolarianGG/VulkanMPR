@@ -64,6 +64,7 @@ struct Vertex {
   float u;
   glm::vec3 normal;
   float v;
+  glm::vec4 tangent;
   glm::vec4 color;
 };
 
@@ -73,6 +74,8 @@ struct MaterialInstanceIndices {
   std::uint32_t colorSamplerID;
   std::uint32_t metalRoughnessTextureID;
   std::uint32_t metalRoughnessSamplerID;
+  std::uint32_t normalTextureID;
+  std::uint32_t normalSamplerID;
 };
 
 struct Instance {

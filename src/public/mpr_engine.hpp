@@ -136,6 +136,7 @@ class Engine final {
   AllocatedImage m_blackImage;
   AllocatedImage m_greyImage;
   AllocatedImage m_errorImage;
+  AllocatedImage m_normalFallback;
 
   VkSampler m_defaultSamplerLinear;
   VkSampler m_defaultSamplerNearest;

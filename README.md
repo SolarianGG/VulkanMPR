@@ -45,9 +45,10 @@ It focuses on learning GPU resource management, descriptor systems, shader refle
 - Slang shader language integration
 - Batching and instancing
 - Scene graph (transforms, nodes, cameras, lights, materials)
+- Normal mapping
+- Metal-roughness based PBR materials
 
 ### Planned Features
-- Normal mapping
 - Directional shadows
 - HDR + tonemap
 - PBR

@@ -734,6 +734,9 @@ void Engine::run() {
       ImGui::DragFloat("Render scale", &m_renderScale, 0.01f, 0.01f, 1.0f);
       ImGui::DragFloat("Camera speed", &m_camera.cameraSpeed, 0.01f, 0.01f,
                        100.0f);
+#if 0
+      ImGui::Checkbox("Draw debug light positions", &m_IsLightsRendered);
+#endif
     }
     ImGui::End();
 
@@ -1381,7 +1384,7 @@ void Engine::init_imgui() {
 }
 
 void Engine::init_mesh_data() {
-  const std::string sponzaPath = "../../assets/Sponza/glTF/sponza.gltf";
+  const std::string sponzaPath = "../../assets/gltf-samples/Models/Sponza/glTF/sponza.gltf";
   if (!load_gltf(*this, sponzaPath)) {
     throw std::runtime_error("Failed to load glTF file: " + sponzaPath);
   }
@@ -1419,6 +1422,12 @@ void Engine::init_default_data() {
       glm::packUnorm4x8(glm::vec4(0.5f, 0.5f, 0.5f, 1.0f));
   m_greyImage =
       create_image(reinterpret_cast<void*>(&greyColor), VkExtent3D{1, 1, 1},
+                   VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
+  // TODO: Add fallback normal texture
+  std::uint32_t normalFallback =
+      glm::packUnorm4x8(glm::vec4(0.5f, 0.5f, 1.0f, 1.0f));
+  m_normalFallback =
+      create_image(&normalFallback, VkExtent3D{1, 1, 1},
                    VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
 
   const std::uint32_t magentaColor =
@@ -1470,8 +1479,10 @@ void Engine::init_default_data() {
         vkGetBufferDeviceAddress(m_device, &lightAddrInfo);
   }
 
-  m_metalRoughness.write_sampler(m_defaultSamplerLinear);
-  m_metalRoughness.write_texture(m_whiteImage.imageView);
+  assert(0 == m_metalRoughness.write_sampler(m_defaultSamplerLinear));
+  assert(0 == m_metalRoughness.write_texture(m_whiteImage.imageView));
+  assert(1 == m_metalRoughness.write_texture(m_blackImage.imageView));
+  assert(2 == m_metalRoughness.write_texture(m_normalFallback.imageView));
   m_mainDeletionQueue.push_function([&] {
     m_metalRoughness.clear_resources(*this);
 
@@ -1484,6 +1495,7 @@ void Engine::init_default_data() {
     destroy_image(m_blackImage);
     destroy_image(m_greyImage);
     destroy_image(m_errorImage);
+    destroy_image(m_normalFallback);
 
     vkDestroySampler(m_device, m_defaultSamplerLinear, nullptr);
     vkDestroySampler(m_device, m_defaultSamplerNearest, nullptr);
