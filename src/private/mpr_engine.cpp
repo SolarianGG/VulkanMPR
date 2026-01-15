@@ -194,7 +194,7 @@ void Engine::draw() {
     barrierBuilder.barrier(cmd);
   }
 
-  draw_geometry(cmd);
+  draw_gBuffer_pass(cmd);
 
   // Light pass
   {
@@ -240,7 +240,7 @@ void Engine::draw() {
     barrierBuilder.barrier(cmd);
   }
 
-  draw_background(cmd);
+  draw_light_pass(cmd);
 
   // Imgui + swapchain copy
   {
@@ -453,7 +453,7 @@ void Engine::edit_node(Scene& scene, const std::uint64_t nodeIndex) {
   ImGui::End();
 }
 
-void Engine::draw_background(const VkCommandBuffer cmd) {
+void Engine::draw_light_pass(const VkCommandBuffer cmd) {
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_LightPassPipeline);
 
   VkDescriptorBufferBindingInfoEXT buffersInfo[]{
@@ -808,7 +808,7 @@ void Engine::draw_imgui(const VkCommandBuffer cmd,
   vkCmdEndRendering(cmd);
 }
 
-void Engine::draw_geometry(VkCommandBuffer cmd) {
+void Engine::draw_gBuffer_pass(VkCommandBuffer cmd) {
   m_stats.drawCallCount = 0;
   m_stats.triangleCount = 0;
   const auto start = cn::steady_clock::now();

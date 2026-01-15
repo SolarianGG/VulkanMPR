@@ -54,7 +54,6 @@ void LightNode::draw(const glm::mat4& topMatrix, DrawContext& ctx) {
 void LightNode::edit() {
   Node::edit();
 
-  ImGui::Begin("Light properties");
 
   ImGui::DragInt("Light type: ", &lightData.lightType, 1, 0, 1);
   if (lightData.lightType == 0) {
@@ -69,7 +68,6 @@ void LightNode::edit() {
   ImGui::ColorPicker3("Color", reinterpret_cast<float*>(&lightData.data1));
   ImGui::DragFloat("Intensity", &lightData.data1.w, 0.01f, 0.01f, 100.0f);
 
-  ImGui::End();
 }
 
 void Scene::draw(const glm::mat4& topMatrix, DrawContext& ctx) {

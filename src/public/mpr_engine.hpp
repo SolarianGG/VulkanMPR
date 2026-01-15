@@ -167,9 +167,9 @@ class Engine final {
   void init_mesh_data();
   void init_default_data();
   void draw();
-  void draw_background(VkCommandBuffer cmd);
+  void draw_light_pass(VkCommandBuffer cmd);
   void draw_imgui(VkCommandBuffer cmd, VkImageView targetImageView);
-  void draw_geometry(VkCommandBuffer cmd);
+  void draw_gBuffer_pass(VkCommandBuffer cmd);
   void update_scene();
 
 
