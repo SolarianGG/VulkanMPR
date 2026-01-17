@@ -10,9 +10,7 @@ class Engine;
 
 struct GLTFMetallicRoughness {
   MaterialPipeline opaquePipeline;
-#if 0
   MaterialPipeline transparentPipeline;
-#endif
 
   VkDescriptorSetLayout materialLayout;
   DescriptorBuffer descriptors;
@@ -23,6 +21,8 @@ struct GLTFMetallicRoughness {
   struct MaterialConstants {
     glm::vec4 colorFactors;
     glm::vec4 metalRoughFactors;
+    float alphaCutoff;
+    float padding[3];
   };
 
   void build_pipelines(Engine& engine);

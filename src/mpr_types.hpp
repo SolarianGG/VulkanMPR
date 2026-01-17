@@ -47,11 +47,6 @@ struct AllocatedImage {
   VkFormat imageFormat;
 };
 
-struct LightPassConstantRange {
-  VkDeviceAddress sceneDataBufferDeviceAddr;
-  VkDeviceAddress lightDataBufferDeviceAddr;
-  std::uint32_t lightCount;
-};
 
 struct AllocatedBuffer {
   VkBuffer buffer;
@@ -89,12 +84,25 @@ struct GpuMeshBuffers {
   VkDeviceAddress vertexBufferDeviceAddr;
 };
 
-struct GpuPushConstants {
+struct GBufferPassPushConstants {
   VkDeviceAddress vertexBufferDeviceAddr;
   VkDeviceAddress instanceBufferDeviceAddr;
   VkDeviceAddress sceneDataBufferDeviceAddr;
 };
 
+struct OITForwardPassPushConstants {
+  VkDeviceAddress vertexBufferDeviceAddr;
+  VkDeviceAddress instanceBufferDeviceAddr;
+  VkDeviceAddress sceneDataBufferDeviceAddr;
+  VkDeviceAddress lightDataBufferDeviceAddr;
+  std::uint32_t lightCount;
+};
+
+struct LightPassConstantRange {
+  VkDeviceAddress sceneDataBufferDeviceAddr;
+  VkDeviceAddress lightDataBufferDeviceAddr;
+  std::uint32_t lightCount;
+};
 
 struct GpuSceneData {
   glm::mat4 view;

@@ -11,11 +11,12 @@ struct PipelineBuilder {
 
   VkPipelineInputAssemblyStateCreateInfo inputAssembly;
   VkPipelineRasterizationStateCreateInfo rasterizer;
-  VkPipelineColorBlendAttachmentState colorBlend;
   VkPipelineMultisampleStateCreateInfo multisampling;
   VkPipelineLayout pipelineLayout;
   VkPipelineDepthStencilStateCreateInfo depthStencil;
   VkPipelineRenderingCreateInfo renderInfo;
+
+  std::vector<VkPipelineColorBlendAttachmentState> colorBlends;
   std::vector<
   VkFormat> colorAttachmentFormats;
 
@@ -39,8 +40,6 @@ struct PipelineBuilder {
 
   void set_multisampling_none();
 
-  void disable_blending();
-
   void add_color_attachment_format(VkFormat format);
 
   void set_depth_format(VkFormat format);
@@ -49,8 +48,6 @@ struct PipelineBuilder {
   void enable_depth_test(const bool enableDepthWrite,
                          const VkCompareOp depthCompareOp);
 
-  void enable_blending_additive();
-  void enable_blending_alpha();
 };
 
 }  // namespace mp

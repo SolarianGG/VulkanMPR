@@ -1,0 +1,36 @@
+struct Vertex
+{
+    float3 pos;
+    float u;
+    float3 norm;
+    float v;
+    float4 tangent;
+    float4 col;
+};
+
+struct Instance
+{
+    float4x4 worldTransform;
+    uint materialID;
+    uint colorTextureID;
+    uint colorSamplerID;
+    uint metalRoughTextureID;
+    uint metalRoughSamplerID;
+    uint normalTextureID;
+    uint normalSamplerID;
+};
+
+struct SceneData 
+{
+    float4x4 view;
+    float4x4 proj;
+    float4x4 projView;
+    float3 cameraPos;
+    float padding;
+};
+
+struct GLTFMaterialData {
+    float4 colorFactors;
+    float4 metalRoughnessFactors;
+    float4 alphaCutoff;
+};

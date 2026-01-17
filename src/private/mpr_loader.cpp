@@ -225,6 +225,8 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
     materialConstants.metalRoughFactors = {material.pbrData.metallicFactor,
                                            material.pbrData.roughnessFactor,
                                            0.0f, 0.0f};
+    materialConstants.alphaCutoff = material.alphaMode
+        == fastgltf::AlphaMode::Mask ? material.alphaCutoff : 0.0f;
     sceneMaterialsConstants[dataIndex] = materialConstants;
 
     auto passType = MaterialPass::Opaque;

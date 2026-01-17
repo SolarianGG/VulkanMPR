@@ -112,12 +112,12 @@ inline VkRenderingAttachmentInfo attachment_info(const VkImageView view,
 }
 
 inline VkRenderingAttachmentInfo depth_attachment(
-    const VkImageView view, const VkImageLayout imageLayout) {
+    const VkImageView view, const VkImageLayout imageLayout, bool clear = true) {
   constexpr VkClearDepthStencilValue depthStencilValue{
       .depth = 1.0f,
   };
   const VkClearValue clearValue{.depthStencil = depthStencilValue};
-  return attachment_info(view, &clearValue, imageLayout);
+  return attachment_info(view, clear ? &clearValue : nullptr, imageLayout);
 }
 
 inline VkRenderingInfo rendering_info(

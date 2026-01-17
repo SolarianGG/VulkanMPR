@@ -30,30 +30,42 @@ It focuses on learning GPU resource management, descriptor systems, shader refle
 ### Building:
 - git clone --recursive https://github.com/SolarianGG/VulkanMPR.git
 - python ./vcpkg_init_project.py
+- python ./shader_cmp.py
 - cmake --preset=default
 - cmake --build build
 
-### Screenshots:
-![Structure](./screenshots/structure.png)
-![Sponza](./screenshots/sponza.png)
-![Scenegraph](./screenshots/scene-manip-tr.png)
-
 ### Implemented Features:
 - Vulkan deferred renderer
+
+![Deferred](./screenshots/deferred.png)
 - GLTF model loading
 - Bindless material model via descriptor buffers extension
 - Slang shader language integration
 - Batching and instancing
+![Instancing](./screenshots/instancing.png)
 - Scene graph (transforms, nodes, cameras, lights, materials)
+![Scenegraph](./screenshots/scene-manip-tr.png)
 - Normal mapping
-- Metal-roughness based PBR materials
+
+Without normal mapping
+![WithoutNM](./screenshots/nomp.png)
+With normal mapping
+![NM](./screenshots/mp.png)
+- Metal-roughness PBR material
+- Weight blended order independent transparency
+![WBOIT](./screenshots/wboit.png)
+
 
 ### Planned Features
+- Indirect drawing
+- Frustrum culling
+- Render doc debug markers
 - Directional shadows
-- HDR + tonemap
+- HDR + tonemap + gamma correction
 - PBR
 - IBL
 - Bloom
 - CSM
 - SSAO
+- Multithreaded cmd record
 

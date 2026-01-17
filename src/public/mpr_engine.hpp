@@ -2,9 +2,9 @@
 
 #include "mpr_camera.hpp"
 #include "mpr_descriptors.hpp"
-#include "mpr_types.hpp"
 #include "mpr_materials.hpp"
 #include "mpr_scene.hpp"
+#include "mpr_types.hpp"
 
 struct SDL_Window;
 
@@ -15,7 +15,11 @@ struct EngineStats {
   int triangleCount;
   int drawCallCount;
   float sceneUpdateTime;
-  float meshDrawTime;
+  float gBufferPassTime;
+  float gBufferLightPassTime;
+  float transparentForwardLightPassTime;
+  float imguiDrawTime;
+  float postProcessPassTime;
 };
 
 constexpr auto kNumberOfFrames = 2;
@@ -26,22 +30,24 @@ struct FrameData {
   VkSemaphore swapchainSemaphore;
   DeletionQueue frameDeletionQueue;
   struct {
-    AllocatedImage position; 
-    AllocatedImage normal; 
-    AllocatedImage diffuse; 
-    AllocatedImage specular; 
+    AllocatedImage position;
+    AllocatedImage normal;
+    AllocatedImage diffuse;
+    AllocatedImage specular;
   } gBuffer;
   AllocatedImage drawImage;
   AllocatedImage depthImage;
+  AllocatedImage oitAccImage;
+  AllocatedImage oitRevealImage;
   AllocatedBuffer sceneDataBuffer;
   VkDeviceAddress sceneDataBufferAddr;
   AllocatedBuffer lightDataBuffer;
   VkDeviceAddress lightDataBufferAddr;
   DescriptorBuffer drawImageDescriptorBuffer;
+  DescriptorBuffer wboitCompositePassDescBuffer;
   AllocatedBuffer instanceBuffer;
   VkDeviceAddress instanceBufferAddr;
 };
-
 
 class Engine final {
  public:
@@ -127,7 +133,7 @@ class Engine final {
 
   VkPipeline m_meshPipeline;
 
-  GpuPushConstants m_MeshPassPushConstants;
+  GBufferPassPushConstants m_MeshPassPushConstants;
 
   bool m_bSwapchainResizeRequest = false;
   float m_renderScale{1.0f};
@@ -150,9 +156,24 @@ class Engine final {
 
   EngineStats m_stats{};
 
+  VkExtent3D m_CommonImageExtent3D;
+  VkExtent2D m_CommonImageExtent2D;
+
   GpuSceneData m_sceneData;
 
+  GBufferPassPushConstants m_GBufferMeshPushConstants;
+  OITForwardPassPushConstants m_WBOITForwardPassPushConstants;
+
+  Instance* m_CurrentFrameInstanceBuffer = nullptr;
+  std::size_t m_CurrentInstanceBufferOffset = 0;
+  VkBuffer m_LastIndexBuffer = nullptr;
+
+  VkPipelineLayout m_PostProcessPassPipelineLayout;
+  VkPipeline m_PostProcessPassPipeline;
+
   std::uint64_t m_selectedNode = UINT64_MAX;
+
+  VkDescriptorSetLayout m_WboitCompositePassDescriptorSetLayout;
 
  private:
   void init_window();
@@ -163,6 +184,7 @@ class Engine final {
   void init_descriptors();
   void init_pipelines();
   void init_light_pass_pipeline();
+  void init_wboit_composite_pass_pipeline();
   void init_imgui();
   void init_mesh_data();
   void init_default_data();
@@ -170,13 +192,19 @@ class Engine final {
   void draw_light_pass(VkCommandBuffer cmd);
   void draw_imgui(VkCommandBuffer cmd, VkImageView targetImageView);
   void draw_gBuffer_pass(VkCommandBuffer cmd);
+  void draw_wboit(VkCommandBuffer cmd);
+  void draw_wboit_composite(VkCommandBuffer cmd);
   void update_scene();
+  void draw_meshes(VkCommandBuffer cmd, const RenderObject& ctx,
+                   const std::vector<Instance>& instances,
+                   const VkPipelineLayout pipelineLayout, auto& pushConstants,
+                   const VkShaderStageFlags pushConstantsShaderStage);
 
-
-  static std::uint64_t render_scene_tree_ui(
-      Scene& scene, std::uint64_t nodeIndex,
-      std::uint64_t selectedNode);
-  bool edit_transform_ui(const glm::mat4& view, const glm::mat4& projection, glm::mat4& globalTransform);
+  static std::uint64_t render_scene_tree_ui(Scene& scene,
+                                            std::uint64_t nodeIndex,
+                                            std::uint64_t selectedNode);
+  bool edit_transform_ui(const glm::mat4& view, const glm::mat4& projection,
+                         glm::mat4& globalTransform);
   void edit_node(Scene& scene, std::uint64_t nodeIndex);
 };
 

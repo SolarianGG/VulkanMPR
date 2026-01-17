@@ -1,10 +1,14 @@
 #include "utils.islang"
+#include "light_utils.islang"
 
 struct PushConstants {
     Vertex *vertices;
     Instance *instances;
     SceneData *sceneData;
+    LightData *lights;
+    uint lightCount;
 };
+
 [[vk::binding(0, 0)]] ConstantBuffer<GLTFMaterialData> materials[];
 [[vk::binding(1, 0)]] SamplerState samplers[];
 [[vk::binding(2, 0)]] Texture2D textures[];
@@ -60,15 +64,13 @@ VSOutput vertexMain(uint vertexID : SV_VulkanVertexID, uint instanceID : SV_Vulk
 };
 
 struct PSOutput {
-    float4 pos : SV_Target0;
-    float4 normal : SV_Target1;
-    float4 albedo : SV_Target2;
-    float4 metalRoughness : SV_Target3;
+    float4 color : SV_Target0;
+    float reveal : SV_Target1;
 }
 
 
 [shader("pixel")]
-PSOutput fragmentMain(VSOutput input)
+PSOutput fragmentMain(VSOutput input, float4 fragCoord : SV_Position)
 {
   GLTFMaterialData materialData = materials[NonUniformResourceIndex(input.materialID)];
 
@@ -79,12 +81,51 @@ PSOutput fragmentMain(VSOutput input)
   float3 bumpMapNormal = textures[NonUniformResourceIndex(input.normalTextureID)] .Sample(samplers[NonUniformResourceIndex(input.normalSamplerID)], input.uv) .rgb;
   bumpMapNormal = normalize(bumpMapNormal * 2.0f - float3(1.0f, 1.0f, 1.0f));
   
+  float4 mr = materialData.metalRoughnessFactors * metalRoughness;
+
+  float3 worldPos = input.worldPos.xyz;
+  float3 normal = normalize(mul(bumpMapNormal, input.TBN));
+  float4 diffuse = materialData.colorFactors * input.col * baseColor;
+  float metallic = mr.r;
+  float roughness = mr.g;
+  roughness = max(roughness, 0.04f); 
+
+  float4 color = 0.0f;
+
+  for (uint i = 0; i < pushConstants.lightCount; ++i)
+  {
+      LightData light = pushConstants.lights[i];
+      if (light.type.x == 0)
+      {
+          DirectionalLight dirLight;
+          dirLight.direction = light.data0.xyz;
+          dirLight.color = light.data1.xyz;
+          dirLight.intensity = light.data1.w;
+          color.rgb += CalculateDirLightPBR(worldPos, pushConstants.sceneData.cameraPos, normal, diffuse.rgb, metallic, roughness, dirLight);
+      }
+      else if (light.type.x == 1)
+      {
+          PointLight pointLight;
+          pointLight.position = light.data0.xyz;
+          pointLight.range = light.data0.w;
+          pointLight.color = light.data1.xyz;
+          pointLight.intensity = light.data1.w;
+          color.rgb += CalculatePointLightPBR(worldPos, pushConstants.sceneData.cameraPos, normal, diffuse.rgb, metallic, roughness, pointLight);
+      }
+  }
+  color.a = diffuse.a;
+
+
+  float weight =
+    max(min(1.0, max(max(color.r, color.g), color.b) * color.a), color.a) *
+                 clamp(0.03 / (1e-5 + pow(fragCoord.z / 200, 4.0)), 1e-2, 3e3);
   PSOutput output;
-  output.pos = input.worldPos;
-  output.normal = float4(mul(bumpMapNormal, input.TBN), 1.0f);
-  output.albedo = materialData.colorFactors * input.col * baseColor;
-  if (output.albedo.a < materialData.alphaCutoff.r)
-      discard;
-  output.metalRoughness = materialData.metalRoughnessFactors * metalRoughness;
+
+  // blend func: GL_ONE, GL_ONE
+  // switch to pre-multiplied alpha and weight
+  output.color = float4(color.rgb * color.a, color.a) * weight;
+
+  // blend func: GL_ZERO, GL_ONE_MINUS_SRC_ALPHA
+  output.reveal = color.a;
   return output;
 };

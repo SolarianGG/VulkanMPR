@@ -49,8 +49,6 @@ void PipelineBuilder::clear() {
   rasterizer = {.sType =
                     VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
 
-  colorBlend = {};
-
   multisampling = {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
 
@@ -77,8 +75,6 @@ VkPipeline PipelineBuilder::build_pipeline(
       .scissorCount = 1,
   };
 
-  std::vector<VkPipelineColorBlendAttachmentState> colorBlends(
-      colorAttachmentFormats.size(), colorBlend);
   const VkPipelineColorBlendStateCreateInfo colorBlendState{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
       .pNext = nullptr,
@@ -88,6 +84,8 @@ VkPipeline PipelineBuilder::build_pipeline(
           static_cast<std::uint32_t>(colorBlends.size()),
       .pAttachments = colorBlends.data(),
   };
+
+  assert(colorBlends.size() == colorAttachmentFormats.size());
 
   constexpr VkPipelineVertexInputStateCreateInfo vertexInputInfo{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
@@ -194,36 +192,4 @@ void PipelineBuilder::enable_depth_test(const bool enableDepthWrite,
   depthStencil.maxDepthBounds = 1.f;
 }
 
-void PipelineBuilder::disable_blending() {
-  colorBlend.colorWriteMask =
-      VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-      VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-  colorBlend.blendEnable = VK_FALSE;
-}
-
-void PipelineBuilder::enable_blending_additive() {
-  colorBlend.colorWriteMask =
-      VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-      VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-  colorBlend.blendEnable = VK_TRUE;
-  colorBlend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-  colorBlend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
-  colorBlend.colorBlendOp = VK_BLEND_OP_ADD;
-  colorBlend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-  colorBlend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-  colorBlend.alphaBlendOp = VK_BLEND_OP_ADD;
-}
-
-void PipelineBuilder::enable_blending_alpha() {
-  colorBlend.colorWriteMask =
-      VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-      VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-  colorBlend.blendEnable = VK_TRUE;
-  colorBlend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-  colorBlend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-  colorBlend.colorBlendOp = VK_BLEND_OP_ADD;
-  colorBlend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-  colorBlend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-  colorBlend.alphaBlendOp = VK_BLEND_OP_ADD;
-}
 }  // namespace mp

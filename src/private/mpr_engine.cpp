@@ -152,6 +152,8 @@ void Engine::draw() {
   vkBeginCommandBuffer(cmd, &beginInfo) >> chk;
 
   utils::BarrierBuilder barrierBuilder;
+  m_stats.drawCallCount = 0;
+  m_stats.triangleCount = 0;
 
   // GPass
   {
@@ -242,12 +244,69 @@ void Engine::draw() {
 
   draw_light_pass(cmd);
 
-  // Imgui + swapchain copy
+  // forward WBOIT pass
+
   {
     barrierBuilder.add_image_barrier(
+        currentFrame.oitAccImage.image, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+            VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+    barrierBuilder.add_image_barrier(
+        currentFrame.oitRevealImage.image, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
+        0, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+            VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+    barrierBuilder.barrier(cmd);
+  }
+
+  draw_wboit(cmd);
+
+  {
+    barrierBuilder.add_image_barrier(
+        currentFrame.oitAccImage.image,
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+            VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
+        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+    barrierBuilder.add_image_barrier(
+        currentFrame.oitRevealImage.image,
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+            VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
+        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+    barrierBuilder.add_image_barrier(
         currentDrawingImage.image, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-        VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-        VK_ACCESS_2_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL,
+        VK_ACCESS_2_SHADER_WRITE_BIT_KHR,
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+            VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
+        VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+    barrierBuilder.barrier(cmd);
+  }
+
+  draw_wboit_composite(cmd);
+
+  // copy to swapchain
+  {
+    barrierBuilder.add_image_barrier(
+        currentDrawingImage.image,
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT |
+            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+        VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
 
@@ -262,6 +321,7 @@ void Engine::draw() {
   utils::copy_to_image(cmd, currentDrawingImage.image, swapchainImage,
                        m_drawExtent, m_swapchainExtent);
 
+  // Imgui
   {
     barrierBuilder.add_image_barrier(
         swapchainImage, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
@@ -327,6 +387,243 @@ void Engine::draw() {
     swapchainPresentResult >> chk;
   }
   ++m_frameNumber;
+}
+
+void Engine::draw_gBuffer_pass(VkCommandBuffer cmd) {
+  const auto start = cn::steady_clock::now();
+  auto& gBuffer = get_current_frame().gBuffer;
+  auto& depthImage = get_current_frame().depthImage;
+
+  // ---
+  VkClearValue val{.color = {0.0f, 0.0f, 0.0f, 1.0f}};
+  const auto positionAttachment =
+      utils::attachment_info(gBuffer.position.imageView, &val,
+                             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+  const auto normalAttachment = utils::attachment_info(
+      gBuffer.normal.imageView, &val, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+  const auto diffuseAttachment =
+      utils::attachment_info(gBuffer.diffuse.imageView, &val,
+                             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+  const auto specularAttachment =
+      utils::attachment_info(gBuffer.specular.imageView, &val,
+                             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+  const auto depthAttachment = utils::depth_attachment(
+      depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+
+  VkRenderingAttachmentInfo attachments[]{positionAttachment, normalAttachment,
+                                          diffuseAttachment,
+                                          specularAttachment};
+  const auto renderInfo =
+      utils::rendering_info(m_CommonImageExtent2D, std::size(attachments),
+                            attachments, &depthAttachment);
+
+  vkCmdBeginRendering(cmd, &renderInfo);
+  const VkViewport viewport{
+      .x = 0,
+      .y = static_cast<float>(m_CommonImageExtent2D.height),
+      .width = static_cast<float>(m_CommonImageExtent2D.width),
+      .height = -static_cast<float>(m_CommonImageExtent2D.height),
+      .minDepth = 0.0f,
+      .maxDepth = 1.0f,
+  };
+  vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+  const VkRect2D scissor{
+      .extent = m_CommonImageExtent2D,
+  };
+  vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+  VkDescriptorBufferBindingInfoEXT bindingInfos[1]{};
+
+  bindingInfos[0] = {
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+      .address = m_metalRoughness.descriptors.get_device_address(),
+      .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
+               VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT};
+  vkCmdBindDescriptorBuffersEXT(cmd, std::size(bindingInfos), bindingInfos);
+
+  const std::uint32_t bufferIndices[]{0};
+  const VkDeviceSize offsets[]{0};
+  vkCmdSetDescriptorBufferOffsetsEXT(
+      cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+      m_metalRoughness.opaquePipeline.pipelineLayout, 0,
+      std::size(bufferIndices), bufferIndices, offsets);
+
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    m_metalRoughness.opaquePipeline.pipeline);
+  for (const auto& [ro, instances] : m_mainDrawContext.opaqueRenderObjects) {
+    draw_meshes(cmd, ro, instances,
+                m_metalRoughness.opaquePipeline.pipelineLayout,
+                m_GBufferMeshPushConstants, VK_SHADER_STAGE_VERTEX_BIT);
+  }
+  vkCmdEndRendering(cmd);
+
+  const auto end = cn::steady_clock::now();
+  const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
+  m_stats.gBufferPassTime = elapsed.count() / 1000.0f;
+}
+
+void Engine::draw_light_pass(const VkCommandBuffer cmd) {
+  const auto start = cn::steady_clock::now();
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_LightPassPipeline);
+
+  VkDescriptorBufferBindingInfoEXT buffersInfo[]{
+      {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+       .pNext = nullptr,
+       .address =
+           get_current_frame().drawImageDescriptorBuffer.get_device_address(),
+       .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
+                VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT}};
+  vkCmdBindDescriptorBuffersEXT(cmd, std::size(buffersInfo), buffersInfo);
+
+  std::uint32_t indices[]{0};
+  VkDeviceSize offsets[]{0};
+  vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                     m_LightPassPipelineLayout, 0,
+                                     std::size(offsets), indices, offsets);
+
+  vkCmdPushConstants(cmd, m_LightPassPipelineLayout,
+                     VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                     sizeof(LightPassConstantRange), &m_LightPassConstants);
+
+  vkCmdDispatch(cmd, std::ceil(m_CommonImageExtent2D.width / 16.0f),
+                std::ceil(m_CommonImageExtent2D.height / 16.0f), 1);
+
+  const auto end = cn::steady_clock::now();
+  const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
+  m_stats.gBufferLightPassTime = elapsed.count() / 1000.0f;
+}
+
+void Engine::draw_wboit(VkCommandBuffer cmd) {
+  const auto start = cn::steady_clock::now();
+  auto& currentFrame = get_current_frame();
+
+  VkDescriptorBufferBindingInfoEXT bindingInfos[1]{};
+
+  const VkClearValue clearAccum{.color = {0.0f, 0.0f, 0.0f, 0.0f}};
+  const VkClearValue clearReveal{.color = {1.0f, 1.0f, 1.0f, 1.0f}};
+  const VkRenderingAttachmentInfo colorAttachments[]{
+      utils::attachment_info(currentFrame.oitAccImage.imageView, &clearAccum,
+                             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL),
+      utils::attachment_info(currentFrame.oitRevealImage.imageView,
+                             &clearReveal,
+                             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)};
+  const auto depthAttachment =
+      utils::depth_attachment(currentFrame.depthImage.imageView,
+                              VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, false);
+  const auto renderInfo =
+      utils::rendering_info(m_CommonImageExtent2D, std::size(colorAttachments),
+                            colorAttachments, &depthAttachment);
+
+  vkCmdBeginRendering(cmd, &renderInfo);
+  bindingInfos[0] = {
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+      .address = m_metalRoughness.descriptors.get_device_address(),
+      .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
+               VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT};
+  vkCmdBindDescriptorBuffersEXT(cmd, std::size(bindingInfos), bindingInfos);
+
+  const std::uint32_t bufferIndices[]{0};
+  const VkDeviceSize offsets[]{0};
+  vkCmdSetDescriptorBufferOffsetsEXT(
+      cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+      m_metalRoughness.transparentPipeline.pipelineLayout, 0,
+      std::size(bufferIndices), bufferIndices, offsets);
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    m_metalRoughness.transparentPipeline.pipeline);
+  for (const auto& [ro, instances] :
+       m_mainDrawContext.transparentRenderObjects) {
+    draw_meshes(cmd, ro, instances,
+                m_metalRoughness.transparentPipeline.pipelineLayout,
+                m_WBOITForwardPassPushConstants,
+                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+  }
+  vkCmdEndRendering(cmd);
+  const auto end = cn::steady_clock::now();
+  const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
+  m_stats.transparentForwardLightPassTime = elapsed.count() / 1000.0f;
+}
+
+void Engine::draw_wboit_composite(VkCommandBuffer cmd) {
+  const auto start = cn::steady_clock::now();
+
+  const auto attachment =
+      utils::attachment_info(get_current_frame().drawImage.imageView, nullptr,
+                             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+  const VkRenderingInfo renderingInfo =
+      utils::rendering_info(m_CommonImageExtent2D, 1, &attachment, nullptr);
+  vkCmdBeginRendering(cmd, &renderingInfo);
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    m_PostProcessPassPipeline);
+
+  VkDescriptorBufferBindingInfoEXT buffersInfo[]{
+      {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+       .pNext = nullptr,
+       .address = get_current_frame()
+                      .wboitCompositePassDescBuffer.get_device_address(),
+       .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
+                VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT}};
+  vkCmdBindDescriptorBuffersEXT(cmd, std::size(buffersInfo), buffersInfo);
+
+  std::uint32_t indices[]{0};
+  VkDeviceSize offsets[]{0};
+  vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                     m_PostProcessPassPipelineLayout, 0,
+                                     std::size(offsets), indices, offsets);
+
+  vkCmdDraw(cmd, 6, 1, 0, 0);
+
+  vkCmdEndRendering(cmd);
+  const auto end = cn::steady_clock::now();
+  const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
+  m_stats.postProcessPassTime = elapsed.count() / 1000.0f;
+}
+
+void Engine::draw_imgui(const VkCommandBuffer cmd,
+                        const VkImageView targetImageView) {
+  const auto start = cn::steady_clock::now();
+  const auto colorAttachment = utils::attachment_info(
+      targetImageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+  const auto renderingInfo =
+      utils::rendering_info(m_swapchainExtent, 1, &colorAttachment, nullptr);
+
+  vkCmdBeginRendering(cmd, &renderingInfo);
+
+  ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
+
+  vkCmdEndRendering(cmd);
+  const auto end = cn::steady_clock::now();
+  const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
+  m_stats.imguiDrawTime = elapsed.count() / 1000.0f;
+}
+
+void Engine::draw_meshes(VkCommandBuffer cmd, const RenderObject& ctx,
+                         const std::vector<Instance>& instances,
+                         const VkPipelineLayout pipelineLayout,
+                         auto& pushConstants,
+                         const VkShaderStageFlags pushConstantsShaderStage) {
+  // draw meshes begin
+  if (m_LastIndexBuffer != ctx.indexBuffer) {
+    vkCmdBindIndexBuffer(cmd, ctx.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+
+    m_LastIndexBuffer = ctx.indexBuffer;
+  }
+
+  std::memcpy(m_CurrentFrameInstanceBuffer + m_CurrentInstanceBufferOffset,
+              instances.data(), instances.size() * sizeof(Instance));
+
+  pushConstants.vertexBufferDeviceAddr = ctx.vertexBufferAddress;
+
+  vkCmdPushConstants(cmd, pipelineLayout, pushConstantsShaderStage, 0,
+                     sizeof(pushConstants), &pushConstants);
+
+  vkCmdDrawIndexed(cmd, ctx.indexCount,
+                   static_cast<std::uint32_t>(instances.size()), ctx.firstIndex,
+                   0,
+                   static_cast<std::uint32_t>(m_CurrentInstanceBufferOffset));
+  m_stats.drawCallCount++;
+  m_stats.triangleCount += ctx.indexCount / 3 * instances.size();
+  m_CurrentInstanceBufferOffset += instances.size();
 }
 
 std::uint64_t Engine::render_scene_tree_ui(Scene& scene,
@@ -453,32 +750,6 @@ void Engine::edit_node(Scene& scene, const std::uint64_t nodeIndex) {
   ImGui::End();
 }
 
-void Engine::draw_light_pass(const VkCommandBuffer cmd) {
-  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_LightPassPipeline);
-
-  VkDescriptorBufferBindingInfoEXT buffersInfo[]{
-      {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-       .pNext = nullptr,
-       .address =
-           get_current_frame().drawImageDescriptorBuffer.get_device_address(),
-       .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
-                VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT}};
-  vkCmdBindDescriptorBuffersEXT(cmd, std::size(buffersInfo), buffersInfo);
-
-  std::uint32_t indices[]{0};
-  VkDeviceSize offsets[]{0};
-  vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                     m_LightPassPipelineLayout, 0,
-                                     std::size(offsets), indices, offsets);
-
-  vkCmdPushConstants(cmd, m_LightPassPipelineLayout,
-                     VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                     sizeof(LightPassConstantRange), &m_LightPassConstants);
-
-  vkCmdDispatch(cmd, std::ceil(m_drawExtent.width / 16.0f),
-                std::ceil(m_drawExtent.height / 16.0f), 1);
-}
-
 void Engine::immediate_submit(
     const std::function<void(VkCommandBuffer)>& function) {
   vkResetFences(m_device, 1, &m_immFence) >> chk;
@@ -592,7 +863,7 @@ AllocatedImage Engine::create_image(void* data, const VkExtent3D extent,
 
   auto* bufferData =
       static_cast<char*>(stagingBuffer.allocation->GetMappedData());
-  std::memcpy(bufferData, static_cast<char*>(data), bufferSize);
+  std::memcpy(bufferData, data, bufferSize);
 
   immediate_submit([&](const VkCommandBuffer cmd) {
     utils::BarrierBuilder barrierBuilder;
@@ -734,6 +1005,7 @@ void Engine::run() {
       ImGui::DragFloat("Render scale", &m_renderScale, 0.01f, 0.01f, 1.0f);
       ImGui::DragFloat("Camera speed", &m_camera.cameraSpeed, 0.01f, 0.01f,
                        100.0f);
+      // TODO: Add debug light visualization
 #if 0
       ImGui::Checkbox("Draw debug light positions", &m_IsLightsRendered);
 #endif
@@ -742,7 +1014,13 @@ void Engine::run() {
 
     ImGui::Begin("Stats");
     ImGui::Text("Frame time: %f ms", m_stats.frameTime);
-    ImGui::Text("Draw time: %f ms", m_stats.meshDrawTime);
+    ImGui::Text("GBuffer Pass time: %f ms", m_stats.gBufferPassTime);
+    ImGui::Text("Deferred light pass time: %f ms",
+                m_stats.gBufferLightPassTime);
+    ImGui::Text("WBOIT forward pass time: %f ms",
+                m_stats.transparentForwardLightPassTime);
+    ImGui::Text("Post process pass time: %f ms", m_stats.postProcessPassTime);
+    ImGui::Text("ImGui draw time: %f ms", m_stats.imguiDrawTime);
     ImGui::Text("Scene update tim: %f ms", m_stats.sceneUpdateTime);
     ImGui::Text("Amount of draw calls: %i", m_stats.drawCallCount);
     ImGui::Text("Amount of triangles: %i", m_stats.triangleCount);
@@ -788,147 +1066,9 @@ void Engine::run() {
     draw();
 
     auto end = cn::steady_clock::now();
-
     auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
     m_stats.frameTime = elapsed.count() / 1000.0f;
   }
-}
-
-void Engine::draw_imgui(const VkCommandBuffer cmd,
-                        const VkImageView targetImageView) {
-  const auto colorAttachment = utils::attachment_info(
-      targetImageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-  const auto renderingInfo =
-      utils::rendering_info(m_swapchainExtent, 1, &colorAttachment, nullptr);
-
-  vkCmdBeginRendering(cmd, &renderingInfo);
-
-  ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
-
-  vkCmdEndRendering(cmd);
-}
-
-void Engine::draw_gBuffer_pass(VkCommandBuffer cmd) {
-  m_stats.drawCallCount = 0;
-  m_stats.triangleCount = 0;
-  const auto start = cn::steady_clock::now();
-  auto* sceneData = static_cast<GpuSceneData*>(
-      get_current_frame().sceneDataBuffer.allocation->GetMappedData());
-  *sceneData = m_sceneData;
-  auto& gBuffer = get_current_frame().gBuffer;
-  auto& depthImage = get_current_frame().depthImage;
-  const VkExtent2D gBufferExtent = {gBuffer.position.imageExtent.width,
-                                    gBuffer.position.imageExtent.height};
-
-  // ---
-  VkClearValue val{.color = {0.0f, 0.0f, 0.0f, 1.0f}};
-  const auto positionAttachment =
-      utils::attachment_info(gBuffer.position.imageView, &val,
-                             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-  const auto normalAttachment = utils::attachment_info(
-      gBuffer.normal.imageView, &val, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-  const auto diffuseAttachment =
-      utils::attachment_info(gBuffer.diffuse.imageView, &val,
-                             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-  const auto specularAttachment =
-      utils::attachment_info(gBuffer.specular.imageView, &val,
-                             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-  const auto depthAttachment = utils::depth_attachment(
-      depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
-
-  VkRenderingAttachmentInfo attachments[]{positionAttachment, normalAttachment,
-                                          diffuseAttachment,
-                                          specularAttachment};
-  const auto renderInfo = utils::rendering_info(
-      gBufferExtent, std::size(attachments), attachments, &depthAttachment);
-
-  vkCmdBeginRendering(cmd, &renderInfo);
-  const VkViewport viewport{
-      .x = 0,
-      .y = static_cast<float>(gBufferExtent.height),
-      .width = static_cast<float>(gBufferExtent.width),
-      .height = -static_cast<float>(gBufferExtent.height),
-      .minDepth = 0.0f,
-      .maxDepth = 1.0f,
-  };
-  vkCmdSetViewport(cmd, 0, 1, &viewport);
-
-  const VkRect2D scissor{
-      .extent = gBufferExtent,
-  };
-  vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-  VkDescriptorBufferBindingInfoEXT bindingInfos[1]{};
-
-  bindingInfos[0] = {
-      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-      .address = m_metalRoughness.descriptors.get_device_address(),
-      .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
-               VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT};
-  vkCmdBindDescriptorBuffersEXT(cmd, std::size(bindingInfos), bindingInfos);
-
-  const std::uint32_t bufferIndices[]{0};
-  const VkDeviceSize offsets[]{0};
-  vkCmdSetDescriptorBufferOffsetsEXT(
-      cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-      m_metalRoughness.opaquePipeline.pipelineLayout, 0,
-      std::size(bufferIndices), bufferIndices, offsets);
-
-  auto* instanceBuffer = static_cast<Instance*>(
-      get_current_frame().instanceBuffer.allocationInfo.pMappedData);
-  std::size_t currentInstanceBufferOffset = 0;
-
-  VkBuffer lastIndexBuffer = nullptr;
-  auto drawContext = [&](const RenderObject& ctx,
-                         const std::vector<Instance>& instances,
-                         const VkPipelineLayout pipelineLayout) {
-    if (lastIndexBuffer != ctx.indexBuffer) {
-      vkCmdBindIndexBuffer(cmd, ctx.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
-
-      lastIndexBuffer = ctx.indexBuffer;
-    }
-
-    std::memcpy(instanceBuffer + currentInstanceBufferOffset, instances.data(),
-                instances.size() * sizeof(Instance));
-    const GpuPushConstants ctxPushConstant{
-        .vertexBufferDeviceAddr = ctx.vertexBufferAddress,
-        .instanceBufferDeviceAddr = get_current_frame().instanceBufferAddr,
-        .sceneDataBufferDeviceAddr = get_current_frame().sceneDataBufferAddr,
-    };
-
-    vkCmdPushConstants(
-        cmd, pipelineLayout,
-        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-        sizeof(GpuPushConstants), &ctxPushConstant);
-
-    vkCmdDrawIndexed(cmd, ctx.indexCount,
-                     static_cast<std::uint32_t>(instances.size()),
-                     ctx.firstIndex, 0,
-                     static_cast<std::uint32_t>(currentInstanceBufferOffset));
-    m_stats.drawCallCount++;
-    m_stats.triangleCount += ctx.indexCount / 3 * instances.size();
-    currentInstanceBufferOffset += instances.size();
-  };
-  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_metalRoughness.opaquePipeline.pipeline);
-  for (const auto& [ro, instances] : m_mainDrawContext.opaqueRenderObjects) {
-    drawContext(ro, instances, m_metalRoughness.opaquePipeline.pipelineLayout);
-  }
-#if 0
-  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_metalRoughness.transparentPipeline.pipeline);
-  for (const auto& [ro, instances] :
-       m_mainDrawContext.transparentRenderObjects) {
-    drawContext(ro, instances,
-                m_metalRoughness.transparentPipeline.pipelineLayout);
-  }
-#endif
-
-  vkCmdEndRendering(cmd);
-
-  const auto end = cn::steady_clock::now();
-  const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
-  m_stats.meshDrawTime = elapsed.count() / 1000.0f;
 }
 
 FrameData& Engine::get_current_frame() {
@@ -942,7 +1082,7 @@ void Engine::init_window() {
   atexit(SDL_Quit);
 
   constexpr SDL_WindowFlags windowFlags =
-      static_cast<SDL_WindowFlags>(SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
+      SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE;
 
   m_window = {SDL_CreateWindow(kBaseWindowTitle, m_windowExtent.width,
                                m_windowExtent.height, windowFlags),
@@ -1006,6 +1146,10 @@ void Engine::init_vulkan() {
       .bufferDeviceAddress = true,
   };
 
+  VkPhysicalDeviceFeatures features10{
+      .independentBlend = true,
+  };
+
   vkb::PhysicalDeviceSelector selector{result.value()};
 
   const auto physicalDevice =
@@ -1013,6 +1157,7 @@ void Engine::init_vulkan() {
           .add_required_extension(VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME)
           .set_required_features_13(features13)
           .set_required_features_12(features12)
+          .set_required_features(features10)
           .set_surface(m_surface)
 #ifdef GPU_USAGE_DISCRETE
           .allow_any_gpu_device_type(false)
@@ -1115,31 +1260,43 @@ void Engine::create_depth_image(AllocatedImage& depthImage,
 
 void Engine::init_swapchain() {
   create_swapchain(m_windowExtent.width, m_windowExtent.height);
-  const VkExtent3D drawImageExtent{
+  m_CommonImageExtent3D = {
       .width = m_windowExtent.width,
       .height = m_windowExtent.height,
       .depth = 1,
   };
+
+  m_CommonImageExtent2D = {
+      .width = m_windowExtent.width,
+      .height = m_windowExtent.height,
+  };
   for (auto& frame : m_frameData) {
-    create_draw_image(frame.drawImage, drawImageExtent);
-    create_depth_image(frame.depthImage, drawImageExtent);
+    create_draw_image(frame.drawImage, m_CommonImageExtent3D);
+    create_depth_image(frame.depthImage, m_CommonImageExtent3D);
 
     frame.gBuffer.position = create_image(
-        drawImageExtent, VK_FORMAT_R32G32B32A32_SFLOAT,
+        m_CommonImageExtent3D, VK_FORMAT_R32G32B32A32_SFLOAT,
         VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
             VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
     frame.gBuffer.normal = create_image(
-        drawImageExtent, VK_FORMAT_R32G32B32A32_SFLOAT,
+        m_CommonImageExtent3D, VK_FORMAT_R32G32B32A32_SFLOAT,
         VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
             VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
     frame.gBuffer.diffuse = create_image(
-        drawImageExtent, VK_FORMAT_R8G8B8A8_UNORM,
+        m_CommonImageExtent3D, VK_FORMAT_R8G8B8A8_UNORM,
         VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
             VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
     frame.gBuffer.specular = create_image(
-        drawImageExtent, VK_FORMAT_R8G8B8A8_UNORM,
+        m_CommonImageExtent3D, VK_FORMAT_R8G8B8A8_UNORM,
         VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
             VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+
+    frame.oitAccImage = create_image(
+        m_CommonImageExtent3D, VK_FORMAT_R16G16B16A16_SFLOAT,
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+    frame.oitRevealImage = create_image(
+        m_CommonImageExtent3D, VK_FORMAT_R16_SFLOAT,
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
   }
 
   m_mainDeletionQueue.push_function([this]() {
@@ -1148,6 +1305,9 @@ void Engine::init_swapchain() {
       destroy_image(frame.gBuffer.normal);
       destroy_image(frame.gBuffer.diffuse);
       destroy_image(frame.gBuffer.specular);
+
+      destroy_image(frame.oitAccImage);
+      destroy_image(frame.oitRevealImage);
     }
   });
 }
@@ -1268,6 +1428,7 @@ void Engine::init_descriptors() {
 
 void Engine::init_pipelines() {
   init_light_pass_pipeline();
+  init_wboit_composite_pass_pipeline();
   m_metalRoughness.build_pipelines(*this);
 }
 
@@ -1321,6 +1482,109 @@ void Engine::init_light_pass_pipeline() {
   m_mainDeletionQueue.push_function([this] {
     vkDestroyPipeline(m_device, m_LightPassPipeline, nullptr);
     vkDestroyPipelineLayout(m_device, m_LightPassPipelineLayout, nullptr);
+  });
+}
+
+void Engine::init_wboit_composite_pass_pipeline() {
+  VkShaderModule compositeVertexShader;
+  if (!load_shader_module(
+          "../../src/compiled_shaders/wboit_composite.vertex.spv", m_device,
+          &compositeVertexShader)) {
+    throw std::runtime_error("Failed to load wboit_composite.vertex.spv");
+  }
+  VkShaderModule compositeFragmentShader;
+  if (!load_shader_module(
+          "../../src/compiled_shaders/wboit_composite.pixel.spv", m_device,
+          &compositeFragmentShader)) {
+    throw std::runtime_error("Failed to load wboit_composite.pixel.spv");
+  }
+
+  {
+    m_WboitCompositePassDescriptorSetLayout =
+        DescriptorSetLayoutBuilder()
+            .add_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1,
+                         VK_SHADER_STAGE_FRAGMENT_BIT)
+            .add_binding(1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1,
+                         VK_SHADER_STAGE_FRAGMENT_BIT)
+            .build(m_device,
+                   VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
+  }
+  for (auto& frame : m_frameData) {
+    frame.wboitCompositePassDescBuffer =
+        DescriptorBuffer(m_device, m_WboitCompositePassDescriptorSetLayout,
+                         DescriptorBufferProperties::query(m_chosenGpu));
+    frame.wboitCompositePassDescBuffer.create_buffer(
+        [this](const std::size_t allocSize,
+               const VkBufferUsageFlags bufferUsage) {
+          return create_buffer(allocSize, bufferUsage,
+                               VMA_MEMORY_USAGE_CPU_ONLY);
+        });
+
+    frame.wboitCompositePassDescBuffer.write_sampled_image(
+        0, 0, frame.oitAccImage.imageView,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    frame.wboitCompositePassDescBuffer.write_sampled_image(
+        1, 0, frame.oitRevealImage.imageView,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  }
+  const VkDescriptorSetLayout layouts[]{
+      m_WboitCompositePassDescriptorSetLayout};
+
+  {
+    const VkPipelineLayoutCreateInfo layoutCreateInfo{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = std::size(layouts),
+        .pSetLayouts = layouts,
+
+    };
+    vkCreatePipelineLayout(m_device, &layoutCreateInfo, nullptr,
+                           &m_PostProcessPassPipelineLayout) >>
+        chk;
+  }
+
+  {
+    PipelineBuilder pipelineBuilder;
+    pipelineBuilder.pipelineLayout = m_PostProcessPassPipelineLayout;
+    pipelineBuilder.add_shader(compositeVertexShader,
+                               VK_SHADER_STAGE_VERTEX_BIT);
+    pipelineBuilder.add_shader(compositeFragmentShader,
+                               VK_SHADER_STAGE_FRAGMENT_BIT);
+    pipelineBuilder.disable_depth_test();
+    pipelineBuilder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+    pipelineBuilder.set_polygon_mode(VK_POLYGON_MODE_FILL);
+    pipelineBuilder.add_color_attachment_format(
+        m_frameData.at(0).drawImage.imageFormat);
+    pipelineBuilder.set_cull_mode(VK_CULL_MODE_BACK_BIT,
+                                  VK_FRONT_FACE_COUNTER_CLOCKWISE);
+    pipelineBuilder.set_multisampling_none();
+    pipelineBuilder.colorBlends.push_back(
+        {.blendEnable = VK_TRUE,
+         .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
+         .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+         .colorBlendOp = VK_BLEND_OP_ADD,
+         .srcAlphaBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
+         .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+         .alphaBlendOp = VK_BLEND_OP_ADD,
+         .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                           VK_COLOR_COMPONENT_B_BIT |
+                           VK_COLOR_COMPONENT_A_BIT});
+    m_PostProcessPassPipeline = pipelineBuilder.build_pipeline(
+        m_device, VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT);
+  }
+
+  vkDestroyShaderModule(m_device, compositeVertexShader, nullptr);
+  vkDestroyShaderModule(m_device, compositeFragmentShader, nullptr);
+
+  m_mainDeletionQueue.push_function([this] {
+    vkDestroyPipeline(m_device, m_PostProcessPassPipeline, nullptr);
+    vkDestroyPipelineLayout(m_device, m_PostProcessPassPipelineLayout, nullptr);
+
+    vkDestroyDescriptorSetLayout(
+        m_device, m_WboitCompositePassDescriptorSetLayout, nullptr);
+
+    for (auto& frame : m_frameData) {
+      destroy_buffer(frame.wboitCompositePassDescBuffer.get_buffer());
+    }
   });
 }
 
@@ -1384,7 +1648,13 @@ void Engine::init_imgui() {
 }
 
 void Engine::init_mesh_data() {
-  const std::string sponzaPath = "../../assets/gltf-samples/Models/Sponza/glTF/sponza.gltf";
+#if 0
+   const std::string sponzaPath =
+      "../../assets/gltf-samples/Models/AlphaBlendModeTest/glTF/AlphaBlendModeTest.gltf";
+#else
+  const std::string sponzaPath =
+      "../../assets/gltf-samples/Models/Sponza/glTF/sponza.gltf";
+#endif
   if (!load_gltf(*this, sponzaPath)) {
     throw std::runtime_error("Failed to load glTF file: " + sponzaPath);
   }
@@ -1411,19 +1681,18 @@ void Engine::init_default_data() {
   std::uint32_t whiteColor =
       glm::packUnorm4x8(glm::vec4(1.0f, 1.0f, 1.0f, 1.0f));
   m_whiteImage =
-      create_image(reinterpret_cast<void*>(&whiteColor), VkExtent3D{1, 1, 1},
-                   VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
+      create_image(&whiteColor, VkExtent3D{1, 1, 1}, VK_FORMAT_R8G8B8A8_UNORM,
+                   VK_IMAGE_USAGE_SAMPLED_BIT);
   std::uint32_t blackColor =
       glm::packUnorm4x8(glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
   m_blackImage =
-      create_image(reinterpret_cast<void*>(&blackColor), VkExtent3D{1, 1, 1},
-                   VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
+      create_image(&blackColor, VkExtent3D{1, 1, 1}, VK_FORMAT_R8G8B8A8_UNORM,
+                   VK_IMAGE_USAGE_SAMPLED_BIT);
   std::uint32_t greyColor =
       glm::packUnorm4x8(glm::vec4(0.5f, 0.5f, 0.5f, 1.0f));
   m_greyImage =
-      create_image(reinterpret_cast<void*>(&greyColor), VkExtent3D{1, 1, 1},
-                   VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
-  // TODO: Add fallback normal texture
+      create_image(&greyColor, VkExtent3D{1, 1, 1}, VK_FORMAT_R8G8B8A8_UNORM,
+                   VK_IMAGE_USAGE_SAMPLED_BIT);
   std::uint32_t normalFallback =
       glm::packUnorm4x8(glm::vec4(0.5f, 0.5f, 1.0f, 1.0f));
   m_normalFallback =
@@ -1570,11 +1839,16 @@ void Engine::WindowCleaner::operator()(SDL_Window* window) const {
 }
 
 void Engine::update_scene() {
+  std::this_thread::sleep_for(2ms);
   const auto start = cn::steady_clock::now();
   m_camera.update(m_stats.frameTime);
   m_mainDrawContext.opaqueRenderObjects.clear();
   m_mainDrawContext.transparentRenderObjects.clear();
   m_mainDrawContext.lights.clear();
+  m_CurrentFrameInstanceBuffer = static_cast<Instance*>(
+      get_current_frame().instanceBuffer.allocationInfo.pMappedData);
+  m_CurrentInstanceBufferOffset = 0;
+  m_LastIndexBuffer = nullptr;
 
   m_scene.draw(glm::mat4(1.0f), m_mainDrawContext);
 
@@ -1589,6 +1863,9 @@ void Engine::update_scene() {
   m_sceneData.cameraPos = m_camera.position;
   m_sceneData.padding0 = 0.0f;
 
+  auto* sceneData = static_cast<GpuSceneData*>(
+      get_current_frame().sceneDataBuffer.allocation->GetMappedData());
+  *sceneData = m_sceneData;
   m_LightPassConstants.sceneDataBufferDeviceAddr =
       get_current_frame().sceneDataBufferAddr;
   m_LightPassConstants.lightDataBufferDeviceAddr =
@@ -1597,6 +1874,18 @@ void Engine::update_scene() {
   std::memcpy(get_current_frame().lightDataBuffer.allocationInfo.pMappedData,
               m_mainDrawContext.lights.data(),
               m_mainDrawContext.lights.size() * sizeof(LightData));
+
+  m_GBufferMeshPushConstants = {
+      .instanceBufferDeviceAddr = get_current_frame().instanceBufferAddr,
+      .sceneDataBufferDeviceAddr = get_current_frame().sceneDataBufferAddr,
+  };
+
+  m_WBOITForwardPassPushConstants = {
+    .instanceBufferDeviceAddr = m_GBufferMeshPushConstants.instanceBufferDeviceAddr,
+    .sceneDataBufferDeviceAddr = m_GBufferMeshPushConstants.sceneDataBufferDeviceAddr,
+    .lightDataBufferDeviceAddr = m_LightPassConstants.lightDataBufferDeviceAddr,
+    .lightCount = m_LightPassConstants.lightCount 
+  };
   const auto end = cn::steady_clock::now();
   const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
 
