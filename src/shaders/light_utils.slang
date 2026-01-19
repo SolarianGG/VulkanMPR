@@ -1,23 +1,25 @@
+module utils;
+
 #define PI 3.141592f;
 
-struct DirectionalLight {
-    float3 direction;
-    float padding0;
-    float3 color;
-    float intensity;
+public struct DirectionalLight {
+    public float3 direction;
+    public float padding0;
+    public float3 color;
+    public float intensity;
 };
 
-struct PointLight {
-    float3 position;
-    float range;
-    float3 color;
-    float intensity;
+public struct PointLight {
+    public float3 position;
+    public float range;
+    public float3 color;
+    public float intensity;
 };
 
-struct LightData {
-    int4 type;
-    float4 data0; 
-    float4 data1; 
+public struct LightData {
+    public int4 type;
+    public float4 data0; 
+    public float4 data1; 
 };
 
 float D_GGX(float NdotH, float roughness)
@@ -42,7 +44,7 @@ float3 F_Schlick(float3 F0, float HdotV)
     return F0 + (1.0f - F0) * pow(1.0f - HdotV, 5.0f);
 }
 
-float3 CalculateDirLightPBR(
+public float3 CalculateDirLightPBR(
     float3 worldPos,
     float3 cameraPos,
     float3 normal,
@@ -77,7 +79,7 @@ float3 CalculateDirLightPBR(
     return (diffuse + specular) * radiance * NdotL;
 }
 
-float3 CalculatePointLightPBR(
+public float3 CalculatePointLightPBR(
     float3 worldPos,
     float3 cameraPos,
     float3 normal,
@@ -115,7 +117,7 @@ float3 CalculatePointLightPBR(
     return (diffuse + specular) * radiance * NdotL;
 }
 
-float3 CalculateDirLightGooch(float3 worldPos, float3 cameraPos,
+public float3 CalculateDirLightGooch(float3 worldPos, float3 cameraPos,
     float3 normal,
     float3 albedo, DirectionalLight light) {
     float3 lightDir = normalize(-light.direction);

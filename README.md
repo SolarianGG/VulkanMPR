@@ -54,6 +54,7 @@ With normal mapping
 - Metal-roughness PBR material
 - Weight blended order independent transparency
 ![WBOIT](./screenshots/wboit.png)
+- Gamma correction on albedo textures + postprocess pass
 
 
 ### Planned Features
@@ -68,4 +69,6 @@ With normal mapping
 - CSM
 - SSAO
 - Multithreaded cmd record
+- Blur
+- TAA
 

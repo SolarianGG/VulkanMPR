@@ -1,4 +1,4 @@
-#include "utils.islang"
+import utils;
 
 struct PushConstants {
     Vertex *vertices;

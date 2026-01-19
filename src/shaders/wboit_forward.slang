@@ -1,5 +1,5 @@
-#include "utils.islang"
-#include "light_utils.islang"
+import utils;
+import light_utils;
 
 struct PushConstants {
     Vertex *vertices;

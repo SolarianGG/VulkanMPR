@@ -54,7 +54,6 @@ void LightNode::draw(const glm::mat4& topMatrix, DrawContext& ctx) {
 void LightNode::edit() {
   Node::edit();
 
-
   ImGui::DragInt("Light type: ", &lightData.lightType, 1, 0, 1);
   if (lightData.lightType == 0) {
     ImGui::Text("Directional light");
@@ -67,7 +66,6 @@ void LightNode::edit() {
   }
   ImGui::ColorPicker3("Color", reinterpret_cast<float*>(&lightData.data1));
   ImGui::DragFloat("Intensity", &lightData.data1.w, 0.01f, 0.01f, 100.0f);
-
 }
 
 void Scene::draw(const glm::mat4& topMatrix, DrawContext& ctx) {
@@ -106,9 +104,7 @@ void Scene::clear_all(Engine& engine) {
     engine.destroy_buffer(mesh->meshBuffers.vertexBuffer);
   }
   for (const auto& image : std::views::values(std::views::values(images))) {
-    if (image.image != engine.m_errorImage.image) {
-      engine.destroy_image(image);
-    }
+    engine.destroy_image(image);
   }
 
   for (const auto& sampler : samplers) {

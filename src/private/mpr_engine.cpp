@@ -298,15 +298,28 @@ void Engine::draw() {
 
   draw_wboit_composite(cmd);
 
-  // copy to swapchain
   {
     barrierBuilder.add_image_barrier(
         currentDrawingImage.image,
         VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-        VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT |
-            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+            VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        VK_ACCESS_2_SHADER_WRITE_BIT_KHR | VK_ACCESS_2_SHADER_READ_BIT,
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,
+        utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+    barrierBuilder.barrier(cmd);
+  }
+
+  draw_post(cmd);
+
+  // copy to swapchain
+  {
+    barrierBuilder.add_image_barrier(
+        currentDrawingImage.image, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        VK_ACCESS_2_SHADER_WRITE_BIT_KHR | VK_ACCESS_2_SHADER_READ_BIT,
         VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
-        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        VK_IMAGE_LAYOUT_GENERAL,
         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
 
@@ -473,11 +486,17 @@ void Engine::draw_light_pass(const VkCommandBuffer cmd) {
        .address =
            get_current_frame().drawImageDescriptorBuffer.get_device_address(),
        .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
+                VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
+      {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+       .pNext = nullptr,
+       .address =
+           get_current_frame().lightPassDescriptorBuffer.get_device_address(),
+       .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
                 VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT}};
   vkCmdBindDescriptorBuffersEXT(cmd, std::size(buffersInfo), buffersInfo);
 
-  std::uint32_t indices[]{0};
-  VkDeviceSize offsets[]{0};
+  std::uint32_t indices[]{0, 1};
+  VkDeviceSize offsets[]{0, 0};
   vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                                      m_LightPassPipelineLayout, 0,
                                      std::size(offsets), indices, offsets);
@@ -554,7 +573,7 @@ void Engine::draw_wboit_composite(VkCommandBuffer cmd) {
       utils::rendering_info(m_CommonImageExtent2D, 1, &attachment, nullptr);
   vkCmdBeginRendering(cmd, &renderingInfo);
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_PostProcessPassPipeline);
+                    m_WBOITCompositePassPipeline);
 
   VkDescriptorBufferBindingInfoEXT buffersInfo[]{
       {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
@@ -568,7 +587,7 @@ void Engine::draw_wboit_composite(VkCommandBuffer cmd) {
   std::uint32_t indices[]{0};
   VkDeviceSize offsets[]{0};
   vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                     m_PostProcessPassPipelineLayout, 0,
+                                     m_WBOITCompositePassPipelineLayout, 0,
                                      std::size(offsets), indices, offsets);
 
   vkCmdDraw(cmd, 6, 1, 0, 0);
@@ -624,6 +643,31 @@ void Engine::draw_meshes(VkCommandBuffer cmd, const RenderObject& ctx,
   m_stats.drawCallCount++;
   m_stats.triangleCount += ctx.indexCount / 3 * instances.size();
   m_CurrentInstanceBufferOffset += instances.size();
+}
+
+void Engine::draw_post(VkCommandBuffer cmd) {
+  
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    m_PostProcessPassPipeline);
+
+    VkDescriptorBufferBindingInfoEXT buffersInfo[]{
+      {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+       .pNext = nullptr,
+       .address =
+           get_current_frame().drawImageDescriptorBuffer.get_device_address(),
+       .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
+                VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
+  };
+  vkCmdBindDescriptorBuffersEXT(cmd, std::size(buffersInfo), buffersInfo);
+
+  std::uint32_t indices[]{0};
+  VkDeviceSize offsets[]{0};
+  vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                     m_PostProcessPassPipelineLayout, 0,
+                                     std::size(offsets), indices, offsets);
+
+  vkCmdDispatch(cmd, std::ceil(m_CommonImageExtent2D.width / 16.0f),
+                std::ceil(m_CommonImageExtent2D.height / 16.0f), 1.0f);
 }
 
 std::uint64_t Engine::render_scene_tree_ui(Scene& scene,
@@ -1375,9 +1419,15 @@ void Engine::init_sync() {
 
 void Engine::init_descriptors() {
   {
-    m_drawImageDescriptorSetLayout =
+    m_DrawImageDescriptorSetLayout =
         DescriptorSetLayoutBuilder()
             .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
+                         VK_SHADER_STAGE_COMPUTE_BIT)
+            .build(m_device,
+                   VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
+    m_LightPassDescriptorSetLayout =
+        DescriptorSetLayoutBuilder()
+            .add_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1,
                          VK_SHADER_STAGE_COMPUTE_BIT)
             .add_binding(1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1,
                          VK_SHADER_STAGE_COMPUTE_BIT)
@@ -1385,14 +1435,22 @@ void Engine::init_descriptors() {
                          VK_SHADER_STAGE_COMPUTE_BIT)
             .add_binding(3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1,
                          VK_SHADER_STAGE_COMPUTE_BIT)
-            .add_binding(4, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1,
-                         VK_SHADER_STAGE_COMPUTE_BIT)
             .build(m_device,
                    VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
   }
   for (auto& frame : m_frameData) {
+    frame.lightPassDescriptorBuffer =
+        DescriptorBuffer(m_device, m_LightPassDescriptorSetLayout,
+                         DescriptorBufferProperties::query(m_chosenGpu));
+
+    frame.lightPassDescriptorBuffer.create_buffer(
+        [&](const std::size_t allocSize, const VkBufferUsageFlags bufferUsage) {
+          return create_buffer(allocSize, bufferUsage,
+                               VMA_MEMORY_USAGE_CPU_ONLY);
+        });
+
     frame.drawImageDescriptorBuffer =
-        DescriptorBuffer(m_device, m_drawImageDescriptorSetLayout,
+        DescriptorBuffer(m_device, m_DrawImageDescriptorSetLayout,
                          DescriptorBufferProperties::query(m_chosenGpu));
 
     frame.drawImageDescriptorBuffer.create_buffer(
@@ -1403,24 +1461,27 @@ void Engine::init_descriptors() {
 
     frame.drawImageDescriptorBuffer.write_storage_image(
         0, 0, frame.drawImage.imageView, VK_IMAGE_LAYOUT_GENERAL);
-    frame.drawImageDescriptorBuffer.write_sampled_image(
-        1, 0, frame.gBuffer.position.imageView,
+    frame.lightPassDescriptorBuffer.write_sampled_image(
+        0, 0, frame.gBuffer.position.imageView,
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    frame.drawImageDescriptorBuffer.write_sampled_image(
-        2, 0, frame.gBuffer.normal.imageView,
+    frame.lightPassDescriptorBuffer.write_sampled_image(
+        1, 0, frame.gBuffer.normal.imageView,
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    frame.drawImageDescriptorBuffer.write_sampled_image(
-        3, 0, frame.gBuffer.diffuse.imageView,
+    frame.lightPassDescriptorBuffer.write_sampled_image(
+        2, 0, frame.gBuffer.diffuse.imageView,
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    frame.drawImageDescriptorBuffer.write_sampled_image(
-        4, 0, frame.gBuffer.specular.imageView,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    frame.lightPassDescriptorBuffer.write_sampled_image(
+        3, 0, frame.gBuffer.specular.imageView,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL); 
   }
 
   m_mainDeletionQueue.push_function([&]() mutable {
-    vkDestroyDescriptorSetLayout(m_device, m_drawImageDescriptorSetLayout,
+    vkDestroyDescriptorSetLayout(m_device, m_LightPassDescriptorSetLayout,
+                                 nullptr);
+    vkDestroyDescriptorSetLayout(m_device, m_DrawImageDescriptorSetLayout,
                                  nullptr);
     for (auto& frame : m_frameData) {
+      destroy_buffer(frame.lightPassDescriptorBuffer.get_buffer());
       destroy_buffer(frame.drawImageDescriptorBuffer.get_buffer());
     }
   });
@@ -1429,6 +1490,7 @@ void Engine::init_descriptors() {
 void Engine::init_pipelines() {
   init_light_pass_pipeline();
   init_wboit_composite_pass_pipeline();
+  init_post_pipeline();
   m_metalRoughness.build_pipelines(*this);
 }
 
@@ -1439,12 +1501,14 @@ void Engine::init_light_pass_pipeline() {
       .size = static_cast<std::uint32_t>(sizeof(LightPassConstantRange)),
   };
 
+  VkDescriptorSetLayout setLayouts[]{m_DrawImageDescriptorSetLayout,
+                                     m_LightPassDescriptorSetLayout};
   const VkPipelineLayoutCreateInfo layoutCreateInfo{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
       .pNext = nullptr,
       .flags = 0,
-      .setLayoutCount = 1,
-      .pSetLayouts = &m_drawImageDescriptorSetLayout,
+      .setLayoutCount = std::size(setLayouts),
+      .pSetLayouts = setLayouts,
       .pushConstantRangeCount = 1,
       .pPushConstantRanges = &pushConstantRange,
   };
@@ -1538,13 +1602,13 @@ void Engine::init_wboit_composite_pass_pipeline() {
 
     };
     vkCreatePipelineLayout(m_device, &layoutCreateInfo, nullptr,
-                           &m_PostProcessPassPipelineLayout) >>
+                           &m_WBOITCompositePassPipelineLayout) >>
         chk;
   }
 
   {
     PipelineBuilder pipelineBuilder;
-    pipelineBuilder.pipelineLayout = m_PostProcessPassPipelineLayout;
+    pipelineBuilder.pipelineLayout = m_WBOITCompositePassPipelineLayout;
     pipelineBuilder.add_shader(compositeVertexShader,
                                VK_SHADER_STAGE_VERTEX_BIT);
     pipelineBuilder.add_shader(compositeFragmentShader,
@@ -1568,7 +1632,7 @@ void Engine::init_wboit_composite_pass_pipeline() {
          .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
                            VK_COLOR_COMPONENT_B_BIT |
                            VK_COLOR_COMPONENT_A_BIT});
-    m_PostProcessPassPipeline = pipelineBuilder.build_pipeline(
+    m_WBOITCompositePassPipeline = pipelineBuilder.build_pipeline(
         m_device, VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT);
   }
 
@@ -1576,8 +1640,9 @@ void Engine::init_wboit_composite_pass_pipeline() {
   vkDestroyShaderModule(m_device, compositeFragmentShader, nullptr);
 
   m_mainDeletionQueue.push_function([this] {
-    vkDestroyPipeline(m_device, m_PostProcessPassPipeline, nullptr);
-    vkDestroyPipelineLayout(m_device, m_PostProcessPassPipelineLayout, nullptr);
+    vkDestroyPipeline(m_device, m_WBOITCompositePassPipeline, nullptr);
+    vkDestroyPipelineLayout(m_device, m_WBOITCompositePassPipelineLayout,
+                            nullptr);
 
     vkDestroyDescriptorSetLayout(
         m_device, m_WboitCompositePassDescriptorSetLayout, nullptr);
@@ -1585,6 +1650,50 @@ void Engine::init_wboit_composite_pass_pipeline() {
     for (auto& frame : m_frameData) {
       destroy_buffer(frame.wboitCompositePassDescBuffer.get_buffer());
     }
+  });
+}
+
+void Engine::init_post_pipeline() {
+  VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+      .pNext = nullptr,
+      .setLayoutCount = 1,
+      .pSetLayouts = &m_DrawImageDescriptorSetLayout,
+      .pushConstantRangeCount = 0,
+      .pPushConstantRanges = nullptr,
+  };
+  vkCreatePipelineLayout(m_device, &pipelineLayoutCreateInfo, nullptr,
+                         &m_PostProcessPassPipelineLayout) >>
+      chk;
+
+  VkShaderModule postprocessShader;
+  if (!load_shader_module("../../src/compiled_shaders/postprocess.compute.spv",
+                          m_device, &postprocessShader)) {
+    throw std::runtime_error("Failed to load postprocess pass shader");
+  }
+
+  VkPipelineShaderStageCreateInfo shaderStage{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+      .pNext = nullptr,
+      .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+      .module = postprocessShader,
+      .pName = "main",
+  };
+  VkComputePipelineCreateInfo pipelineCreateInfo{
+      .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+      .pNext = nullptr,
+      .flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT,
+      .stage = shaderStage,
+      .layout = m_PostProcessPassPipelineLayout,
+  };
+  vkCreateComputePipelines(m_device, nullptr, 1, &pipelineCreateInfo, nullptr,
+                           &m_PostProcessPassPipeline);
+
+  vkDestroyShaderModule(m_device, postprocessShader, nullptr);
+
+  m_mainDeletionQueue.push_function([this] {
+    vkDestroyPipeline(m_device, m_PostProcessPassPipeline, nullptr);
+    vkDestroyPipelineLayout(m_device, m_PostProcessPassPipelineLayout, nullptr);
   });
 }
 
@@ -1657,6 +1766,13 @@ void Engine::init_mesh_data() {
 #endif
   if (!load_gltf(*this, sponzaPath)) {
     throw std::runtime_error("Failed to load glTF file: " + sponzaPath);
+  }
+
+ const std::string alphaBlendMode =
+      "../../assets/gltf-samples/Models/AlphaBlendModeTest/glTF/"
+      "AlphaBlendModeTest.gltf"; 
+  if (!load_gltf(*this, alphaBlendMode)) {
+    throw std::runtime_error("Failed to load glTF file: " + alphaBlendMode);
   }
 
   constexpr auto kMaxInstances = 100'000;
@@ -1881,11 +1997,13 @@ void Engine::update_scene() {
   };
 
   m_WBOITForwardPassPushConstants = {
-    .instanceBufferDeviceAddr = m_GBufferMeshPushConstants.instanceBufferDeviceAddr,
-    .sceneDataBufferDeviceAddr = m_GBufferMeshPushConstants.sceneDataBufferDeviceAddr,
-    .lightDataBufferDeviceAddr = m_LightPassConstants.lightDataBufferDeviceAddr,
-    .lightCount = m_LightPassConstants.lightCount 
-  };
+      .instanceBufferDeviceAddr =
+          m_GBufferMeshPushConstants.instanceBufferDeviceAddr,
+      .sceneDataBufferDeviceAddr =
+          m_GBufferMeshPushConstants.sceneDataBufferDeviceAddr,
+      .lightDataBufferDeviceAddr =
+          m_LightPassConstants.lightDataBufferDeviceAddr,
+      .lightCount = m_LightPassConstants.lightCount};
   const auto end = cn::steady_clock::now();
   const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
 

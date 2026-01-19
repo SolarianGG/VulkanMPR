@@ -199,13 +199,13 @@ class DescriptorBuffer {
  private:
   void cache_binding_offsets() {
     // TODO: FIX
-    // Получаем максимальный binding для определения размера вектора
+    // get the maximum binding for determine vector size
     uint32_t maxBinding = 0;
-    VkDescriptorSetLayoutBinding bindings[32];  // Временный буфер
+    VkDescriptorSetLayoutBinding bindings[32];  // tmp buffer 
     uint32_t bindingCount = 0;
 
-    // Здесь нужно получить bindings из layout (в реальности это делается через
-    // рефлексию) Для упрощения предполагаем, что bindings последовательные
+    // Here we need to get bindings from layout (reflection)
+    // for simplicity imply that bindings are continuous
 
     for (uint32_t i = 0; i < 32; ++i) {
       VkDeviceSize offset;

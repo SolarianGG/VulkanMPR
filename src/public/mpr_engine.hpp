@@ -43,8 +43,9 @@ struct FrameData {
   VkDeviceAddress sceneDataBufferAddr;
   AllocatedBuffer lightDataBuffer;
   VkDeviceAddress lightDataBufferAddr;
-  DescriptorBuffer drawImageDescriptorBuffer;
+  DescriptorBuffer lightPassDescriptorBuffer;
   DescriptorBuffer wboitCompositePassDescBuffer;
+  DescriptorBuffer drawImageDescriptorBuffer;
   AllocatedBuffer instanceBuffer;
   VkDeviceAddress instanceBufferAddr;
 };
@@ -119,7 +120,7 @@ class Engine final {
   DeletionQueue m_mainDeletionQueue;
   VmaAllocator m_allocator;
   VkExtent2D m_drawExtent;
-  VkDescriptorSetLayout m_drawImageDescriptorSetLayout;
+  VkDescriptorSetLayout m_LightPassDescriptorSetLayout;
 
   VkPipelineLayout m_LightPassPipelineLayout;
   VkPipeline m_LightPassPipeline;
@@ -168,12 +169,16 @@ class Engine final {
   std::size_t m_CurrentInstanceBufferOffset = 0;
   VkBuffer m_LastIndexBuffer = nullptr;
 
-  VkPipelineLayout m_PostProcessPassPipelineLayout;
-  VkPipeline m_PostProcessPassPipeline;
+  VkPipelineLayout m_WBOITCompositePassPipelineLayout;
+  VkPipeline m_WBOITCompositePassPipeline;
 
   std::uint64_t m_selectedNode = UINT64_MAX;
 
   VkDescriptorSetLayout m_WboitCompositePassDescriptorSetLayout;
+
+  VkDescriptorSetLayout m_DrawImageDescriptorSetLayout;
+  VkPipeline m_PostProcessPassPipeline;
+  VkPipelineLayout m_PostProcessPassPipelineLayout;
 
  private:
   void init_window();
@@ -185,6 +190,7 @@ class Engine final {
   void init_pipelines();
   void init_light_pass_pipeline();
   void init_wboit_composite_pass_pipeline();
+  void init_post_pipeline();
   void init_imgui();
   void init_mesh_data();
   void init_default_data();
@@ -199,6 +205,7 @@ class Engine final {
                    const std::vector<Instance>& instances,
                    const VkPipelineLayout pipelineLayout, auto& pushConstants,
                    const VkShaderStageFlags pushConstantsShaderStage);
+  void draw_post(VkCommandBuffer cmd);
 
   static std::uint64_t render_scene_tree_ui(Scene& scene,
                                             std::uint64_t nodeIndex,

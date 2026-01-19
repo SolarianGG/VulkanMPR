@@ -48,21 +48,9 @@ VkSamplerMipmapMode extract_mip_map_mode(const fastgltf::Filter filter) {
   }
 }
 
-std::uint32_t GetCached(
-    const std::size_t resourceIndex,
-    std::unordered_map<std::size_t, std::uint32_t>& cache,
-    const std::function<std::uint32_t(std::size_t)>& getIndexFunc) {
-  if (const auto it = cache.find(resourceIndex); it != cache.end()) {
-    return it->second;
-  }
-  const auto index = getIndexFunc(resourceIndex);
-  cache.try_emplace(resourceIndex, index);
-  return index;
-};
-
-std::optional<mp::AllocatedImage> load_image(mp::Engine& engine,
-                                             fastgltf::Asset& asset,
-                                             fastgltf::Image& image) {
+std::optional<mp::AllocatedImage> load_image(
+    mp::Engine& engine, fastgltf::Asset& asset, fastgltf::Image& image,
+    const VkFormat imageFormat, const VkImageUsageFlags imageUsage) {
   mp::AllocatedImage newImage;
   int width, height, nChannels;
   auto* data = std::visit(
@@ -102,8 +90,6 @@ std::optional<mp::AllocatedImage> load_image(mp::Engine& engine,
     const VkExtent3D extent{static_cast<std::uint32_t>(width),
                             static_cast<std::uint32_t>(height), 1u};
 
-    constexpr VkFormat imageFormat = VK_FORMAT_R8G8B8A8_UNORM;
-    constexpr VkImageUsageFlags imageUsage = VK_IMAGE_USAGE_SAMPLED_BIT;
     newImage = engine.create_image(data, extent, imageFormat, imageUsage, true);
   } else {
     return std::nullopt;
@@ -114,6 +100,26 @@ std::optional<mp::AllocatedImage> load_image(mp::Engine& engine,
     return std::nullopt;
   }
   return newImage;
+}
+
+VkSampler load_sampler(mp::Engine& engine, fastgltf::Sampler& sampler) {
+  const VkSamplerCreateInfo samplerCreateInfo{
+      .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+      .pNext = nullptr,
+      .magFilter =
+          extract_filter(sampler.magFilter.value_or(fastgltf::Filter::Nearest)),
+      .minFilter =
+          extract_filter(sampler.minFilter.value_or(fastgltf::Filter::Nearest)),
+      .mipmapMode = extract_mip_map_mode(
+          sampler.minFilter.value_or(fastgltf::Filter::Nearest)),
+      .minLod = 0,
+      .maxLod = VK_LOD_CLAMP_NONE,
+  };
+
+  VkSampler vkSampler;
+  vkCreateSampler(engine.m_device, &samplerCreateInfo, nullptr, &vkSampler) >>
+      mp::chk;
+  return vkSampler;
 }
 }  // namespace
 
@@ -159,39 +165,11 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
   assert(asset.lights.empty());
   Scene& file = engine.m_scene;
 
-  for (auto& sampler : asset.samplers) {
-    const VkSamplerCreateInfo samplerCreateInfo{
-        .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-        .pNext = nullptr,
-        .magFilter = extract_filter(
-            sampler.magFilter.value_or(fastgltf::Filter::Nearest)),
-        .minFilter = extract_filter(
-            sampler.minFilter.value_or(fastgltf::Filter::Nearest)),
-        .mipmapMode = extract_mip_map_mode(
-            sampler.minFilter.value_or(fastgltf::Filter::Nearest)),
-        .minLod = 0,
-        .maxLod = VK_LOD_CLAMP_NONE,
-    };
-
-    VkSampler vkSampler;
-    vkCreateSampler(engine.m_device, &samplerCreateInfo, nullptr, &vkSampler);
-    file.samplers.push_back(vkSampler);
-  }
-
-  std::vector<AllocatedImage> images;
+  std::unordered_map<std::size_t, std::uint32_t> samplers;
+  std::unordered_map<std::size_t, std::uint32_t> images;
   std::vector<std::shared_ptr<GLTFMaterial>> materials;
   std::vector<std::shared_ptr<MeshAsset>> meshes;
   std::vector<std::shared_ptr<Node>> nodes;
-  images.reserve(asset.images.size());
-  for (auto& image : asset.images) {
-    if (auto img = load_image(engine, asset, image); img.has_value()) {
-      images.push_back(img.value());
-      file.add_image(image.name.c_str(), img.value());
-    } else {
-      images.push_back(engine.m_errorImage);
-      std::println("Failed to load texture: {}", image.name);
-    }
-  }
 
   auto& [currentBuff, currentBuffAddr] = file.materialBuffers.emplace_back(
       engine.create_buffer(sizeof(GLTFMetallicRoughness::MaterialConstants) *
@@ -211,8 +189,45 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
       static_cast<GLTFMetallicRoughness::MaterialConstants*>(
           currentBuff.allocationInfo.pMappedData);
 
-  std::unordered_map<std::size_t, std::uint32_t> texturesCache;
-  std::unordered_map<std::size_t, std::uint32_t> samplersCache;
+  auto getImage = [&engine, &images, &file, &asset](
+                      const std::size_t imgIndex, const VkFormat format,
+                      const VkImageUsageFlags imageUsage,
+                      std::uint32_t& instanceID) {
+    if (const auto imageIt = images.find(imgIndex); imageIt != images.end()) {
+      instanceID = imageIt->second;
+    } else {
+      auto& fastgltfImage = asset.images.at(imgIndex);
+      auto imageOpt =
+          load_image(engine, asset, fastgltfImage, format, imageUsage);
+      if (imageOpt.has_value()) {
+        instanceID =
+            engine.m_metalRoughness.write_texture(imageOpt.value().imageView);
+        file.add_image(fastgltfImage.name.c_str(), imageOpt.value());
+        images.try_emplace(imgIndex, instanceID);
+      } else {
+        std::println("Failed to load texture");
+      }
+    }
+  };
+
+  auto getSampler = [&file, &engine, &samplers, &asset](
+                        const std::size_t samplerIndex,
+                        std::uint32_t& instanceID) {
+    if (const auto samplerIt = samplers.find(samplerIndex);
+        samplerIt != samplers.end()) {
+      instanceID = samplerIt->second;
+    } else {
+      auto& fastgltfSampler = asset.samplers.at(samplerIndex);
+      VkSampler sampler = load_sampler(engine, fastgltfSampler);
+      if (sampler) {
+        instanceID = engine.m_metalRoughness.write_sampler(sampler);
+        file.samplers.push_back(sampler);
+        samplers.try_emplace(samplerIndex, instanceID);
+      } else {
+        std::println("Failed to load sampler");
+      }
+    }
+  };
   for (auto& material : asset.materials) {
     auto newMat = std::make_shared<GLTFMaterial>();
     file.add_material(material.name.c_str(), newMat);
@@ -225,8 +240,9 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
     materialConstants.metalRoughFactors = {material.pbrData.metallicFactor,
                                            material.pbrData.roughnessFactor,
                                            0.0f, 0.0f};
-    materialConstants.alphaCutoff = material.alphaMode
-        == fastgltf::AlphaMode::Mask ? material.alphaCutoff : 0.0f;
+    materialConstants.alphaCutoff =
+        material.alphaMode == fastgltf::AlphaMode::Mask ? material.alphaCutoff
+                                                        : 0.0f;
     sceneMaterialsConstants[dataIndex] = materialConstants;
 
     auto passType = MaterialPass::Opaque;
@@ -247,23 +263,14 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
         .normalSamplerID = 0,
     };
 
-    auto getTextureIndex = [&engine, &images](const std::size_t index) {
-      return engine.m_metalRoughness.write_texture(images[index].imageView);
-    };
-
-    auto getSamplerIndex = [&engine, &file](const std::size_t index) {
-      return engine.m_metalRoughness.write_sampler(file.samplers[index]);
-    };
-
     if (material.normalTexture.has_value()) {
       const auto textureIndex = material.normalTexture.value().textureIndex;
       const auto imgIndex = asset.textures[textureIndex].imageIndex.value();
       const auto samplerIndex =
           asset.textures[textureIndex].samplerIndex.value();
-      newMat->data.indices.normalTextureID =
-          GetCached(imgIndex, texturesCache, getTextureIndex);
-      newMat->data.indices.normalSamplerID =
-          GetCached(samplerIndex, samplersCache, getSamplerIndex);
+      getImage(imgIndex, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT,
+               newMat->data.indices.normalTextureID);
+      getSampler(samplerIndex, newMat->data.indices.normalSamplerID);
     }
     if (material.pbrData.baseColorTexture.has_value()) {
       const auto textureIndex =
@@ -271,10 +278,9 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
       const auto imgIndex = asset.textures[textureIndex].imageIndex.value();
       const auto samplerIndex =
           asset.textures[textureIndex].samplerIndex.value();
-      newMat->data.indices.colorTextureID =
-          GetCached(imgIndex, texturesCache, getTextureIndex);
-      newMat->data.indices.colorSamplerID =
-          GetCached(samplerIndex, samplersCache, getSamplerIndex);
+      getImage(imgIndex, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_USAGE_SAMPLED_BIT,
+               newMat->data.indices.colorTextureID);
+      getSampler(samplerIndex, newMat->data.indices.colorSamplerID);
     }
     if (material.pbrData.metallicRoughnessTexture.has_value()) {
       const auto textureIndex =
@@ -282,10 +288,9 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
       const auto imgIndex = asset.textures[textureIndex].imageIndex.value();
       const auto samplerIndex =
           asset.textures[textureIndex].samplerIndex.value();
-      newMat->data.indices.metalRoughnessTextureID =
-          GetCached(imgIndex, texturesCache, getTextureIndex);
-      newMat->data.indices.metalRoughnessSamplerID =
-          GetCached(samplerIndex, samplersCache, getSamplerIndex);
+      getImage(imgIndex, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT,
+               newMat->data.indices.metalRoughnessTextureID);
+      getSampler(samplerIndex, newMat->data.indices.metalRoughnessSamplerID);
     }
 
     materials.push_back(std::move(newMat));
@@ -349,7 +354,6 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
             });
       }
 
-
       // load UVs
       auto uv = p.findAttribute("TEXCOORD_0");
       if (uv != p.attributes.end()) {
@@ -384,7 +388,7 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
         newSurface.material = materials[p.materialIndex.value()];
       } else {
         std::println("Mesh does not contains material");
-        newSurface.material = materials[0];
+        newSurface.material = materials.at(0);
       }
 
       newMesh.geoSurfaces.push_back(newSurface);
