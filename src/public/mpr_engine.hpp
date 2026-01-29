@@ -62,8 +62,6 @@ class Engine final {
 
   static Engine& get();
 
-  GpuMeshBuffers create_mesh_buffers(const std::span<std::uint32_t> indices,
-                                     const std::span<Vertex> vertices);
   void run();
 
   void immediate_submit(const std::function<void(VkCommandBuffer)>& function);
@@ -160,6 +158,18 @@ class Engine final {
   VkExtent3D m_CommonImageExtent3D;
   VkExtent2D m_CommonImageExtent2D;
 
+  AllocatedBuffer m_globalVertexBuffer;
+  VkDeviceAddress m_globalVertexBufferAddress;
+  std::size_t m_globalVertexCount = 0;
+  std::size_t m_globalVertexCapacity = 0;
+
+  AllocatedBuffer m_globalIndexBuffer;
+  std::size_t m_globalIndexCount = 0;
+  std::size_t m_globalIndexCapacity = 0;
+
+  void ensure_vertex_capacity(std::size_t additionalCount);
+  void ensure_index_capacity(std::size_t additionalCount);
+
   GpuSceneData m_sceneData;
 
   GBufferPassPushConstants m_GBufferMeshPushConstants;
@@ -167,7 +177,6 @@ class Engine final {
 
   Instance* m_CurrentFrameInstanceBuffer = nullptr;
   std::size_t m_CurrentInstanceBufferOffset = 0;
-  VkBuffer m_LastIndexBuffer = nullptr;
 
   VkPipelineLayout m_WBOITCompositePassPipelineLayout;
   VkPipeline m_WBOITCompositePassPipeline;

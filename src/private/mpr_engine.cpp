@@ -141,7 +141,7 @@ void Engine::draw() {
 
   const AllocatedImage& currentDrawingImage = currentFrame.drawImage;
   const AllocatedImage& currentDepthImage = currentFrame.depthImage;
-  auto& gBuffer = currentFrame.gBuffer;
+  const auto& gBuffer = currentFrame.gBuffer;
   m_drawExtent.width =
       std::min(currentDrawingImage.imageExtent.width, m_swapchainExtent.width) *
       m_renderScale;
@@ -462,6 +462,8 @@ void Engine::draw_gBuffer_pass(VkCommandBuffer cmd) {
       m_metalRoughness.opaquePipeline.pipelineLayout, 0,
       std::size(bufferIndices), bufferIndices, offsets);
 
+  vkCmdBindIndexBuffer(cmd, m_globalIndexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     m_metalRoughness.opaquePipeline.pipeline);
   for (const auto& [ro, instances] : m_mainDrawContext.opaqueRenderObjects) {
@@ -480,7 +482,7 @@ void Engine::draw_light_pass(const VkCommandBuffer cmd) {
   const auto start = cn::steady_clock::now();
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_LightPassPipeline);
 
-  VkDescriptorBufferBindingInfoEXT buffersInfo[]{
+  const VkDescriptorBufferBindingInfoEXT buffersInfo[]{
       {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
        .pNext = nullptr,
        .address =
@@ -495,8 +497,8 @@ void Engine::draw_light_pass(const VkCommandBuffer cmd) {
                 VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT}};
   vkCmdBindDescriptorBuffersEXT(cmd, std::size(buffersInfo), buffersInfo);
 
-  std::uint32_t indices[]{0, 1};
-  VkDeviceSize offsets[]{0, 0};
+  const std::uint32_t indices[]{0, 1};
+  const VkDeviceSize offsets[]{0, 0};
   vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                                      m_LightPassPipelineLayout, 0,
                                      std::size(offsets), indices, offsets);
@@ -515,7 +517,7 @@ void Engine::draw_light_pass(const VkCommandBuffer cmd) {
 
 void Engine::draw_wboit(VkCommandBuffer cmd) {
   const auto start = cn::steady_clock::now();
-  auto& currentFrame = get_current_frame();
+  const auto& currentFrame = get_current_frame();
 
   VkDescriptorBufferBindingInfoEXT bindingInfos[1]{};
 
@@ -548,6 +550,8 @@ void Engine::draw_wboit(VkCommandBuffer cmd) {
       cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
       m_metalRoughness.transparentPipeline.pipelineLayout, 0,
       std::size(bufferIndices), bufferIndices, offsets);
+  vkCmdBindIndexBuffer(cmd, m_globalIndexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     m_metalRoughness.transparentPipeline.pipeline);
   for (const auto& [ro, instances] :
@@ -575,7 +579,7 @@ void Engine::draw_wboit_composite(VkCommandBuffer cmd) {
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     m_WBOITCompositePassPipeline);
 
-  VkDescriptorBufferBindingInfoEXT buffersInfo[]{
+  const VkDescriptorBufferBindingInfoEXT buffersInfo[]{
       {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
        .pNext = nullptr,
        .address = get_current_frame()
@@ -584,8 +588,8 @@ void Engine::draw_wboit_composite(VkCommandBuffer cmd) {
                 VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT}};
   vkCmdBindDescriptorBuffersEXT(cmd, std::size(buffersInfo), buffersInfo);
 
-  std::uint32_t indices[]{0};
-  VkDeviceSize offsets[]{0};
+  const std::uint32_t indices[]{0};
+  const VkDeviceSize offsets[]{0};
   vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                      m_WBOITCompositePassPipelineLayout, 0,
                                      std::size(offsets), indices, offsets);
@@ -622,23 +626,18 @@ void Engine::draw_meshes(VkCommandBuffer cmd, const RenderObject& ctx,
                          auto& pushConstants,
                          const VkShaderStageFlags pushConstantsShaderStage) {
   // draw meshes begin
-  if (m_LastIndexBuffer != ctx.indexBuffer) {
-    vkCmdBindIndexBuffer(cmd, ctx.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
-
-    m_LastIndexBuffer = ctx.indexBuffer;
-  }
-
   std::memcpy(m_CurrentFrameInstanceBuffer + m_CurrentInstanceBufferOffset,
               instances.data(), instances.size() * sizeof(Instance));
 
-  pushConstants.vertexBufferDeviceAddr = ctx.vertexBufferAddress;
+  // No longer need to pass per-mesh vertex buffer address here as shader will fetch from global
+  // OR we can pass the global address once, but here we just need to use vertexOffset in draw call.
 
   vkCmdPushConstants(cmd, pipelineLayout, pushConstantsShaderStage, 0,
                      sizeof(pushConstants), &pushConstants);
 
   vkCmdDrawIndexed(cmd, ctx.indexCount,
                    static_cast<std::uint32_t>(instances.size()), ctx.firstIndex,
-                   0,
+                   ctx.vertexOffset,
                    static_cast<std::uint32_t>(m_CurrentInstanceBufferOffset));
   m_stats.drawCallCount++;
   m_stats.triangleCount += ctx.indexCount / 3 * instances.size();
@@ -650,7 +649,7 @@ void Engine::draw_post(VkCommandBuffer cmd) {
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                     m_PostProcessPassPipeline);
 
-    VkDescriptorBufferBindingInfoEXT buffersInfo[]{
+    const VkDescriptorBufferBindingInfoEXT buffersInfo[]{
       {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
        .pNext = nullptr,
        .address =
@@ -660,8 +659,8 @@ void Engine::draw_post(VkCommandBuffer cmd) {
   };
   vkCmdBindDescriptorBuffersEXT(cmd, std::size(buffersInfo), buffersInfo);
 
-  std::uint32_t indices[]{0};
-  VkDeviceSize offsets[]{0};
+  const std::uint32_t indices[]{0};
+  const VkDeviceSize offsets[]{0};
   vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                                      m_PostProcessPassPipelineLayout, 0,
                                      std::size(offsets), indices, offsets);
@@ -696,8 +695,8 @@ std::uint64_t Engine::render_scene_tree_ui(Scene& scene,
   }
 
   if (isOpened) {
-    for (auto& child : scene.nodes.at(nodeIndex)->children) {
-      if (auto subNode =
+    for (const auto& child : scene.nodes.at(nodeIndex)->children) {
+      if (const auto subNode =
               render_scene_tree_ui(scene, child->nodeIndex, selectedNode);
           subNode != UINT64_MAX) {
         selectedNode = subNode;
@@ -741,7 +740,7 @@ bool Engine::edit_transform_ui(const glm::mat4& view,
                                           matrixScale,
                                           glm::value_ptr(globalTransform));
 
-  ImGuiIO& io = ImGui::GetIO();
+  const ImGuiIO& io = ImGui::GetIO();
   ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
   return ImGuizmo::Manipulate(glm::value_ptr(view), glm::value_ptr(projection),
                               gizmoOperation, ImGuizmo::WORLD,
@@ -754,7 +753,7 @@ void Engine::edit_node(Scene& scene, const std::uint64_t nodeIndex) {
 
   auto& node = scene.nodes[nodeIndex];
 
-  auto& name = node->name;
+  const auto& name = node->name;
   std::string label =
       name.empty() ? (std::string("Node") + std::to_string(nodeIndex)) : name;
   label = "Node: " + label;
@@ -773,8 +772,8 @@ void Engine::edit_node(Scene& scene, const std::uint64_t nodeIndex) {
 
   auto& globalTransform = node->worldTransform;
   if (edit_transform_ui(m_sceneData.view, m_sceneData.proj, globalTransform)) {
-    if (auto parent = node->parent.lock(); parent) {
-      glm::mat4 parentWorldTransform = parent->worldTransform;
+    if (const auto parent = node->parent.lock(); parent) {
+      const glm::mat4 parentWorldTransform = parent->worldTransform;
       node->localTransform =
           glm::inverse(parentWorldTransform) * globalTransform;
     } else {
@@ -949,61 +948,6 @@ AllocatedImage Engine::create_image(void* data, const VkExtent3D extent,
 void Engine::destroy_image(const AllocatedImage& image) {
   vkDestroyImageView(m_device, image.imageView, nullptr);
   vmaDestroyImage(m_allocator, image.image, image.allocation);
-}
-
-GpuMeshBuffers Engine::create_mesh_buffers(
-    const std::span<std::uint32_t> indices, const std::span<Vertex> vertices) {
-  const auto vertexBufferSize = vertices.size() * sizeof(Vertex);
-  const auto indexBufferSize = indices.size() * sizeof(std::uint32_t);
-  GpuMeshBuffers buffers;
-  buffers.vertexBuffer = create_buffer(
-      vertexBufferSize,
-      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-      VMA_MEMORY_USAGE_GPU_ONLY);
-
-  const VkBufferDeviceAddressInfo vertexBufferAddressInfo{
-      .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-      .pNext = nullptr,
-      .buffer = buffers.vertexBuffer.buffer,
-  };
-  buffers.vertexBufferDeviceAddr =
-      vkGetBufferDeviceAddress(m_device, &vertexBufferAddressInfo);
-  assert(buffers.vertexBufferDeviceAddr);
-
-  buffers.indexBuffer = create_buffer(
-      indexBufferSize,
-      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-      VMA_MEMORY_USAGE_GPU_ONLY);
-
-  const AllocatedBuffer stagingBuffer = create_buffer(
-      vertexBufferSize + indexBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-      VMA_MEMORY_USAGE_CPU_ONLY);
-
-  auto* data = static_cast<char*>(stagingBuffer.allocation->GetMappedData());
-  std::memcpy(data, vertices.data(), vertexBufferSize);
-  std::memcpy(data + vertexBufferSize, indices.data(), indexBufferSize);
-
-  immediate_submit([&](const VkCommandBuffer cmd) {
-    const VkBufferCopy vRegions{
-        .srcOffset = 0,
-        .dstOffset = 0,
-        .size = vertexBufferSize,
-    };
-    vkCmdCopyBuffer(cmd, stagingBuffer.buffer, buffers.vertexBuffer.buffer, 1,
-                    &vRegions);
-
-    const VkBufferCopy iRegions{
-        .srcOffset = vertexBufferSize,
-        .dstOffset = 0,
-        .size = indexBufferSize,
-    };
-    vkCmdCopyBuffer(cmd, stagingBuffer.buffer, buffers.indexBuffer.buffer, 1,
-                    &iRegions);
-  });
-
-  destroy_buffer(stagingBuffer);
-  return buffers;
 }
 
 void Engine::run() {
@@ -1531,7 +1475,7 @@ void Engine::init_light_pass_pipeline() {
       .pName = "main",
   };
 
-  VkComputePipelineCreateInfo createInfo{
+  const VkComputePipelineCreateInfo createInfo{
       .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
       .pNext = nullptr,
       .flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT,
@@ -1655,7 +1599,7 @@ void Engine::init_wboit_composite_pass_pipeline() {
 }
 
 void Engine::init_post_pipeline() {
-  VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{
+  const VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
       .pNext = nullptr,
       .setLayoutCount = 1,
@@ -1673,14 +1617,14 @@ void Engine::init_post_pipeline() {
     throw std::runtime_error("Failed to load postprocess pass shader");
   }
 
-  VkPipelineShaderStageCreateInfo shaderStage{
+  const VkPipelineShaderStageCreateInfo shaderStage{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
       .pNext = nullptr,
       .stage = VK_SHADER_STAGE_COMPUTE_BIT,
       .module = postprocessShader,
       .pName = "main",
   };
-  VkComputePipelineCreateInfo pipelineCreateInfo{
+  const VkComputePipelineCreateInfo pipelineCreateInfo{
       .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
       .pNext = nullptr,
       .flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT,
@@ -1757,6 +1701,87 @@ void Engine::init_imgui() {
   });
 }
 
+void Engine::ensure_vertex_capacity(std::size_t additionalCount) {
+  if (m_globalVertexCount + additionalCount <= m_globalVertexCapacity) {
+    return;
+  }
+
+  std::size_t newCapacity = m_globalVertexCapacity == 0 ? 1024 : m_globalVertexCapacity * 2;
+  while (m_globalVertexCount + additionalCount > newCapacity) {
+    newCapacity *= 2;
+  }
+
+  const std::size_t newSize = newCapacity * sizeof(Vertex);
+  const AllocatedBuffer newBuffer = create_buffer(
+      newSize,
+      VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+      VMA_MEMORY_USAGE_GPU_ONLY);
+
+  if (m_globalVertexCount > 0) {
+    immediate_submit([&](VkCommandBuffer cmd) {
+      const VkBufferCopy copyRegion{
+          .srcOffset = 0,
+          .dstOffset = 0,
+          .size = m_globalVertexCount * sizeof(Vertex),
+      };
+      vkCmdCopyBuffer(cmd, m_globalVertexBuffer.buffer, newBuffer.buffer, 1,
+                      &copyRegion);
+    });
+    destroy_buffer(m_globalVertexBuffer);
+  } else if (m_globalVertexCapacity > 0) {
+    destroy_buffer(m_globalVertexBuffer);
+  }
+
+  m_globalVertexBuffer = newBuffer;
+  m_globalVertexCapacity = newCapacity;
+
+  const VkBufferDeviceAddressInfo addrInfo{
+      .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+      .buffer = m_globalVertexBuffer.buffer,
+  };
+  m_globalVertexBufferAddress = vkGetBufferDeviceAddress(m_device, &addrInfo);
+}
+
+void Engine::ensure_index_capacity(std::size_t additionalCount) {
+  if (m_globalIndexCount + additionalCount <= m_globalIndexCapacity) {
+    return;
+  }
+
+  std::size_t newCapacity = m_globalIndexCapacity == 0 ? 1024 : m_globalIndexCapacity * 2;
+  while (m_globalIndexCount + additionalCount > newCapacity) {
+    newCapacity *= 2;
+  }
+
+  const std::size_t newSize = newCapacity * sizeof(std::uint32_t);
+  const AllocatedBuffer newBuffer = create_buffer(
+      newSize,
+      VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+          VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
+          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+      VMA_MEMORY_USAGE_GPU_ONLY);
+
+  if (m_globalIndexCount > 0) {
+    immediate_submit([&](VkCommandBuffer cmd) {
+      const VkBufferCopy copyRegion{
+          .srcOffset = 0,
+          .dstOffset = 0,
+          .size = m_globalIndexCount * sizeof(std::uint32_t),
+      };
+      vkCmdCopyBuffer(cmd, m_globalIndexBuffer.buffer, newBuffer.buffer, 1,
+                      &copyRegion);
+    });
+    destroy_buffer(m_globalIndexBuffer);
+  }
+  else if (m_globalIndexCapacity > 0) {
+    destroy_buffer(m_globalIndexBuffer);
+  }
+
+  m_globalIndexBuffer = newBuffer;
+  m_globalIndexCapacity = newCapacity;
+}
+
 void Engine::init_mesh_data() {
 #if 0
    const std::string sponzaPath =
@@ -1765,6 +1790,10 @@ void Engine::init_mesh_data() {
   const std::string sponzaPath =
       "../../assets/gltf-samples/Models/Sponza/glTF/sponza.gltf";
 #endif
+  
+  ensure_vertex_capacity(1024); // Initial capacity
+  ensure_index_capacity(1024);
+
   if (!load_gltf(*this, sponzaPath)) {
     throw std::runtime_error("Failed to load glTF file: " + sponzaPath);
   }
@@ -1792,8 +1821,10 @@ void Engine::init_mesh_data() {
     frame.instanceBufferAddr = vkGetBufferDeviceAddress(m_device, &addrInfo);
   }
 
-  m_mainDeletionQueue.push_function([&] {
+  m_mainDeletionQueue.push_function([this] {
     for (auto& frame : m_frameData) destroy_buffer(frame.instanceBuffer);
+    destroy_buffer(m_globalVertexBuffer);
+    destroy_buffer(m_globalIndexBuffer);
   });
 }
 
@@ -1968,7 +1999,6 @@ void Engine::update_scene() {
   m_CurrentFrameInstanceBuffer = static_cast<Instance*>(
       get_current_frame().instanceBuffer.allocationInfo.pMappedData);
   m_CurrentInstanceBufferOffset = 0;
-  m_LastIndexBuffer = nullptr;
 
   m_scene.draw(glm::mat4(1.0f), m_mainDrawContext);
 
@@ -1996,11 +2026,13 @@ void Engine::update_scene() {
               m_mainDrawContext.lights.size() * sizeof(LightData));
 
   m_GBufferMeshPushConstants = {
+      .globalVertexBufferAddr = m_globalVertexBufferAddress,
       .instanceBufferDeviceAddr = get_current_frame().instanceBufferAddr,
       .sceneDataBufferDeviceAddr = get_current_frame().sceneDataBufferAddr,
   };
 
   m_WBOITForwardPassPushConstants = {
+      .globalVertexBufferAddr = m_globalVertexBufferAddress,
       .instanceBufferDeviceAddr =
           m_GBufferMeshPushConstants.instanceBufferDeviceAddr,
       .sceneDataBufferDeviceAddr =

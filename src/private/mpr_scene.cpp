@@ -15,8 +15,7 @@ void MeshNode::draw(const glm::mat4& topMatrix, DrawContext& ctx) {
     const RenderObject rObject{
         .indexCount = s.count,
         .firstIndex = s.startIndex,
-        .indexBuffer = mesh->meshBuffers.indexBuffer.buffer,
-        .vertexBufferAddress = mesh->meshBuffers.vertexBufferDeviceAddr};
+        .vertexOffset = s.vertexOffset};
     switch (s.material->data.passType) {
       case MaterialPass::Transparent: {
         ctx.transparentRenderObjects[rObject].emplace_back(
@@ -98,10 +97,6 @@ std::uint64_t Scene::add_node(std::shared_ptr<Node> node) {
 void Scene::clear_all(Engine& engine) {
   for (auto& buffer : materialBuffers | std::views::keys) {
     engine.destroy_buffer(buffer);
-  }
-  for (const auto& mesh : std::views::values(meshes)) {
-    engine.destroy_buffer(mesh->meshBuffers.indexBuffer);
-    engine.destroy_buffer(mesh->meshBuffers.vertexBuffer);
   }
   for (const auto& image : std::views::values(std::views::values(images))) {
     engine.destroy_image(image);

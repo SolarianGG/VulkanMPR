@@ -78,20 +78,29 @@ struct Instance {
   MaterialInstanceIndices materialIndices;
 };
 
-struct GpuMeshBuffers {
-  AllocatedBuffer vertexBuffer;
-  AllocatedBuffer indexBuffer;
-  VkDeviceAddress vertexBufferDeviceAddr;
+struct GpuDrawCommand {
+  std::uint32_t indexCount;
+  std::uint32_t instanceCount;
+  std::uint32_t firstIndex;
+  std::int32_t vertexOffset;
+  std::uint32_t firstInstance;
+};
+
+struct GpuInstanceData {
+  glm::mat4 worldTransform;
+  std::uint32_t materialIndex;
+  std::uint32_t meshIndex;  // For indexing into global metadata if needed
+  std::uint32_t padding[2];
 };
 
 struct GBufferPassPushConstants {
-  VkDeviceAddress vertexBufferDeviceAddr;
+  VkDeviceAddress globalVertexBufferAddr;
   VkDeviceAddress instanceBufferDeviceAddr;
   VkDeviceAddress sceneDataBufferDeviceAddr;
 };
 
 struct OITForwardPassPushConstants {
-  VkDeviceAddress vertexBufferDeviceAddr;
+  VkDeviceAddress globalVertexBufferAddr;
   VkDeviceAddress instanceBufferDeviceAddr;
   VkDeviceAddress sceneDataBufferDeviceAddr;
   VkDeviceAddress lightDataBufferDeviceAddr;
@@ -152,6 +161,7 @@ struct GLTFMaterial {
 struct GeoSurface {
   std::uint32_t startIndex;
   std::uint32_t count;
+  std::int32_t vertexOffset;
   std::shared_ptr<GLTFMaterial> material;
 };
 
@@ -159,7 +169,6 @@ struct MeshAsset {
   std::string name;
 
   std::vector<GeoSurface> geoSurfaces;
-  GpuMeshBuffers meshBuffers;
 };
 
 }  // namespace mp

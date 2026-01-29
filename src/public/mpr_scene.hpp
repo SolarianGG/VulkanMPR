@@ -9,14 +9,12 @@ class Engine;
 struct RenderObject {
   std::uint32_t indexCount;
   std::uint32_t firstIndex;
-  VkBuffer indexBuffer;
-  VkDeviceAddress vertexBufferAddress;
+  std::int32_t vertexOffset;
 
   [[nodiscard]]
   bool operator==(const RenderObject& other) const noexcept {
     return indexCount == other.indexCount && firstIndex == other.firstIndex &&
-           indexBuffer == other.indexBuffer &&
-           vertexBufferAddress == other.vertexBufferAddress;
+           vertexOffset == other.vertexOffset;
   }
 };
 
@@ -24,15 +22,13 @@ struct DrawContext {
   struct RenderObjectHash {
     static constexpr auto kHashCombineMagicValue = 0x9e3779b9;
     std::size_t operator()(const RenderObject& ro) const {
-      const auto h1 = std::hash<VkBuffer>{}(ro.indexBuffer);
-      const auto h2 = std::hash<VkDeviceAddress>{}(ro.vertexBufferAddress);
-      const auto h3 = std::hash<std::uint32_t>{}(ro.indexCount);
-      const auto h4 = std::hash<std::uint32_t>{}(ro.firstIndex);
+      const auto h1 = std::hash<std::uint32_t>{}(ro.indexCount);
+      const auto h2 = std::hash<std::uint32_t>{}(ro.firstIndex);
+      const auto h3 = std::hash<std::int32_t>{}(ro.vertexOffset);
 
       std::size_t seed = h1;
       seed ^= h2 + kHashCombineMagicValue + (seed << 6) + (seed >> 2);
       seed ^= h3 + kHashCombineMagicValue + (seed << 6) + (seed >> 2);
-      seed ^= h4 + kHashCombineMagicValue + (seed << 6) + (seed >> 2);
       return seed;
     }
   };

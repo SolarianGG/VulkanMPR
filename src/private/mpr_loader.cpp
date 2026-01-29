@@ -70,7 +70,7 @@ std::optional<mp::AllocatedImage> load_image(
                 &nChannels, 4);
           },
           [&](fastgltf::sources::BufferView& view) -> void* {
-            auto& bufferView = asset.bufferViews[view.bufferViewIndex];
+            const auto& bufferView = asset.bufferViews[view.bufferViewIndex];
             auto& buffer = asset.buffers[bufferView.bufferIndex];
             return std::visit(
                 fastgltf::visitor{
@@ -199,7 +199,7 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
       instanceID = imageIt->second;
     } else {
       auto& fastgltfImage = asset.images.at(imgIndex);
-      auto imageOpt =
+      const auto imageOpt =
           load_image(engine, asset, fastgltfImage, format, imageUsage);
       if (imageOpt.has_value()) {
         instanceID =
@@ -220,7 +220,7 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
       instanceID = samplerIt->second;
     } else {
       auto& fastgltfSampler = asset.samplers.at(samplerIndex);
-      VkSampler sampler = load_sampler(engine, fastgltfSampler);
+      const VkSampler sampler = load_sampler(engine, fastgltfSampler);
       if (sampler) {
         instanceID = engine.m_metalRoughness.write_sampler(sampler);
         file.samplers.push_back(sampler);
@@ -313,6 +313,7 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
       newSurface.startIndex = static_cast<uint32_t>(indices.size());
       newSurface.count = static_cast<uint32_t>(
           asset.accessors[p.indicesAccessor.value()].count);
+      newSurface.vertexOffset = 0;  // Relative to mesh-local vertices for now
 
       size_t initialVtx = vertices.size();
 
@@ -396,7 +397,52 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
       newMesh.geoSurfaces.push_back(newSurface);
     }
 
-    newMesh.meshBuffers = engine.create_mesh_buffers(indices, vertices);
+    // Reallocate vertex/index buffers if necessary
+    engine.ensure_vertex_capacity(vertices.size());
+    engine.ensure_index_capacity(indices.size());
+
+    const std::uint32_t baseVertex =
+        static_cast<std::uint32_t>(engine.m_globalVertexCount);
+    const std::uint32_t firstIndex =
+        static_cast<std::uint32_t>(engine.m_globalIndexCount);
+
+    // Copy new vertices to vb/ib
+    AllocatedBuffer staging{};
+    engine.immediate_submit([&](VkCommandBuffer cmd) {
+      const std::size_t vSize = vertices.size() * sizeof(Vertex);
+      const std::size_t iSize = indices.size() * sizeof(std::uint32_t);
+
+      staging =
+          engine.create_buffer(vSize + iSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                               VMA_MEMORY_USAGE_CPU_ONLY);
+      std::memcpy(staging.allocationInfo.pMappedData, vertices.data(), vSize);
+      std::memcpy(
+          static_cast<char*>(staging.allocationInfo.pMappedData) + vSize,
+          indices.data(), iSize);
+
+      const VkBufferCopy vCopy{
+          .srcOffset = 0,
+          .dstOffset = engine.m_globalVertexCount * sizeof(Vertex),
+          .size = vSize};
+      vkCmdCopyBuffer(cmd, staging.buffer, engine.m_globalVertexBuffer.buffer,
+                      1, &vCopy);
+
+      const VkBufferCopy iCopy{
+          .srcOffset = vSize,
+          .dstOffset = engine.m_globalIndexCount * sizeof(std::uint32_t),
+          .size = iSize};
+      vkCmdCopyBuffer(cmd, staging.buffer, engine.m_globalIndexBuffer.buffer, 1,
+                      &iCopy);
+    });
+    engine.destroy_buffer(staging);
+
+    for (auto& surf : newMesh.geoSurfaces) {
+      surf.startIndex += firstIndex;
+      surf.vertexOffset += static_cast<std::int32_t>(baseVertex);
+    }
+
+    engine.m_globalVertexCount += vertices.size();
+    engine.m_globalIndexCount += indices.size();
 
     meshes.emplace_back(std::make_shared<MeshAsset>(std::move(newMesh)));
     file.add_mesh(meshes.back());
