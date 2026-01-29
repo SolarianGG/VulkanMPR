@@ -1192,6 +1192,7 @@ void Engine::init_vulkan() {
 
   VkPhysicalDeviceFeatures features10{
       .independentBlend = true,
+      .samplerAnisotropy = true,
   };
 
   vkb::PhysicalDeviceSelector selector{result.value()};
@@ -1775,6 +1776,9 @@ void Engine::init_mesh_data() {
     throw std::runtime_error("Failed to load glTF file: " + alphaBlendMode);
   }
 
+  if (!load_gltf(*this, sponzaPath)) {
+    throw std::runtime_error("Failed to load glTF file: " + sponzaPath);
+  }
   constexpr auto kMaxInstances = 100'000;
   for (auto& frame : m_frameData) {
     frame.instanceBuffer =

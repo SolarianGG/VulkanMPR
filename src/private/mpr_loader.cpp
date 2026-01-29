@@ -112,6 +112,8 @@ VkSampler load_sampler(mp::Engine& engine, fastgltf::Sampler& sampler) {
           extract_filter(sampler.minFilter.value_or(fastgltf::Filter::Nearest)),
       .mipmapMode = extract_mip_map_mode(
           sampler.minFilter.value_or(fastgltf::Filter::Nearest)),
+      .anisotropyEnable = true,
+      .maxAnisotropy = 16.0f,
       .minLod = 0,
       .maxLod = VK_LOD_CLAMP_NONE,
   };
