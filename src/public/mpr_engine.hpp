@@ -39,15 +39,24 @@ struct FrameData {
   AllocatedImage depthImage;
   AllocatedImage oitAccImage;
   AllocatedImage oitRevealImage;
+
+  DescriptorBuffer lightPassDescriptorBuffer;
+  DescriptorBuffer wboitCompositePassDescBuffer;
+  DescriptorBuffer cullPassDescBuffer;
+  DescriptorBuffer drawImageDescriptorBuffer;
+
   AllocatedBuffer sceneDataBuffer;
   VkDeviceAddress sceneDataBufferAddr;
   AllocatedBuffer lightDataBuffer;
   VkDeviceAddress lightDataBufferAddr;
-  DescriptorBuffer lightPassDescriptorBuffer;
-  DescriptorBuffer wboitCompositePassDescBuffer;
-  DescriptorBuffer drawImageDescriptorBuffer;
   AllocatedBuffer instanceBuffer;
   VkDeviceAddress instanceBufferAddr;
+  AllocatedBuffer meshesBuffer;
+  VkDeviceAddress meshBufferAddr;
+  AllocatedBuffer drawCommandsBuffer;
+  VkDeviceAddress drawCommandsBufferAddr;
+  AllocatedBuffer countBuffer;
+  VkDeviceAddress countBufferAddr;
 };
 
 class Engine final {
@@ -175,8 +184,6 @@ class Engine final {
   GBufferPassPushConstants m_GBufferMeshPushConstants;
   OITForwardPassPushConstants m_WBOITForwardPassPushConstants;
 
-  Instance* m_CurrentFrameInstanceBuffer = nullptr;
-  std::size_t m_CurrentInstanceBufferOffset = 0;
 
   VkPipelineLayout m_WBOITCompositePassPipelineLayout;
   VkPipeline m_WBOITCompositePassPipeline;
@@ -189,6 +196,18 @@ class Engine final {
   VkPipeline m_PostProcessPassPipeline;
   VkPipelineLayout m_PostProcessPassPipelineLayout;
 
+#if 0
+  VkDescriptorSetLayout m_CullPassDescriptorSetLayout;
+#endif
+  VkPipeline m_CullPassPipeline;
+  VkPipelineLayout m_CullPassPipelineLayout;
+
+  std::uint32_t m_OpaqueSize = 0;
+  std::uint32_t m_TransparentSize = 0;
+
+  Instance* m_CurrentFrameInstanceBuffer = nullptr;
+  RenderObject* m_CurrentMeshBuffer = nullptr;
+
  private:
   void init_window();
   void init_vulkan();
@@ -200,6 +219,7 @@ class Engine final {
   void init_light_pass_pipeline();
   void init_wboit_composite_pass_pipeline();
   void init_post_pipeline();
+  void init_cull_pipeline();
   void init_imgui();
   void init_mesh_data();
   void init_default_data();
@@ -210,11 +230,19 @@ class Engine final {
   void draw_wboit(VkCommandBuffer cmd);
   void draw_wboit_composite(VkCommandBuffer cmd);
   void update_scene();
-  void draw_meshes(VkCommandBuffer cmd, const RenderObject& ctx,
-                   const std::vector<Instance>& instances,
-                   const VkPipelineLayout pipelineLayout, auto& pushConstants,
-                   const VkShaderStageFlags pushConstantsShaderStage);
   void draw_post(VkCommandBuffer cmd);
+  void draw_meshes(VkCommandBuffer cmd,
+                           const VkPipelineLayout drawPassPipelineLayout,
+                           const VkPipeline drawPipeline,
+                           const std::uint32_t objectCount,
+                           auto& pushConstants,
+                           const VkShaderStageFlags pushConstantsShaderStage);
+
+  void cull_objects(VkCommandBuffer cmd, std::uint32_t objectCount,
+                    std::uint32_t objectOffset);
+  void copy_frame_buffers();
+
+  void init_frames_data();
 
   static std::uint64_t render_scene_tree_ui(Scene& scene,
                                             std::uint64_t nodeIndex,

@@ -13,6 +13,7 @@ public struct Vertex
 public struct Instance
 {
     public float4x4 worldTransform;
+    public uint meshIndex;
     public uint materialID;
     public uint colorTextureID;
     public uint colorSamplerID;

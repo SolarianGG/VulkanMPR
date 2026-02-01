@@ -42,8 +42,10 @@ It focuses on learning GPU resource management, descriptor systems, shader refle
 - Bindless material model via descriptor buffers extension
 - Slang shader language integration
 - Batching and instancing
+
 ![Instancing](./screenshots/instancing.png)
 - Scene graph (transforms, nodes, cameras, lights, materials)
+
 ![Scenegraph](./screenshots/scene-manip-tr.png)
 - Normal mapping
 

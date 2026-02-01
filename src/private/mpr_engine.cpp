@@ -89,6 +89,7 @@ Engine::Engine() {
   init_descriptors();
   init_pipelines();
   init_imgui();
+  init_frames_data();
   init_default_data();
   init_mesh_data();
 
@@ -319,8 +320,7 @@ void Engine::draw() {
         currentDrawingImage.image, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
         VK_ACCESS_2_SHADER_WRITE_BIT_KHR | VK_ACCESS_2_SHADER_READ_BIT,
         VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
-        VK_IMAGE_LAYOUT_GENERAL,
-        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
 
     barrierBuilder.add_image_barrier(
@@ -430,6 +430,7 @@ void Engine::draw_gBuffer_pass(VkCommandBuffer cmd) {
       utils::rendering_info(m_CommonImageExtent2D, std::size(attachments),
                             attachments, &depthAttachment);
 
+  cull_objects(cmd, m_OpaqueSize, 0);
   vkCmdBeginRendering(cmd, &renderInfo);
   const VkViewport viewport{
       .x = 0,
@@ -446,33 +447,13 @@ void Engine::draw_gBuffer_pass(VkCommandBuffer cmd) {
   };
   vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-  VkDescriptorBufferBindingInfoEXT bindingInfos[1]{};
+  vkCmdBindIndexBuffer(cmd, m_globalIndexBuffer.buffer, 0,
+                       VK_INDEX_TYPE_UINT32);
+  draw_meshes(cmd, m_metalRoughness.opaquePipeline.pipelineLayout,
+              m_metalRoughness.opaquePipeline.pipeline, m_OpaqueSize,
+              m_GBufferMeshPushConstants, VK_SHADER_STAGE_VERTEX_BIT);
 
-  bindingInfos[0] = {
-      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-      .address = m_metalRoughness.descriptors.get_device_address(),
-      .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
-               VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT};
-  vkCmdBindDescriptorBuffersEXT(cmd, std::size(bindingInfos), bindingInfos);
-
-  const std::uint32_t bufferIndices[]{0};
-  const VkDeviceSize offsets[]{0};
-  vkCmdSetDescriptorBufferOffsetsEXT(
-      cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-      m_metalRoughness.opaquePipeline.pipelineLayout, 0,
-      std::size(bufferIndices), bufferIndices, offsets);
-
-  vkCmdBindIndexBuffer(cmd, m_globalIndexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-
-  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_metalRoughness.opaquePipeline.pipeline);
-  for (const auto& [ro, instances] : m_mainDrawContext.opaqueRenderObjects) {
-    draw_meshes(cmd, ro, instances,
-                m_metalRoughness.opaquePipeline.pipelineLayout,
-                m_GBufferMeshPushConstants, VK_SHADER_STAGE_VERTEX_BIT);
-  }
   vkCmdEndRendering(cmd);
-
   const auto end = cn::steady_clock::now();
   const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
   m_stats.gBufferPassTime = elapsed.count() / 1000.0f;
@@ -519,8 +500,6 @@ void Engine::draw_wboit(VkCommandBuffer cmd) {
   const auto start = cn::steady_clock::now();
   const auto& currentFrame = get_current_frame();
 
-  VkDescriptorBufferBindingInfoEXT bindingInfos[1]{};
-
   const VkClearValue clearAccum{.color = {0.0f, 0.0f, 0.0f, 0.0f}};
   const VkClearValue clearReveal{.color = {1.0f, 1.0f, 1.0f, 1.0f}};
   const VkRenderingAttachmentInfo colorAttachments[]{
@@ -536,31 +515,12 @@ void Engine::draw_wboit(VkCommandBuffer cmd) {
       utils::rendering_info(m_CommonImageExtent2D, std::size(colorAttachments),
                             colorAttachments, &depthAttachment);
 
+  cull_objects(cmd, m_TransparentSize, m_OpaqueSize);
   vkCmdBeginRendering(cmd, &renderInfo);
-  bindingInfos[0] = {
-      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-      .address = m_metalRoughness.descriptors.get_device_address(),
-      .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
-               VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT};
-  vkCmdBindDescriptorBuffersEXT(cmd, std::size(bindingInfos), bindingInfos);
-
-  const std::uint32_t bufferIndices[]{0};
-  const VkDeviceSize offsets[]{0};
-  vkCmdSetDescriptorBufferOffsetsEXT(
-      cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-      m_metalRoughness.transparentPipeline.pipelineLayout, 0,
-      std::size(bufferIndices), bufferIndices, offsets);
-  vkCmdBindIndexBuffer(cmd, m_globalIndexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-
-  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_metalRoughness.transparentPipeline.pipeline);
-  for (const auto& [ro, instances] :
-       m_mainDrawContext.transparentRenderObjects) {
-    draw_meshes(cmd, ro, instances,
-                m_metalRoughness.transparentPipeline.pipelineLayout,
-                m_WBOITForwardPassPushConstants,
-                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
-  }
+  draw_meshes(cmd, m_metalRoughness.transparentPipeline.pipelineLayout,
+              m_metalRoughness.transparentPipeline.pipeline, m_TransparentSize,
+              m_WBOITForwardPassPushConstants,
+              VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
   vkCmdEndRendering(cmd);
   const auto end = cn::steady_clock::now();
   const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
@@ -620,36 +580,137 @@ void Engine::draw_imgui(const VkCommandBuffer cmd,
   m_stats.imguiDrawTime = elapsed.count() / 1000.0f;
 }
 
-void Engine::draw_meshes(VkCommandBuffer cmd, const RenderObject& ctx,
-                         const std::vector<Instance>& instances,
-                         const VkPipelineLayout pipelineLayout,
-                         auto& pushConstants,
+void Engine::cull_objects(VkCommandBuffer cmd, const std::uint32_t objectCount,
+                          const std::uint32_t objectOffset) {
+  auto& currentFrame = get_current_frame();
+  utils::BarrierBuilder barrierBuilder;
+  barrierBuilder.add_buffer_barrier({
+      .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+      .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+      .srcAccessMask = 0,
+      .dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+      .dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+      .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .buffer = currentFrame.countBuffer.buffer,
+      .offset = 0,
+      .size = VK_WHOLE_SIZE,
+  });
+  barrierBuilder.barrier(cmd);
+
+  vkCmdFillBuffer(cmd, currentFrame.countBuffer.buffer, 0,
+                  VK_WHOLE_SIZE, 0);
+
+  barrierBuilder.add_buffer_barrier({
+      .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+      .srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+      .srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+      .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+      .dstAccessMask =
+          VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+      .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .buffer = currentFrame.countBuffer.buffer,
+      .offset = 0,
+      .size = VK_WHOLE_SIZE,
+  });
+  barrierBuilder.add_buffer_barrier({
+      .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+      .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+      .srcAccessMask = 0,
+      .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+      .dstAccessMask =
+          VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+      .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .buffer = currentFrame.drawCommandsBuffer.buffer,
+      .offset = 0,
+      .size = VK_WHOLE_SIZE,
+  });
+
+  barrierBuilder.barrier(cmd);
+
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_CullPassPipeline);
+
+  const CullPassPushConstants cullPassConstants{
+      .meshBufferAddr = currentFrame.meshBufferAddr,
+      .instanceBufferDeviceAddr =
+          currentFrame.instanceBufferAddr,
+      .commandsBufferAddr = currentFrame.drawCommandsBufferAddr,
+      .countBufferAddr = currentFrame.countBufferAddr,
+      .objectsCount = objectCount,
+      .objectsOffset = objectOffset,
+  };
+  vkCmdPushConstants(cmd, m_CullPassPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT,
+                     0, sizeof(CullPassPushConstants), &cullPassConstants);
+
+  vkCmdDispatch(cmd, std::ceil(objectCount / 64.0f), 1, 1);
+
+  barrierBuilder.add_buffer_barrier({
+      .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+      .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+      .srcAccessMask =
+          VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+      .dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+      .dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+      .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .buffer = currentFrame.countBuffer.buffer,
+      .offset = 0,
+      .size = VK_WHOLE_SIZE,
+  });
+  barrierBuilder.add_buffer_barrier({
+      .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+      .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+      .srcAccessMask =
+          VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+      .dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+      .dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+      .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .buffer = currentFrame.drawCommandsBuffer.buffer,
+      .offset = 0,
+      .size = VK_WHOLE_SIZE,
+  });
+
+  barrierBuilder.barrier(cmd);
+}
+
+void Engine::draw_meshes(VkCommandBuffer cmd,
+                         const VkPipelineLayout drawPassPipelineLayout,
+                         const VkPipeline drawPipeline,
+                         const std::uint32_t objectCount, auto& pushConstants,
                          const VkShaderStageFlags pushConstantsShaderStage) {
-  // draw meshes begin
-  std::memcpy(m_CurrentFrameInstanceBuffer + m_CurrentInstanceBufferOffset,
-              instances.data(), instances.size() * sizeof(Instance));
+  auto& currentFrame = get_current_frame();
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, drawPipeline);
 
-  // No longer need to pass per-mesh vertex buffer address here as shader will fetch from global
-  // OR we can pass the global address once, but here we just need to use vertexOffset in draw call.
-
-  vkCmdPushConstants(cmd, pipelineLayout, pushConstantsShaderStage, 0,
+  vkCmdPushConstants(cmd, drawPassPipelineLayout, pushConstantsShaderStage, 0,
                      sizeof(pushConstants), &pushConstants);
+  // Bind textures
+  const VkDescriptorBufferBindingInfoEXT bindingInfo = {
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+      .address = m_metalRoughness.descriptors.get_device_address(),
+      .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
+               VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT};
+  vkCmdBindDescriptorBuffersEXT(cmd, 1, &bindingInfo);
 
-  vkCmdDrawIndexed(cmd, ctx.indexCount,
-                   static_cast<std::uint32_t>(instances.size()), ctx.firstIndex,
-                   ctx.vertexOffset,
-                   static_cast<std::uint32_t>(m_CurrentInstanceBufferOffset));
+  const std::uint32_t bufferIndices[]{0};
+  const VkDeviceSize offsets[]{0};
+  vkCmdSetDescriptorBufferOffsetsEXT(
+      cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, drawPassPipelineLayout, 0,
+      std::size(bufferIndices), bufferIndices, offsets);
+
+  vkCmdDrawIndexedIndirectCount(cmd, currentFrame.drawCommandsBuffer.buffer, 0,
+                                currentFrame.countBuffer.buffer, 0, objectCount,
+                                sizeof(VkDrawIndexedIndirectCommand));
   m_stats.drawCallCount++;
-  m_stats.triangleCount += ctx.indexCount / 3 * instances.size();
-  m_CurrentInstanceBufferOffset += instances.size();
 }
 
 void Engine::draw_post(VkCommandBuffer cmd) {
-  
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                     m_PostProcessPassPipeline);
 
-    const VkDescriptorBufferBindingInfoEXT buffersInfo[]{
+  const VkDescriptorBufferBindingInfoEXT buffersInfo[]{
       {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
        .pNext = nullptr,
        .address =
@@ -667,6 +728,89 @@ void Engine::draw_post(VkCommandBuffer cmd) {
 
   vkCmdDispatch(cmd, std::ceil(m_CommonImageExtent2D.width / 16.0f),
                 std::ceil(m_CommonImageExtent2D.height / 16.0f), 1.0f);
+}
+
+void Engine::copy_frame_buffers() {
+  m_OpaqueSize = static_cast<std::uint32_t>(m_mainDrawContext.opaqueInstances.size());
+  const std::uint32_t opaqueByteSize = m_OpaqueSize * sizeof(Instance);
+  std::memcpy(m_CurrentFrameInstanceBuffer,
+              m_mainDrawContext.opaqueInstances.data(), opaqueByteSize);
+
+  m_TransparentSize = static_cast<std::uint32_t>(m_mainDrawContext.transparentInstances.size());
+  const std::uint32_t transparentByteSize = m_TransparentSize * sizeof(Instance);
+  std::memcpy(m_CurrentFrameInstanceBuffer + m_OpaqueSize,
+              m_mainDrawContext.transparentInstances.data(), transparentByteSize);
+
+  std::memcpy(m_CurrentMeshBuffer, m_mainDrawContext.renderObjects.data(),
+              m_mainDrawContext.renderObjects.size() * sizeof(RenderObject));
+}
+
+void Engine::init_frames_data() {
+  constexpr auto kMaxInstances = 100'000;
+  constexpr auto kMaxLights = 10'000;
+  constexpr auto kMaxMeshes = 50'000;
+  for (auto& frame : m_frameData) {
+    frame.sceneDataBuffer =
+        create_buffer(sizeof(GpuSceneData),
+                      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
+                          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                      VMA_MEMORY_USAGE_CPU_TO_GPU);
+    frame.sceneDataBufferAddr =
+        frame.sceneDataBuffer.get_buffer_device_address(m_device);
+
+    frame.lightDataBuffer =
+        create_buffer(sizeof(LightData) * kMaxLights,
+                      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
+                          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                      VMA_MEMORY_USAGE_CPU_TO_GPU);
+    frame.lightDataBufferAddr =
+        frame.lightDataBuffer.get_buffer_device_address(m_device);
+
+    frame.instanceBuffer =
+        create_buffer(sizeof(Instance) * kMaxInstances,
+                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                      VMA_MEMORY_USAGE_CPU_TO_GPU);
+    frame.instanceBufferAddr =
+        frame.instanceBuffer.get_buffer_device_address(m_device);
+
+    frame.meshesBuffer =
+        create_buffer(sizeof(RenderObject) * kMaxMeshes,
+                      VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT |
+                          VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT,
+                      VMA_MEMORY_USAGE_CPU_TO_GPU);
+
+    frame.meshBufferAddr =
+        frame.meshesBuffer.get_buffer_device_address(m_device);
+    frame.drawCommandsBuffer =
+        create_buffer(sizeof(VkDrawIndexedIndirectCommand) * kMaxInstances,
+                      VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT |
+                          VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT |
+                          VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT,
+                      VMA_MEMORY_USAGE_GPU_ONLY);
+    frame.drawCommandsBufferAddr =
+        frame.drawCommandsBuffer.get_buffer_device_address(m_device);
+
+    frame.countBuffer =
+        create_buffer(sizeof(std::uint32_t),
+                      VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT |
+                          VK_BUFFER_USAGE_2_TRANSFER_DST_BIT |
+                              VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT,
+                      VMA_MEMORY_USAGE_GPU_ONLY);
+    frame.countBufferAddr =
+        frame.countBuffer.get_buffer_device_address(m_device);
+  }
+
+  m_mainDeletionQueue.push_function([this] {
+    for (auto& frame : m_frameData) {
+      destroy_buffer(frame.instanceBuffer);
+      destroy_buffer(frame.drawCommandsBuffer);
+      destroy_buffer(frame.meshesBuffer);
+      destroy_buffer(frame.countBuffer);
+      destroy_buffer(frame.sceneDataBuffer);
+      destroy_buffer(frame.lightDataBuffer);
+    }
+  });
 }
 
 std::uint64_t Engine::render_scene_tree_ui(Scene& scene,
@@ -1417,7 +1561,7 @@ void Engine::init_descriptors() {
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     frame.lightPassDescriptorBuffer.write_sampled_image(
         3, 0, frame.gBuffer.specular.imageView,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL); 
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   }
 
   m_mainDeletionQueue.push_function([&]() mutable {
@@ -1434,6 +1578,7 @@ void Engine::init_descriptors() {
 
 void Engine::init_pipelines() {
   init_light_pass_pipeline();
+  init_cull_pipeline();
   init_wboit_composite_pass_pipeline();
   init_post_pipeline();
   m_metalRoughness.build_pipelines(*this);
@@ -1642,6 +1787,66 @@ void Engine::init_post_pipeline() {
   });
 }
 
+void Engine::init_cull_pipeline() {
+#if 0
+  m_CullPassDescriptorSetLayout =
+      DescriptorSetLayoutBuilder()
+          .build(m_device,
+                 VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
+#endif
+
+  const VkPushConstantRange constantRange{
+      .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+      .offset = 0,
+      .size = sizeof(CullPassPushConstants),
+  };
+
+  const VkPipelineLayoutCreateInfo layoutCreateInfo{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+      .pNext = nullptr,
+      .setLayoutCount = 0,
+      .pSetLayouts = nullptr,
+      .pushConstantRangeCount = 1,
+      .pPushConstantRanges = &constantRange,
+  };
+
+  vkCreatePipelineLayout(m_device, &layoutCreateInfo, nullptr,
+                         &m_CullPassPipelineLayout) >>
+      chk;
+
+  VkShaderModule cullShader;
+  if (!load_shader_module("../../src/compiled_shaders/cull.compute.spv",
+                          m_device, &cullShader)) {
+    throw std::runtime_error("Failed to load cull shader");
+  }
+
+  const VkPipelineShaderStageCreateInfo shaderStage{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+      .pNext = nullptr,
+      .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+      .module = cullShader,
+      .pName = "main",
+  };
+
+  const VkComputePipelineCreateInfo pipelineCreateInfo{
+      .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+      .pNext = nullptr,
+      .stage = shaderStage,
+      .layout = m_CullPassPipelineLayout,
+  };
+
+  vkCreateComputePipelines(m_device, nullptr, 1, &pipelineCreateInfo, nullptr,
+                           &m_CullPassPipeline) >>
+      chk;
+
+  vkDestroyShaderModule(m_device, cullShader, nullptr);
+
+  m_mainDeletionQueue.push_function([this] {
+    vkDestroyPipeline(m_device, m_CullPassPipeline, nullptr);
+    vkDestroyPipelineLayout(m_device, m_CullPassPipelineLayout, nullptr);
+  });
+}
+
 void Engine::init_imgui() {
   // 1: create descriptor pool for IMGUI
   //  the size of the pool is very oversize, but it's copied from imgui demo
@@ -1706,7 +1911,8 @@ void Engine::ensure_vertex_capacity(std::size_t additionalCount) {
     return;
   }
 
-  std::size_t newCapacity = m_globalVertexCapacity == 0 ? 1024 : m_globalVertexCapacity * 2;
+  std::size_t newCapacity =
+      m_globalVertexCapacity == 0 ? 1024 : m_globalVertexCapacity * 2;
   while (m_globalVertexCount + additionalCount > newCapacity) {
     newCapacity *= 2;
   }
@@ -1749,7 +1955,8 @@ void Engine::ensure_index_capacity(std::size_t additionalCount) {
     return;
   }
 
-  std::size_t newCapacity = m_globalIndexCapacity == 0 ? 1024 : m_globalIndexCapacity * 2;
+  std::size_t newCapacity =
+      m_globalIndexCapacity == 0 ? 1024 : m_globalIndexCapacity * 2;
   while (m_globalIndexCount + additionalCount > newCapacity) {
     newCapacity *= 2;
   }
@@ -1773,8 +1980,7 @@ void Engine::ensure_index_capacity(std::size_t additionalCount) {
                       &copyRegion);
     });
     destroy_buffer(m_globalIndexBuffer);
-  }
-  else if (m_globalIndexCapacity > 0) {
+  } else if (m_globalIndexCapacity > 0) {
     destroy_buffer(m_globalIndexBuffer);
   }
 
@@ -1790,39 +1996,22 @@ void Engine::init_mesh_data() {
   const std::string sponzaPath =
       "../../assets/gltf-samples/Models/Sponza/glTF/sponza.gltf";
 #endif
-  
-  ensure_vertex_capacity(1024); // Initial capacity
+
+  ensure_vertex_capacity(1024);  // Initial capacity
   ensure_index_capacity(1024);
 
   if (!load_gltf(*this, sponzaPath)) {
     throw std::runtime_error("Failed to load glTF file: " + sponzaPath);
   }
 
- const std::string alphaBlendMode =
+  const std::string alphaBlendMode =
       "../../assets/gltf-samples/Models/AlphaBlendModeTest/glTF/"
-      "AlphaBlendModeTest.gltf"; 
+      "AlphaBlendModeTest.gltf";
   if (!load_gltf(*this, alphaBlendMode)) {
     throw std::runtime_error("Failed to load glTF file: " + alphaBlendMode);
   }
 
-  if (!load_gltf(*this, sponzaPath)) {
-    throw std::runtime_error("Failed to load glTF file: " + sponzaPath);
-  }
-  constexpr auto kMaxInstances = 100'000;
-  for (auto& frame : m_frameData) {
-    frame.instanceBuffer =
-        create_buffer(sizeof(Instance) * kMaxInstances,
-                      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
-                          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-                      VMA_MEMORY_USAGE_CPU_TO_GPU);
-    const VkBufferDeviceAddressInfo addrInfo{
-        .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-        .buffer = frame.instanceBuffer.buffer};
-    frame.instanceBufferAddr = vkGetBufferDeviceAddress(m_device, &addrInfo);
-  }
-
   m_mainDeletionQueue.push_function([this] {
-    for (auto& frame : m_frameData) destroy_buffer(frame.instanceBuffer);
     destroy_buffer(m_globalVertexBuffer);
     destroy_buffer(m_globalIndexBuffer);
   });
@@ -1874,42 +2063,12 @@ void Engine::init_default_data() {
   vkCreateSampler(m_device, &samplerCreateInfo, nullptr,
                   &m_defaultSamplerNearest);
 
-  for (auto& frame : m_frameData) {
-    frame.sceneDataBuffer =
-        create_buffer(sizeof(GpuSceneData),
-                      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
-                          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-                      VMA_MEMORY_USAGE_CPU_TO_GPU);
-    const VkBufferDeviceAddressInfo addrInfo{
-        .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-        .buffer = frame.sceneDataBuffer.buffer,
-    };
-    frame.sceneDataBufferAddr = vkGetBufferDeviceAddress(m_device, &addrInfo);
-
-    frame.lightDataBuffer =
-        create_buffer(sizeof(LightData) * 10'000,
-                      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
-                          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-                      VMA_MEMORY_USAGE_CPU_TO_GPU);
-    const VkBufferDeviceAddressInfo lightAddrInfo{
-        .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-        .buffer = frame.lightDataBuffer.buffer,
-    };
-    frame.lightDataBufferAddr =
-        vkGetBufferDeviceAddress(m_device, &lightAddrInfo);
-  }
-
   assert(0 == m_metalRoughness.write_sampler(m_defaultSamplerLinear));
   assert(0 == m_metalRoughness.write_texture(m_whiteImage.imageView));
   assert(1 == m_metalRoughness.write_texture(m_blackImage.imageView));
   assert(2 == m_metalRoughness.write_texture(m_normalFallback.imageView));
   m_mainDeletionQueue.push_function([&] {
     m_metalRoughness.clear_resources(*this);
-
-    for (auto& frame : m_frameData) {
-      destroy_buffer(frame.sceneDataBuffer);
-      destroy_buffer(frame.lightDataBuffer);
-    }
 
     destroy_image(m_whiteImage);
     destroy_image(m_blackImage);
@@ -1990,17 +2149,17 @@ void Engine::WindowCleaner::operator()(SDL_Window* window) const {
 }
 
 void Engine::update_scene() {
-  std::this_thread::sleep_for(2ms);
   const auto start = cn::steady_clock::now();
   m_camera.update(m_stats.frameTime);
-  m_mainDrawContext.opaqueRenderObjects.clear();
-  m_mainDrawContext.transparentRenderObjects.clear();
-  m_mainDrawContext.lights.clear();
+  m_mainDrawContext.clear();
   m_CurrentFrameInstanceBuffer = static_cast<Instance*>(
       get_current_frame().instanceBuffer.allocationInfo.pMappedData);
-  m_CurrentInstanceBufferOffset = 0;
+  m_CurrentMeshBuffer = static_cast<RenderObject*>(
+      get_current_frame().meshesBuffer.allocationInfo.pMappedData);
 
   m_scene.draw(glm::mat4(1.0f), m_mainDrawContext);
+
+  copy_frame_buffers();
 
   const glm::mat4 proj = glm::perspective(
       glm::radians(90.0f),

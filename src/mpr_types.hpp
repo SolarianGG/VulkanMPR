@@ -52,6 +52,14 @@ struct AllocatedBuffer {
   VkBuffer buffer;
   VmaAllocation allocation;
   VmaAllocationInfo allocationInfo;
+
+  VkDeviceAddress get_buffer_device_address(VkDevice device) const {
+    const VkBufferDeviceAddressInfo addrInfo{
+        .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+        .buffer = buffer,
+    };
+    return vkGetBufferDeviceAddress(device, &addrInfo);
+  }
 };
 
 struct Vertex {
@@ -75,22 +83,8 @@ struct MaterialInstanceIndices {
 
 struct Instance {
   glm::mat4 world;
+  std::uint32_t meshIndex;
   MaterialInstanceIndices materialIndices;
-};
-
-struct GpuDrawCommand {
-  std::uint32_t indexCount;
-  std::uint32_t instanceCount;
-  std::uint32_t firstIndex;
-  std::int32_t vertexOffset;
-  std::uint32_t firstInstance;
-};
-
-struct GpuInstanceData {
-  glm::mat4 worldTransform;
-  std::uint32_t materialIndex;
-  std::uint32_t meshIndex;  // For indexing into global metadata if needed
-  std::uint32_t padding[2];
 };
 
 struct GBufferPassPushConstants {
@@ -111,6 +105,15 @@ struct LightPassConstantRange {
   VkDeviceAddress sceneDataBufferDeviceAddr;
   VkDeviceAddress lightDataBufferDeviceAddr;
   std::uint32_t lightCount;
+};
+
+struct CullPassPushConstants {
+  VkDeviceAddress meshBufferAddr;
+  VkDeviceAddress instanceBufferDeviceAddr;
+  VkDeviceAddress commandsBufferAddr;
+  VkDeviceAddress countBufferAddr;
+  std::uint32_t objectsCount;
+  std::uint32_t objectsOffset;
 };
 
 struct GpuSceneData {

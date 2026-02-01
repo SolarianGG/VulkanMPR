@@ -32,10 +32,17 @@ struct DrawContext {
       return seed;
     }
   };
-  std::unordered_map<RenderObject, std::vector<Instance>, RenderObjectHash>
-      opaqueRenderObjects;
-  std::unordered_map<RenderObject, std::vector<Instance>, RenderObjectHash>
-      transparentRenderObjects;
+
+  void clear();
+  std::vector<RenderObject> renderObjects;
+
+  std::vector<Instance> opaqueInstances;
+  std::vector<Instance> transparentInstances;
+
+  std::unordered_map<RenderObject, std::uint32_t, RenderObjectHash>
+      opaqueMeshes;
+  std::unordered_map<RenderObject, std::uint32_t, RenderObjectHash>
+      transparentMeshes;
   std::vector<LightData> lights;
 };
 

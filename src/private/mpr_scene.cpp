@@ -8,27 +8,46 @@
 // clang-format on
 
 namespace mp {
+void DrawContext::clear() {
+  opaqueMeshes.clear();
+  transparentMeshes.clear();
+  lights.clear();
+  renderObjects.clear();
+  opaqueInstances.clear();
+  transparentInstances.clear();
+}
 
 void MeshNode::draw(const glm::mat4& topMatrix, DrawContext& ctx) {
-  glm::mat4 nodeMatrix = topMatrix * worldTransform;
+  const glm::mat4 nodeMatrix = topMatrix * worldTransform;
   for (const auto& s : mesh->geoSurfaces) {
-    const RenderObject rObject{
-        .indexCount = s.count,
-        .firstIndex = s.startIndex,
-        .vertexOffset = s.vertexOffset};
-    switch (s.material->data.passType) {
-      case MaterialPass::Transparent: {
-        ctx.transparentRenderObjects[rObject].emplace_back(
-            nodeMatrix, s.material->data.indices);
-      } break;
-      case MaterialPass::Opaque: {
-        ctx.opaqueRenderObjects[rObject].emplace_back(nodeMatrix,
-                                                      s.material->data.indices);
-      } break;
-      case MaterialPass::Other: {
-        assert(false);
-      } break;
+    const auto passType = s.material->data.passType;
+    if (passType == MaterialPass::Other) continue;
+    const RenderObject rObject{.indexCount = s.count,
+                               .firstIndex = s.startIndex,
+                               .vertexOffset = s.vertexOffset};
+
+    auto& instanceVec = (passType == MaterialPass::Opaque)
+                            ? ctx.opaqueInstances
+                            : ctx.transparentInstances;
+    auto& submeshMap = (passType == MaterialPass::Opaque)
+                           ? ctx.opaqueMeshes
+                           : ctx.transparentMeshes;
+
+    auto it = submeshMap.find(rObject);
+    uint32_t submeshIndex;
+    if (it != submeshMap.end()) {
+      submeshIndex = it->second;
+    } else {
+      submeshIndex = static_cast<uint32_t>(ctx.renderObjects.size());
+      ctx.renderObjects.push_back(rObject);
+      submeshMap[rObject] = submeshIndex;
     }
+
+    instanceVec.push_back(Instance{
+        .world = nodeMatrix,
+        .meshIndex = submeshIndex,
+        .materialIndices = s.material->data.indices,
+    });
   }
 
   Node::draw(topMatrix, ctx);
