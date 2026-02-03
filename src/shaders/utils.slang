@@ -13,14 +13,14 @@ public struct Vertex
 public struct Instance
 {
     public float4x4 worldTransform;
-    public uint meshIndex;
-    public uint materialID;
-    public uint colorTextureID;
-    public uint colorSamplerID;
-    public uint metalRoughTextureID;
-    public uint metalRoughSamplerID;
-    public uint normalTextureID;
-    public uint normalSamplerID;
+    public uint32_t meshIndex;
+    public uint32_t materialID;
+    public uint32_t colorTextureID;
+    public uint32_t colorSamplerID;
+    public uint32_t metalRoughTextureID;
+    public uint32_t metalRoughSamplerID;
+    public uint32_t normalTextureID;
+    public uint32_t normalSamplerID;
 };
 
 public struct SceneData 

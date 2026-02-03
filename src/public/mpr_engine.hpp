@@ -208,6 +208,7 @@ class Engine final {
   Instance* m_CurrentFrameInstanceBuffer = nullptr;
   RenderObject* m_CurrentMeshBuffer = nullptr;
 
+
  private:
   void init_window();
   void init_vulkan();

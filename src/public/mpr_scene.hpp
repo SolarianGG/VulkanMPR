@@ -10,6 +10,12 @@ struct RenderObject {
   std::uint32_t indexCount;
   std::uint32_t firstIndex;
   std::int32_t vertexOffset;
+  std::uint32_t
+  padding;
+  glm::vec3 min;
+  float padding1;
+  glm::vec3 max;
+  float padding2;
 
   [[nodiscard]]
   bool operator==(const RenderObject& other) const noexcept {

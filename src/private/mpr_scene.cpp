@@ -24,7 +24,9 @@ void MeshNode::draw(const glm::mat4& topMatrix, DrawContext& ctx) {
     if (passType == MaterialPass::Other) continue;
     const RenderObject rObject{.indexCount = s.count,
                                .firstIndex = s.startIndex,
-                               .vertexOffset = s.vertexOffset};
+                               .vertexOffset = s.vertexOffset,
+                               .min = s.min,
+                               .max = s.max};
 
     auto& instanceVec = (passType == MaterialPass::Opaque)
                             ? ctx.opaqueInstances

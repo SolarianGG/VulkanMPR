@@ -315,6 +315,8 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
           asset.accessors[p.indicesAccessor.value()].count);
       newSurface.vertexOffset = 0;  // Relative to mesh-local vertices for now
 
+      newSurface.min = glm::vec3(0.0f);
+      newSurface.max = glm::vec3(0.0f);
       size_t initialVtx = vertices.size();
 
       // load indexes
@@ -335,6 +337,20 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
             asset.accessors[p.findAttribute("POSITION")->accessorIndex];
         vertices.resize(vertices.size() + posAccessor.count);
 
+        newSurface.min = std::visit(
+            fastgltf::visitor{
+                [](const std::monostate& e) { return glm::vec3(0.0f); },
+                [](const auto& min) {
+                  return glm::vec3(min[0], min[1], min[2]);
+                }},
+            posAccessor.min);
+        newSurface.max = std::visit(
+            fastgltf::visitor{
+                [](const std::monostate& e) { return glm::vec3(0.0f); },
+                [](const auto& max) {
+                  return glm::vec3(max[0], max[1], max[2]);
+                }},
+            posAccessor.max);
         fastgltf::iterateAccessorWithIndex<glm::vec3>(
             asset, posAccessor, [&](const glm::vec3 v, const size_t index) {
               Vertex newVtx;

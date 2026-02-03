@@ -1,4 +1,4 @@
-// clang-format off
+﻿// clang-format off
 #define VMA_IMPLEMENTATION
 #define GLM_ENABLE_EXPERIMENTAL
 #define VOLK_IMPLEMENTATION
@@ -16,6 +16,7 @@
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/ext/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <glm/gtc/matrix_access.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -598,8 +599,7 @@ void Engine::cull_objects(VkCommandBuffer cmd, const std::uint32_t objectCount,
   });
   barrierBuilder.barrier(cmd);
 
-  vkCmdFillBuffer(cmd, currentFrame.countBuffer.buffer, 0,
-                  VK_WHOLE_SIZE, 0);
+  vkCmdFillBuffer(cmd, currentFrame.countBuffer.buffer, 0, VK_WHOLE_SIZE, 0);
 
   barrierBuilder.add_buffer_barrier({
       .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
@@ -634,10 +634,10 @@ void Engine::cull_objects(VkCommandBuffer cmd, const std::uint32_t objectCount,
 
   const CullPassPushConstants cullPassConstants{
       .meshBufferAddr = currentFrame.meshBufferAddr,
-      .instanceBufferDeviceAddr =
-          currentFrame.instanceBufferAddr,
+      .instanceBufferDeviceAddr = currentFrame.instanceBufferAddr,
       .commandsBufferAddr = currentFrame.drawCommandsBufferAddr,
       .countBufferAddr = currentFrame.countBufferAddr,
+      .viewProj= m_sceneData.projView,
       .objectsCount = objectCount,
       .objectsOffset = objectOffset,
   };
@@ -731,15 +731,19 @@ void Engine::draw_post(VkCommandBuffer cmd) {
 }
 
 void Engine::copy_frame_buffers() {
-  m_OpaqueSize = static_cast<std::uint32_t>(m_mainDrawContext.opaqueInstances.size());
+  m_OpaqueSize =
+      static_cast<std::uint32_t>(m_mainDrawContext.opaqueInstances.size());
   const std::uint32_t opaqueByteSize = m_OpaqueSize * sizeof(Instance);
   std::memcpy(m_CurrentFrameInstanceBuffer,
               m_mainDrawContext.opaqueInstances.data(), opaqueByteSize);
 
-  m_TransparentSize = static_cast<std::uint32_t>(m_mainDrawContext.transparentInstances.size());
-  const std::uint32_t transparentByteSize = m_TransparentSize * sizeof(Instance);
+  m_TransparentSize =
+      static_cast<std::uint32_t>(m_mainDrawContext.transparentInstances.size());
+  const std::uint32_t transparentByteSize =
+      m_TransparentSize * sizeof(Instance);
   std::memcpy(m_CurrentFrameInstanceBuffer + m_OpaqueSize,
-              m_mainDrawContext.transparentInstances.data(), transparentByteSize);
+              m_mainDrawContext.transparentInstances.data(),
+              transparentByteSize);
 
   std::memcpy(m_CurrentMeshBuffer, m_mainDrawContext.renderObjects.data(),
               m_mainDrawContext.renderObjects.size() * sizeof(RenderObject));
@@ -795,7 +799,7 @@ void Engine::init_frames_data() {
         create_buffer(sizeof(std::uint32_t),
                       VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT |
                           VK_BUFFER_USAGE_2_TRANSFER_DST_BIT |
-                              VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT,
+                          VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT,
                       VMA_MEMORY_USAGE_GPU_ONLY);
     frame.countBufferAddr =
         frame.countBuffer.get_buffer_device_address(m_device);
@@ -2149,6 +2153,8 @@ void Engine::WindowCleaner::operator()(SDL_Window* window) const {
 }
 
 void Engine::update_scene() {
+  // TODO: Remove this sleep
+  // std::this_thread::sleep_for(2ms);
   const auto start = cn::steady_clock::now();
   m_camera.update(m_stats.frameTime);
   m_mainDrawContext.clear();

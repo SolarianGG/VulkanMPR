@@ -112,6 +112,7 @@ struct CullPassPushConstants {
   VkDeviceAddress instanceBufferDeviceAddr;
   VkDeviceAddress commandsBufferAddr;
   VkDeviceAddress countBufferAddr;
+  glm::mat4 viewProj;
   std::uint32_t objectsCount;
   std::uint32_t objectsOffset;
 };
@@ -165,6 +166,8 @@ struct GeoSurface {
   std::uint32_t startIndex;
   std::uint32_t count;
   std::int32_t vertexOffset;
+  glm::vec3 min;
+  glm::vec3 max;
   std::shared_ptr<GLTFMaterial> material;
 };
 

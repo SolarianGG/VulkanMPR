@@ -57,20 +57,21 @@ With normal mapping
 - Weight blended order independent transparency
 ![WBOIT](./screenshots/wboit.png)
 - Gamma correction on albedo textures + postprocess pass
+- Indirect drawing with cull compute shader implemented using Wave Intrinsics
+- Frustrum culling
 
 
 ### Planned Features
-- Indirect drawing
-- Frustrum culling
-- Render doc debug markers
-- Directional shadows
+- Directional shadow mapping
+- Point ling cube shadow mapping
+- CSM
 - HDR + tonemap + gamma correction
 - PBR
 - IBL
-- Bloom
-- CSM
-- SSAO
+- Render doc debug markers
 - Multithreaded cmd record
+- Bloom
+- SSAO
 - Blur
-- TAA
+- TAA / FXAA / MSAA on deferred renderer
 
