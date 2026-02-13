@@ -47,7 +47,6 @@ struct AllocatedImage {
   VkFormat imageFormat;
 };
 
-
 struct AllocatedBuffer {
   VkBuffer buffer;
   VmaAllocation allocation;
@@ -126,11 +125,19 @@ struct GpuSceneData {
 };
 
 struct LightData {
-  std::int32_t lightType; // directional - 0, point - 1
+  std::int32_t lightType;  // directional - 0, point - 1
   std::int32_t padding0[3];
 
-  glm::vec4 data0;
-  glm::vec4 data1;
+  glm::vec4 data0;  // xyz: position/direction, w: range for punctual
+  glm::vec4 data1;  // xyz: color, w: intensity
+
+  glm::mat4 lightVP;
+};
+
+struct ShadowPassPushConstants {
+  VkDeviceAddress globalVertexBufferAddr;
+  VkDeviceAddress instanceBufferDeviceAddr;
+  glm::mat4 lightVP;
 };
 
 enum class MaterialPass : std::uint8_t { Opaque, Transparent, Other };

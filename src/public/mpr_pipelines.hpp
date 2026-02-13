@@ -24,6 +24,7 @@ struct PipelineBuilder {
 
   void clear();
 
+  [[nodiscard]]
   VkPipeline build_pipeline(VkDevice device, VkPipelineCreateFlags pipelineCreateFlags = 0);
 
   void add_shader(const VkShaderModule shaderModule,

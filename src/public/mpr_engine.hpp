@@ -20,6 +20,7 @@ struct EngineStats {
   float transparentForwardLightPassTime;
   float imguiDrawTime;
   float postProcessPassTime;
+  float shadowPassDrawTime;
 };
 
 constexpr auto kNumberOfFrames = 2;
@@ -39,6 +40,7 @@ struct FrameData {
   AllocatedImage depthImage;
   AllocatedImage oitAccImage;
   AllocatedImage oitRevealImage;
+  AllocatedImage shadowPassDepthImage;
 
   DescriptorBuffer lightPassDescriptorBuffer;
   DescriptorBuffer wboitCompositePassDescBuffer;
@@ -208,6 +210,9 @@ class Engine final {
   Instance* m_CurrentFrameInstanceBuffer = nullptr;
   RenderObject* m_CurrentMeshBuffer = nullptr;
 
+  VkPipeline m_ShadowPassPipeline;
+  VkPipelineLayout m_ShadowPassPipelineLayout;
+
 
  private:
   void init_window();
@@ -219,12 +224,14 @@ class Engine final {
   void init_pipelines();
   void init_light_pass_pipeline();
   void init_wboit_composite_pass_pipeline();
+  void init_shadow_pass();
   void init_post_pipeline();
   void init_cull_pipeline();
   void init_imgui();
   void init_mesh_data();
   void init_default_data();
   void draw();
+  void draw_shadow_pass(VkCommandBuffer cmd);
   void draw_light_pass(VkCommandBuffer cmd);
   void draw_imgui(VkCommandBuffer cmd, VkImageView targetImageView);
   void draw_gBuffer_pass(VkCommandBuffer cmd);
@@ -232,15 +239,16 @@ class Engine final {
   void draw_wboit_composite(VkCommandBuffer cmd);
   void update_scene();
   void draw_post(VkCommandBuffer cmd);
+  // TODO: Fix this bool isMetalRoughness
   void draw_meshes(VkCommandBuffer cmd,
                            const VkPipelineLayout drawPassPipelineLayout,
                            const VkPipeline drawPipeline,
                            const std::uint32_t objectCount,
                            auto& pushConstants,
-                           const VkShaderStageFlags pushConstantsShaderStage);
+                           const VkShaderStageFlags pushConstantsShaderStage, bool isMetalRoughness = true);
 
   void cull_objects(VkCommandBuffer cmd, std::uint32_t objectCount,
-                    std::uint32_t objectOffset);
+                    std::uint32_t objectOffset, const glm::mat4& viewProj);
   void copy_frame_buffers();
 
   void init_frames_data();

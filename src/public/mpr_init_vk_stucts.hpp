@@ -125,8 +125,6 @@ inline VkRenderingInfo rendering_info(
     const std::uint32_t colorAttachmentCount,
     const VkRenderingAttachmentInfo* colorAttachments,
     const VkRenderingAttachmentInfo* depthAttachment) {
-  assert(colorAttachments);
-  assert(colorAttachmentCount >= 1);
   const VkRenderingInfo renderingInfo{
       .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
       .pNext = nullptr,

@@ -3,7 +3,7 @@ import os
 import argparse
 import platform
 
-DEFAULT_GENERATOR = "Visual Studio 17 2022" if platform.system() == 'Windows' else 'Ninja'
+DEFAULT_GENERATOR = "Visual Studio 18 2026" if platform.system() == 'Windows' else 'Ninja'
 
 
 def make_json_args(generator, build_type):

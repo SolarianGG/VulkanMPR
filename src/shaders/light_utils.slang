@@ -18,8 +18,9 @@ public struct PointLight {
 
 public struct LightData {
     public int4 type;
-    public float4 data0; 
-    public float4 data1; 
+    public float4 data0; // xyz: position/direction, w: range for punctual
+    public float4 data1; // xyz: color, w: intensity
+    public float4x4 vp;
 };
 
 float D_GGX(float NdotH, float roughness)

@@ -145,6 +145,7 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
   constexpr auto supportedExtensions =
       fastgltf::Extensions::KHR_mesh_quantization |
       fastgltf::Extensions::KHR_texture_transform |
+      fastgltf::Extensions::KHR_lights_punctual |
       fastgltf::Extensions::KHR_materials_variants;
   fastgltf::Parser parser(supportedExtensions);
 
@@ -164,7 +165,6 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
   }
   fastgltf::Asset asset = std::move(load.get());
 
-  assert(asset.lights.empty());
   Scene& file = engine.m_scene;
 
   std::unordered_map<std::size_t, std::uint32_t> samplers;
@@ -351,6 +351,7 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
                   return glm::vec3(max[0], max[1], max[2]);
                 }},
             posAccessor.max);
+
         fastgltf::iterateAccessorWithIndex<glm::vec3>(
             asset, posAccessor, [&](const glm::vec3 v, const size_t index) {
               Vertex newVtx;
@@ -464,11 +465,27 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
     file.add_mesh(meshes.back());
   }
 
+
   // Adding nodes
   for (auto& node : asset.nodes) {
     std::shared_ptr<Node> newNode;
     if (node.meshIndex.has_value()) {
       newNode = std::make_shared<MeshNode>(meshes[node.meshIndex.value()]);
+    } else if (node.lightIndex.has_value()) {
+      LightData data{
+
+      };
+      auto& gltfLightData = asset.lights[node.lightIndex.value()];
+
+      data.lightType =
+          gltfLightData.type == fastgltf::LightType::Point ? 1 : 0;
+      data.data1 = glm::vec4(gltfLightData.color.x(), gltfLightData.color.y(),
+                             gltfLightData.color.z(), gltfLightData.intensity);
+      if (data.lightType == 1) {
+        data.data0.w = gltfLightData.range.value();
+      }
+      newNode =
+          std::make_shared<LightNode>(data);
     } else {
       newNode = std::make_shared<Node>();
     }

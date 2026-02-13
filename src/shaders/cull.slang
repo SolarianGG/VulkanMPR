@@ -60,6 +60,7 @@ bool IsInFrustum(Instance object, Mesh mesh) {
     // is outside a plane
 #define ALL_OUTSIDE_X(check)                                                                                           \
     isInside = false;                                                                                                  \
+    [[unroll]] \
     for (int i = 0; i < 8; ++i) {                                                                                                                  \
         if (!(check)) { isInside = true; break; }                                                                                                     \
     }                                                                                                                  \

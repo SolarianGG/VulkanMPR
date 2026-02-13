@@ -157,6 +157,23 @@ void Engine::draw() {
   m_stats.drawCallCount = 0;
   m_stats.triangleCount = 0;
 
+  vkCmdBindIndexBuffer(cmd, m_globalIndexBuffer.buffer, 0,
+                       VK_INDEX_TYPE_UINT32);
+
+  {
+    barrierBuilder.add_image_barrier(
+        currentFrame.shadowPassDepthImage.image,
+        VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+        VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+            VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+        VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+            VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+        utils::init_subresource_range(VK_IMAGE_ASPECT_DEPTH_BIT));
+    barrierBuilder.barrier(cmd);
+  }
+  draw_shadow_pass(cmd);
+
   // GPass
   {
     barrierBuilder.add_image_barrier(
@@ -403,6 +420,52 @@ void Engine::draw() {
   ++m_frameNumber;
 }
 
+void Engine::draw_shadow_pass(VkCommandBuffer cmd) {
+  const auto it = rn::find_if(m_mainDrawContext.lights, [](const auto& light) {
+    return light.lightType == 0;
+  });
+  if (it == m_mainDrawContext.lights.end()) return;
+  const auto& light = *it;
+  const auto start = cn::steady_clock::now();
+  constexpr VkExtent2D shadowPassExtent{2048, 2048};
+  auto& currentFrame = get_current_frame();
+  const auto depthAttachment =
+      utils::depth_attachment(currentFrame.shadowPassDepthImage.imageView,
+                              VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+  const auto renderInfo =
+      utils::rendering_info(shadowPassExtent, 0, nullptr, &depthAttachment);
+
+  cull_objects(cmd, m_OpaqueSize, 0, light.lightVP);
+  vkCmdBeginRendering(cmd, &renderInfo);
+  const VkViewport viewport{
+      .x = 0,
+      .y = static_cast<float>(shadowPassExtent.height),
+      .width = static_cast<float>(shadowPassExtent.width),
+      .height = -static_cast<float>(shadowPassExtent.height),
+      .minDepth = 0.0f,
+      .maxDepth = 1.0f,
+  };
+  vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+  const VkRect2D scissor{
+      .extent = shadowPassExtent,
+  };
+  vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+  const ShadowPassPushConstants shadowPassPushConstants{
+      .globalVertexBufferAddr = m_globalVertexBufferAddress,
+      .instanceBufferDeviceAddr = currentFrame.instanceBufferAddr,
+      .lightVP = light.lightVP};
+  draw_meshes(cmd, m_ShadowPassPipelineLayout, m_ShadowPassPipeline,
+              m_OpaqueSize, shadowPassPushConstants, VK_SHADER_STAGE_VERTEX_BIT,
+              false);
+
+  vkCmdEndRendering(cmd);
+  const auto end = cn::steady_clock::now();
+  const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
+  m_stats.shadowPassDrawTime = elapsed.count() / 1000.0f;
+}
+
 void Engine::draw_gBuffer_pass(VkCommandBuffer cmd) {
   const auto start = cn::steady_clock::now();
   auto& gBuffer = get_current_frame().gBuffer;
@@ -431,7 +494,7 @@ void Engine::draw_gBuffer_pass(VkCommandBuffer cmd) {
       utils::rendering_info(m_CommonImageExtent2D, std::size(attachments),
                             attachments, &depthAttachment);
 
-  cull_objects(cmd, m_OpaqueSize, 0);
+  cull_objects(cmd, m_OpaqueSize, 0, m_sceneData.projView);
   vkCmdBeginRendering(cmd, &renderInfo);
   const VkViewport viewport{
       .x = 0,
@@ -448,8 +511,6 @@ void Engine::draw_gBuffer_pass(VkCommandBuffer cmd) {
   };
   vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-  vkCmdBindIndexBuffer(cmd, m_globalIndexBuffer.buffer, 0,
-                       VK_INDEX_TYPE_UINT32);
   draw_meshes(cmd, m_metalRoughness.opaquePipeline.pipelineLayout,
               m_metalRoughness.opaquePipeline.pipeline, m_OpaqueSize,
               m_GBufferMeshPushConstants, VK_SHADER_STAGE_VERTEX_BIT);
@@ -516,7 +577,7 @@ void Engine::draw_wboit(VkCommandBuffer cmd) {
       utils::rendering_info(m_CommonImageExtent2D, std::size(colorAttachments),
                             colorAttachments, &depthAttachment);
 
-  cull_objects(cmd, m_TransparentSize, m_OpaqueSize);
+  cull_objects(cmd, m_TransparentSize, m_OpaqueSize, m_sceneData.projView);
   vkCmdBeginRendering(cmd, &renderInfo);
   draw_meshes(cmd, m_metalRoughness.transparentPipeline.pipelineLayout,
               m_metalRoughness.transparentPipeline.pipeline, m_TransparentSize,
@@ -582,7 +643,8 @@ void Engine::draw_imgui(const VkCommandBuffer cmd,
 }
 
 void Engine::cull_objects(VkCommandBuffer cmd, const std::uint32_t objectCount,
-                          const std::uint32_t objectOffset) {
+                          const std::uint32_t objectOffset,
+                          const glm::mat4& viewProj) {
   auto& currentFrame = get_current_frame();
   utils::BarrierBuilder barrierBuilder;
   barrierBuilder.add_buffer_barrier({
@@ -637,7 +699,7 @@ void Engine::cull_objects(VkCommandBuffer cmd, const std::uint32_t objectCount,
       .instanceBufferDeviceAddr = currentFrame.instanceBufferAddr,
       .commandsBufferAddr = currentFrame.drawCommandsBufferAddr,
       .countBufferAddr = currentFrame.countBufferAddr,
-      .viewProj= m_sceneData.projView,
+      .viewProj = viewProj,
       .objectsCount = objectCount,
       .objectsOffset = objectOffset,
   };
@@ -680,25 +742,28 @@ void Engine::draw_meshes(VkCommandBuffer cmd,
                          const VkPipelineLayout drawPassPipelineLayout,
                          const VkPipeline drawPipeline,
                          const std::uint32_t objectCount, auto& pushConstants,
-                         const VkShaderStageFlags pushConstantsShaderStage) {
+                         const VkShaderStageFlags pushConstantsShaderStage,
+                         bool isMetalRoughness) {
   auto& currentFrame = get_current_frame();
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, drawPipeline);
 
   vkCmdPushConstants(cmd, drawPassPipelineLayout, pushConstantsShaderStage, 0,
                      sizeof(pushConstants), &pushConstants);
-  // Bind textures
-  const VkDescriptorBufferBindingInfoEXT bindingInfo = {
-      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-      .address = m_metalRoughness.descriptors.get_device_address(),
-      .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
-               VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT};
-  vkCmdBindDescriptorBuffersEXT(cmd, 1, &bindingInfo);
+  if (isMetalRoughness) {
+    // Bind textures
+    const VkDescriptorBufferBindingInfoEXT bindingInfo = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+        .address = m_metalRoughness.descriptors.get_device_address(),
+        .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
+                 VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT};
+    vkCmdBindDescriptorBuffersEXT(cmd, 1, &bindingInfo);
 
-  const std::uint32_t bufferIndices[]{0};
-  const VkDeviceSize offsets[]{0};
-  vkCmdSetDescriptorBufferOffsetsEXT(
-      cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, drawPassPipelineLayout, 0,
-      std::size(bufferIndices), bufferIndices, offsets);
+    const std::uint32_t bufferIndices[]{0};
+    const VkDeviceSize offsets[]{0};
+    vkCmdSetDescriptorBufferOffsetsEXT(
+        cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, drawPassPipelineLayout, 0,
+        std::size(bufferIndices), bufferIndices, offsets);
+  }
 
   vkCmdDrawIndexedIndirectCount(cmd, currentFrame.drawCommandsBuffer.buffer, 0,
                                 currentFrame.countBuffer.buffer, 0, objectCount,
@@ -1148,8 +1213,11 @@ void Engine::run() {
     }
     ImGui::End();
 
+    // TODO: These stats are only showing cpu execution time of vulkan commands,
+    // for gpu metrics I plan to integrate tracy
     ImGui::Begin("Stats");
     ImGui::Text("Frame time: %f ms", m_stats.frameTime);
+    ImGui::Text("Shadow Pass time: %f ms", m_stats.shadowPassDrawTime);
     ImGui::Text("GBuffer Pass time: %f ms", m_stats.gBufferPassTime);
     ImGui::Text("Deferred light pass time: %f ms",
                 m_stats.gBufferLightPassTime);
@@ -1434,6 +1502,10 @@ void Engine::init_swapchain() {
     frame.oitRevealImage = create_image(
         m_CommonImageExtent3D, VK_FORMAT_R16_SFLOAT,
         VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+    frame.shadowPassDepthImage =
+        create_image({2048, 2048, 1}, VK_FORMAT_D32_SFLOAT,
+                     VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
+                         VK_IMAGE_USAGE_SAMPLED_BIT);
   }
 
   m_mainDeletionQueue.push_function([this]() {
@@ -1445,6 +1517,7 @@ void Engine::init_swapchain() {
 
       destroy_image(frame.oitAccImage);
       destroy_image(frame.oitRevealImage);
+      destroy_image(frame.shadowPassDepthImage);
     }
   });
 }
@@ -1585,6 +1658,7 @@ void Engine::init_pipelines() {
   init_cull_pipeline();
   init_wboit_composite_pass_pipeline();
   init_post_pipeline();
+  init_shadow_pass();
   m_metalRoughness.build_pipelines(*this);
 }
 
@@ -1744,6 +1818,59 @@ void Engine::init_wboit_composite_pass_pipeline() {
     for (auto& frame : m_frameData) {
       destroy_buffer(frame.wboitCompositePassDescBuffer.get_buffer());
     }
+  });
+}
+
+void Engine::init_shadow_pass() {
+  const VkPushConstantRange pushConstantRange{
+      .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+      .offset = 0,
+      .size = sizeof(ShadowPassPushConstants)};
+
+  const VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+      .pNext = nullptr,
+      .setLayoutCount = 0,
+      .pSetLayouts = nullptr,
+      .pushConstantRangeCount = 1,
+      .pPushConstantRanges = &pushConstantRange};
+  vkCreatePipelineLayout(m_device, &pipelineLayoutCreateInfo, nullptr,
+                         &m_ShadowPassPipelineLayout) >>
+      chk;
+
+  VkShaderModule shadowPassVert;
+  if (!mp::load_shader_module(
+          "../../src/compiled_shaders/shadow_pass.vertex.spv", m_device,
+          &shadowPassVert)) {
+    throw std::runtime_error("Failed to load shadow pass vertex shader");
+  }
+
+  VkShaderModule shadowPassFrag;
+  if (!mp::load_shader_module(
+          "../../src/compiled_shaders/shadow_pass.pixel.spv", m_device,
+          &shadowPassFrag)) {
+    throw std::runtime_error("Failed to load shadow pass fragment shader");
+  }
+
+  mp::PipelineBuilder builder;
+  builder.pipelineLayout = m_ShadowPassPipelineLayout;
+  builder.enable_depth_test(true, VK_COMPARE_OP_LESS_OR_EQUAL);
+  builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+  builder.set_polygon_mode(VK_POLYGON_MODE_FILL);
+  builder.add_shader(shadowPassVert, VK_SHADER_STAGE_VERTEX_BIT);
+  builder.add_shader(shadowPassFrag, VK_SHADER_STAGE_FRAGMENT_BIT);
+  builder.set_depth_format(m_frameData.at(0).shadowPassDepthImage.imageFormat);
+  builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+  builder.set_multisampling_none();
+
+  m_ShadowPassPipeline = builder.build_pipeline(m_device);
+
+  vkDestroyShaderModule(m_device, shadowPassVert, nullptr);
+  vkDestroyShaderModule(m_device, shadowPassFrag, nullptr);
+
+  m_mainDeletionQueue.push_function([this]() {
+    vkDestroyPipeline(m_device, m_ShadowPassPipeline, nullptr);
+    vkDestroyPipelineLayout(m_device, m_ShadowPassPipelineLayout, nullptr);
   });
 }
 
@@ -1993,27 +2120,31 @@ void Engine::ensure_index_capacity(std::size_t additionalCount) {
 }
 
 void Engine::init_mesh_data() {
-#if 0
-   const std::string sponzaPath =
-      "../../assets/gltf-samples/Models/AlphaBlendModeTest/glTF/AlphaBlendModeTest.gltf";
-#else
-  const std::string sponzaPath =
-      "../../assets/gltf-samples/Models/Sponza/glTF/sponza.gltf";
-#endif
-
   ensure_vertex_capacity(1024);  // Initial capacity
   ensure_index_capacity(1024);
 
+#if 0
+  const std::string sponzaPath =
+      "../../assets/gltf-samples/Models/Sponza/glTF/sponza.gltf";
   if (!load_gltf(*this, sponzaPath)) {
     throw std::runtime_error("Failed to load glTF file: " + sponzaPath);
   }
+#endif
 
+#if 1
+  const std::string bistroPath = "../../assets/bistro_exterior.glb";
+  if (!load_gltf(*this, bistroPath)) {
+    throw std::runtime_error("Failed to load glTF file: " + bistroPath);
+  }
+#endif
+#if 0
   const std::string alphaBlendMode =
       "../../assets/gltf-samples/Models/AlphaBlendModeTest/glTF/"
       "AlphaBlendModeTest.gltf";
   if (!load_gltf(*this, alphaBlendMode)) {
     throw std::runtime_error("Failed to load glTF file: " + alphaBlendMode);
   }
+#endif
 
   m_mainDeletionQueue.push_function([this] {
     destroy_buffer(m_globalVertexBuffer);
@@ -2153,8 +2284,6 @@ void Engine::WindowCleaner::operator()(SDL_Window* window) const {
 }
 
 void Engine::update_scene() {
-  // TODO: Remove this sleep
-  // std::this_thread::sleep_for(2ms);
   const auto start = cn::steady_clock::now();
   m_camera.update(m_stats.frameTime);
   m_mainDrawContext.clear();
@@ -2167,16 +2296,76 @@ void Engine::update_scene() {
 
   copy_frame_buffers();
 
-  const glm::mat4 proj = glm::perspective(
+  constexpr float cameraNear = 0.001f;
+  constexpr float cameraFar = 100.0f;
+  const glm::mat4 proj = glm::perspectiveRH_ZO(
       glm::radians(90.0f),
-      static_cast<float>(m_drawExtent.width) / m_drawExtent.height, 0.001f,
-      1000.0f);
+      static_cast<float>(m_drawExtent.width) / m_drawExtent.height, cameraNear,
+      cameraFar);
 
   m_sceneData.view = m_camera.get_view_matrix();
   m_sceneData.proj = proj;
   m_sceneData.projView = proj * m_sceneData.view;
   m_sceneData.cameraPos = m_camera.position;
   m_sceneData.padding0 = 0.0f;
+
+  // TODO: Move to distinct function and consider doing it in compute shader
+  // Calculate VP matrices for the sun
+  const auto it = rn::find_if(m_mainDrawContext.lights, [](const auto& light) {
+    return light.lightType == 0;
+  });
+  assert(rn::count_if(m_mainDrawContext.lights, [](const auto& light) {
+           return light.lightType == 0;
+         }) <= 1);
+  const auto cameraViewProjInverse = glm::inverse(m_sceneData.projView);
+
+  std::array<glm::vec3, 8> corners{
+      glm::vec3(-1.0f, 1.0f, 0.0f), glm::vec3(1.0f, 1.0f, 0.0f),
+      glm::vec3(1.0f, -1.0f, 0.0f), glm::vec3(-1.0f, -1.0f, 0.0f),
+      glm::vec3(-1.0f, 1.0f, 1.0f), glm::vec3(1.0f, 1.0f, 1.0f),
+      glm::vec3(1.0f, -1.0f, 1.0f), glm::vec3(-1.0f, -1.0f, 1.0f),
+  };
+
+  for (auto& corner : corners) {
+    const glm::vec4 cornerInversed =
+        cameraViewProjInverse * glm::vec4(corner, 1.0f);
+    corner = glm::vec3(cornerInversed / cornerInversed.w);
+  }
+
+  for (uint32_t j = 0; j < 4; j++) {
+    glm::vec3 dist = corners[j + 4] - corners[j];
+    corners[j + 4] = corners[j] + (dist * 1.0f);
+    corners[j] = corners[j] + (dist * 1.0f);
+  }
+
+  glm::vec3 frustumCenter = glm::vec3(0.0f);
+  for (uint32_t j = 0; j < 8; j++) {
+    frustumCenter += corners[j];
+  }
+  frustumCenter /= 8.0f;
+
+  float radius = 0.0f;
+  for (uint32_t j = 0; j < 8; j++) {
+    float distance = glm::length(corners[j] - frustumCenter);
+    radius = glm::max(radius, distance);
+  }
+  radius = std::ceil(radius * 16.0f) / 16.0f;
+  glm::vec3 maxExtents = glm::vec3(radius);
+  glm::vec3 minExtents = -maxExtents;
+  if (it != m_mainDrawContext.lights.end()) {
+    auto& light = *it;
+    const glm::vec3 lightDir = glm::normalize(-glm::vec3(light.data0));
+
+    const glm::mat4 view =
+        glm::lookAtRH(frustumCenter - lightDir * -minExtents.z, frustumCenter,
+                      glm::vec3(0.0f, 1.0f, 0.0f));
+    glm::mat4 lightOrthoMatrix =
+        glm::orthoRH_ZO(minExtents.x, maxExtents.x, minExtents.y, maxExtents.y, 0.0f,
+                   maxExtents.z - minExtents.z);
+
+    light.lightVP = lightOrthoMatrix * view;
+  }
+  // ---
 
   auto* sceneData = static_cast<GpuSceneData*>(
       get_current_frame().sceneDataBuffer.allocation->GetMappedData());
