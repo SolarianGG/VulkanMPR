@@ -2156,7 +2156,7 @@ void Engine::init_mesh_data() {
   ensure_vertex_capacity(1024);  // Initial capacity
   ensure_index_capacity(1024);
 
-#if 1
+#if 0
   const std::string sponzaPath =
       "../../assets/gltf-samples/Models/Sponza/glTF/sponza.gltf";
   if (!load_gltf(*this, sponzaPath)) {
@@ -2164,7 +2164,7 @@ void Engine::init_mesh_data() {
   }
 #endif
 
-#if 0
+#if 1
   const std::string bistroPath = "../../assets/bistro_exterior.glb";
   if (!load_gltf(*this, bistroPath)) {
     throw std::runtime_error("Failed to load glTF file: " + bistroPath);
@@ -2342,6 +2342,27 @@ void Engine::update_scene() {
   m_sceneData.cameraPos = m_camera.position;
   m_sceneData.padding0 = 0.0f;
 
+  const glm::mat4 inverseProjView = glm::inverse(m_sceneData.projView);
+  std::array<glm::vec3, 8> frustum{
+      glm::vec3{-1.0f, -1.0f, 0.0f},
+      glm::vec3{1.0f, -1.0f, 0.0f},
+      glm::vec3{
+          -1.0f,
+          1.0f,
+          0.0f,
+      },
+      glm::vec3{1.0f, 1.0f, 0.0f},
+      glm::vec3{-1.0f, -1.0f, 1.0f},
+      glm::vec3{1.0f, -1.0f, 1.0f},
+      glm::vec3{-1.0f, 1.0f, 1.0f},
+      glm::vec3{1.0f, 1.0f, 1.0f},
+  };
+
+  for (auto& corner : frustum) {
+    glm::vec4 pt = inverseProjView * glm::vec4(corner, 1.0f);
+    corner = glm::vec3(pt) / pt.w;
+  }
+
   for (auto& light : m_mainDrawContext.lights) {
     if (light.lightType != 0) continue;
 
@@ -2372,16 +2393,30 @@ void Engine::update_scene() {
           const glm::vec3 worldPt(cx ? sceneMax.x : sceneMin.x,
                                   cy ? sceneMax.y : sceneMin.y,
                                   cz ? sceneMax.z : sceneMin.z);
-          const glm::vec3 ls =
-              glm::vec3(lightView * glm::vec4(worldPt, 1.0f));
+          const glm::vec3 ls = glm::vec3(lightView * glm::vec4(worldPt, 1.0f));
           lsMin = glm::min(lsMin, ls);
           lsMax = glm::max(lsMax, ls);
         }
+
+    glm::vec3 frustumLsMin(FLT_MAX);
+    glm::vec3 frustumLsMax(-FLT_MAX);
+    for (const auto& corner : frustum) {
+      const auto lightSpaceCorner =
+          glm::vec3(lightView * glm::vec4(corner, 1.0f));
+      frustumLsMin = glm::min(frustumLsMin, lightSpaceCorner);
+      frustumLsMax = glm::max(frustumLsMax, lightSpaceCorner);
+    }
+
+    lsMin.x = glm::clamp(lsMin.x, frustumLsMin.x, frustumLsMax.x);
+    lsMin.y = glm::clamp(lsMin.y, frustumLsMin.y, frustumLsMax.y);
+    lsMax.x = glm::clamp(lsMax.x, frustumLsMin.x, frustumLsMax.x);
+    lsMax.y = glm::clamp(lsMax.y, frustumLsMin.y, frustumLsMax.y);
 
     constexpr float zPad = 1.0f;
     lsMin.z -= zPad;
     lsMax.z += zPad;
 
+    // TODO: Update sceneCenter based on newly calculated bounding space
     lightView = glm::lookAtRH(sceneCenter - lightDir + lightDir * lsMin.z,
                               sceneCenter + lightDir * lsMin.z, up);
 
