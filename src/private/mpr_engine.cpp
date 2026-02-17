@@ -257,6 +257,15 @@ void Engine::draw() {
         VK_ACCESS_2_SHADER_WRITE_BIT_KHR, VK_IMAGE_LAYOUT_UNDEFINED,
         VK_IMAGE_LAYOUT_GENERAL,
         utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+    barrierBuilder.add_image_barrier(
+        currentFrame.shadowPassDepthImage.image,
+        VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+            VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+        VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+        VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+        VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL,
+        utils::init_subresource_range(VK_IMAGE_ASPECT_DEPTH_BIT));
 
     barrierBuilder.barrier(cmd);
   }
@@ -1585,6 +1594,22 @@ void Engine::init_sync() {
 
 void Engine::init_descriptors() {
   {
+    const VkSamplerCreateInfo shadowSamplerInfo{
+        .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+        .magFilter = VK_FILTER_LINEAR,
+        .minFilter = VK_FILTER_LINEAR,
+        .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
+        .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
+        .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
+        .compareEnable = VK_TRUE,
+        .compareOp = VK_COMPARE_OP_LESS_OR_EQUAL,
+        .borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
+    };
+    vkCreateSampler(m_device, &shadowSamplerInfo, nullptr, &m_shadowSampler);
+    m_mainDeletionQueue.push_function(
+        [&] { vkDestroySampler(m_device, m_shadowSampler, nullptr); });
+  }
+  {
     m_DrawImageDescriptorSetLayout =
         DescriptorSetLayoutBuilder()
             .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
@@ -1600,6 +1625,10 @@ void Engine::init_descriptors() {
             .add_binding(2, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1,
                          VK_SHADER_STAGE_COMPUTE_BIT)
             .add_binding(3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1,
+                         VK_SHADER_STAGE_COMPUTE_BIT)
+            .add_binding(4, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1,
+                         VK_SHADER_STAGE_COMPUTE_BIT)
+            .add_binding(5, VK_DESCRIPTOR_TYPE_SAMPLER, 1,
                          VK_SHADER_STAGE_COMPUTE_BIT)
             .build(m_device,
                    VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
@@ -1639,6 +1668,10 @@ void Engine::init_descriptors() {
     frame.lightPassDescriptorBuffer.write_sampled_image(
         3, 0, frame.gBuffer.specular.imageView,
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    frame.lightPassDescriptorBuffer.write_sampled_image(
+        4, 0, frame.shadowPassDepthImage.imageView,
+        VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL);
+    frame.lightPassDescriptorBuffer.write_sampler(5, 0, m_shadowSampler);
   }
 
   m_mainDeletionQueue.push_function([&]() mutable {
@@ -2123,7 +2156,7 @@ void Engine::init_mesh_data() {
   ensure_vertex_capacity(1024);  // Initial capacity
   ensure_index_capacity(1024);
 
-#if 0
+#if 1
   const std::string sponzaPath =
       "../../assets/gltf-samples/Models/Sponza/glTF/sponza.gltf";
   if (!load_gltf(*this, sponzaPath)) {
@@ -2131,7 +2164,7 @@ void Engine::init_mesh_data() {
   }
 #endif
 
-#if 1
+#if 0
   const std::string bistroPath = "../../assets/bistro_exterior.glb";
   if (!load_gltf(*this, bistroPath)) {
     throw std::runtime_error("Failed to load glTF file: " + bistroPath);
@@ -2297,7 +2330,7 @@ void Engine::update_scene() {
   copy_frame_buffers();
 
   constexpr float cameraNear = 0.001f;
-  constexpr float cameraFar = 100.0f;
+  constexpr float cameraFar = 50.0f;
   const glm::mat4 proj = glm::perspectiveRH_ZO(
       glm::radians(90.0f),
       static_cast<float>(m_drawExtent.width) / m_drawExtent.height, cameraNear,
@@ -2309,63 +2342,75 @@ void Engine::update_scene() {
   m_sceneData.cameraPos = m_camera.position;
   m_sceneData.padding0 = 0.0f;
 
-  // TODO: Move to distinct function and consider doing it in compute shader
-  // Calculate VP matrices for the sun
-  const auto it = rn::find_if(m_mainDrawContext.lights, [](const auto& light) {
-    return light.lightType == 0;
-  });
-  assert(rn::count_if(m_mainDrawContext.lights, [](const auto& light) {
-           return light.lightType == 0;
-         }) <= 1);
-  const auto cameraViewProjInverse = glm::inverse(m_sceneData.projView);
-
-  std::array<glm::vec3, 8> corners{
-      glm::vec3(-1.0f, 1.0f, 0.0f), glm::vec3(1.0f, 1.0f, 0.0f),
-      glm::vec3(1.0f, -1.0f, 0.0f), glm::vec3(-1.0f, -1.0f, 0.0f),
-      glm::vec3(-1.0f, 1.0f, 1.0f), glm::vec3(1.0f, 1.0f, 1.0f),
-      glm::vec3(1.0f, -1.0f, 1.0f), glm::vec3(-1.0f, -1.0f, 1.0f),
-  };
-
-  for (auto& corner : corners) {
-    const glm::vec4 cornerInversed =
-        cameraViewProjInverse * glm::vec4(corner, 1.0f);
-    corner = glm::vec3(cornerInversed / cornerInversed.w);
+  // Compute world-space AABB of all opaque objects
+  glm::vec3 sceneMin(FLT_MAX);
+  glm::vec3 sceneMax(-FLT_MAX);
+  for (const auto& inst : m_mainDrawContext.opaqueInstances) {
+    const auto& mesh = m_mainDrawContext.renderObjects[inst.meshIndex];
+    // Transform the 8 corners of the object AABB to world space
+    for (int cx = 0; cx <= 1; cx++)
+      for (int cy = 0; cy <= 1; cy++)
+        for (int cz = 0; cz <= 1; cz++) {
+          const glm::vec3 localPt(cx ? mesh.max.x : mesh.min.x,
+                                  cy ? mesh.max.y : mesh.min.y,
+                                  cz ? mesh.max.z : mesh.min.z);
+          const glm::vec3 worldPt =
+              glm::vec3(inst.world * glm::vec4(localPt, 1.0f));
+          sceneMin = glm::min(sceneMin, worldPt);
+          sceneMax = glm::max(sceneMax, worldPt);
+        }
   }
+  for (auto& light : m_mainDrawContext.lights) {
+    if (light.lightType != 0) continue;
 
-  for (uint32_t j = 0; j < 4; j++) {
-    glm::vec3 dist = corners[j + 4] - corners[j];
-    corners[j + 4] = corners[j] + (dist * 1.0f);
-    corners[j] = corners[j] + (dist * 1.0f);
+    const glm::vec3 lightDir = glm::normalize(glm::vec3(light.data0));
+
+    if (sceneMin.x > sceneMax.x) {
+      light.lightVP = glm::mat4(1.0f);
+      continue;
+    }
+
+    const glm::vec3 sceneCenter = (sceneMin + sceneMax) * 0.5f;
+
+    const glm::vec3 up =
+        (std::abs(glm::dot(lightDir, glm::vec3(0.0f, 1.0f, 0.0f))) > 0.99f)
+            ? glm::vec3(0.0f, 0.0f, 1.0f)
+            : glm::vec3(0.0f, 1.0f, 0.0f);
+    glm::mat4 lightView =
+        glm::lookAtRH(sceneCenter - lightDir, sceneCenter, up);
+
+    // Compute AABB in light space from object bounds
+    glm::vec3 lsMin(FLT_MAX);
+    glm::vec3 lsMax(-FLT_MAX);
+    for (const auto& inst : m_mainDrawContext.opaqueInstances) {
+      const auto& mesh = m_mainDrawContext.renderObjects[inst.meshIndex];
+      for (int cx = 0; cx <= 1; cx++)
+        for (int cy = 0; cy <= 1; cy++)
+          for (int cz = 0; cz <= 1; cz++) {
+            const glm::vec3 localPt(cx ? mesh.max.x : mesh.min.x,
+                                    cy ? mesh.max.y : mesh.min.y,
+                                    cz ? mesh.max.z : mesh.min.z);
+            const glm::vec3 worldPt =
+                glm::vec3(inst.world * glm::vec4(localPt, 1.0f));
+            const glm::vec3 ls =
+                glm::vec3(lightView * glm::vec4(worldPt, 1.0f));
+            lsMin = glm::min(lsMin, ls);
+            lsMax = glm::max(lsMax, ls);
+          }
+    }
+
+    // Pad Z slightly to avoid near/far clipping edge cases
+    constexpr float zPad = 1.0f;
+    lsMin.z -= zPad;
+
+    lightView = glm::lookAtRH(sceneCenter - lightDir + lightDir * lsMin.z,
+                              sceneCenter + lightDir * lsMin.z, up);
+
+    const glm::mat4 lightProj = glm::orthoRH_ZO(
+        lsMin.x, lsMax.x, lsMin.y, lsMax.y, 0.0f, lsMax.z - lsMin.z);
+
+    light.lightVP = lightProj * lightView;
   }
-
-  glm::vec3 frustumCenter = glm::vec3(0.0f);
-  for (uint32_t j = 0; j < 8; j++) {
-    frustumCenter += corners[j];
-  }
-  frustumCenter /= 8.0f;
-
-  float radius = 0.0f;
-  for (uint32_t j = 0; j < 8; j++) {
-    float distance = glm::length(corners[j] - frustumCenter);
-    radius = glm::max(radius, distance);
-  }
-  radius = std::ceil(radius * 16.0f) / 16.0f;
-  glm::vec3 maxExtents = glm::vec3(radius);
-  glm::vec3 minExtents = -maxExtents;
-  if (it != m_mainDrawContext.lights.end()) {
-    auto& light = *it;
-    const glm::vec3 lightDir = glm::normalize(-glm::vec3(light.data0));
-
-    const glm::mat4 view =
-        glm::lookAtRH(frustumCenter - lightDir * -minExtents.z, frustumCenter,
-                      glm::vec3(0.0f, 1.0f, 0.0f));
-    glm::mat4 lightOrthoMatrix =
-        glm::orthoRH_ZO(minExtents.x, maxExtents.x, minExtents.y, maxExtents.y, 0.0f,
-                   maxExtents.z - minExtents.z);
-
-    light.lightVP = lightOrthoMatrix * view;
-  }
-  // ---
 
   auto* sceneData = static_cast<GpuSceneData*>(
       get_current_frame().sceneDataBuffer.allocation->GetMappedData());

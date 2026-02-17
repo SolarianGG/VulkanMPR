@@ -156,6 +156,7 @@ class Engine final {
 
   VkSampler m_defaultSamplerLinear;
   VkSampler m_defaultSamplerNearest;
+  VkSampler m_shadowSampler;
 
   GLTFMetallicRoughness m_metalRoughness;
 

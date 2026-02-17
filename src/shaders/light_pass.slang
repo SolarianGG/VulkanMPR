@@ -16,9 +16,12 @@ Texture2D<float4> normalTexture;
 Texture2D<float4> albedoTexture;       
 [[vk::binding(3, 1)]]
 [[vk::image_format("rgba8")]]
-Texture2D<float4> metalRoughTexture;   
+Texture2D<float4> metalRoughTexture;
 
-
+[[vk::binding(4, 1)]]
+Texture2D<float> shadowMap;
+[[vk::binding(5, 1)]]
+SamplerComparisonState shadowSampler;
 
 struct PushConstants {
     SceneData* sceneData;
@@ -63,7 +66,8 @@ void computeMain(uint3 threadID : SV_DispatchThreadID)
             dirLight.direction = light.data0.xyz;
             dirLight.color = light.data1.xyz;
             dirLight.intensity = light.data1.w;
-            color += CalculateDirLightPBR(worldPos, pushConstants.sceneData.cameraPos, normalWS, baseColor, metallic, roughness, dirLight);
+            float shadowFactor = CalculateShadow(light.vp, worldPos, shadowMap, shadowSampler);
+            color += shadowFactor * CalculateDirLightPBR(worldPos, pushConstants.sceneData.cameraPos, normalWS, baseColor, metallic, roughness, dirLight);
         }
         else if (light.type.x == 1)
         {

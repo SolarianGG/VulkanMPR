@@ -118,6 +118,30 @@ public float3 CalculatePointLightPBR(
     return (diffuse + specular) * radiance * NdotL;
 }
 
+public float CalculateShadow(float4x4 lightVP, float3 worldPos, Texture2D<float> shadowMap, SamplerComparisonState shadowSampler) {
+    float4 lightSpacePos = mul(lightVP, float4(worldPos, 1.0));
+    float3 projCoords = lightSpacePos.xyz / lightSpacePos.w;
+
+    float2 shadowUV = projCoords.xy * 0.5 + 0.5;
+    shadowUV.y = 1.0 - shadowUV.y;
+
+    if (shadowUV.x < 0 || shadowUV.x > 1 || shadowUV.y < 0 || shadowUV.y > 1)
+        return 1.0;
+
+    float currentDepth = projCoords.z;
+    float bias = 0.005;
+
+    float shadow = 0.0;
+    float texelSize = 1.0 / 2048.0;
+    for (int x = -1; x <= 1; x++) {
+        for (int y = -1; y <= 1; y++) {
+            shadow += shadowMap.SampleCmpLevelZero(
+                shadowSampler, shadowUV + float2(x, y) * texelSize, currentDepth - bias);
+        }
+    }
+    return shadow / 9.0;
+}
+
 public float3 CalculateDirLightGooch(float3 worldPos, float3 cameraPos,
     float3 normal,
     float3 albedo, DirectionalLight light) {
