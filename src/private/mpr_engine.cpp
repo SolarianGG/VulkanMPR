@@ -2330,7 +2330,7 @@ void Engine::update_scene() {
   copy_frame_buffers();
 
   constexpr float cameraNear = 0.001f;
-  constexpr float cameraFar = 50.0f;
+  constexpr float cameraFar = 100.0f;
   const glm::mat4 proj = glm::perspectiveRH_ZO(
       glm::radians(90.0f),
       static_cast<float>(m_drawExtent.width) / m_drawExtent.height, cameraNear,
@@ -2380,6 +2380,7 @@ void Engine::update_scene() {
 
     constexpr float zPad = 1.0f;
     lsMin.z -= zPad;
+    lsMax.z += zPad;
 
     lightView = glm::lookAtRH(sceneCenter - lightDir + lightDir * lsMin.z,
                               sceneCenter + lightDir * lsMin.z, up);

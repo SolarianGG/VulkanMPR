@@ -59,11 +59,13 @@ With normal mapping
 - Gamma correction on albedo textures + postprocess pass
 - Indirect drawing with cull compute shader implemented using Wave Intrinsics
 - Frustrum culling
+- Directional shadow mapping
+![ShadowPassDepth](./screenshots/shadow_pass_depth.png)
+![DSMShowcase](./screenshots/directional_shadow_mapping.png)
 
 
 ### Planned Features
-- Directional shadow mapping
-- Point ling cube shadow mapping
+- Point light cube shadow mapping
 - CSM
 - HDR + tonemap + gamma correction
 - PBR
