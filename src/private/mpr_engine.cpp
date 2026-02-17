@@ -2342,34 +2342,18 @@ void Engine::update_scene() {
   m_sceneData.cameraPos = m_camera.position;
   m_sceneData.padding0 = 0.0f;
 
-  // Compute world-space AABB of all opaque objects
-  glm::vec3 sceneMin(FLT_MAX);
-  glm::vec3 sceneMax(-FLT_MAX);
-  for (const auto& inst : m_mainDrawContext.opaqueInstances) {
-    const auto& mesh = m_mainDrawContext.renderObjects[inst.meshIndex];
-    // Transform the 8 corners of the object AABB to world space
-    for (int cx = 0; cx <= 1; cx++)
-      for (int cy = 0; cy <= 1; cy++)
-        for (int cz = 0; cz <= 1; cz++) {
-          const glm::vec3 localPt(cx ? mesh.max.x : mesh.min.x,
-                                  cy ? mesh.max.y : mesh.min.y,
-                                  cz ? mesh.max.z : mesh.min.z);
-          const glm::vec3 worldPt =
-              glm::vec3(inst.world * glm::vec4(localPt, 1.0f));
-          sceneMin = glm::min(sceneMin, worldPt);
-          sceneMax = glm::max(sceneMax, worldPt);
-        }
-  }
   for (auto& light : m_mainDrawContext.lights) {
     if (light.lightType != 0) continue;
 
-    const glm::vec3 lightDir = glm::normalize(glm::vec3(light.data0));
+    const glm::vec3& sceneMin = m_mainDrawContext.opaqueSceneMin;
+    const glm::vec3& sceneMax = m_mainDrawContext.opaqueSceneMax;
 
     if (sceneMin.x > sceneMax.x) {
       light.lightVP = glm::mat4(1.0f);
       continue;
     }
 
+    const glm::vec3 lightDir = glm::normalize(glm::vec3(light.data0));
     const glm::vec3 sceneCenter = (sceneMin + sceneMax) * 0.5f;
 
     const glm::vec3 up =
@@ -2379,27 +2363,21 @@ void Engine::update_scene() {
     glm::mat4 lightView =
         glm::lookAtRH(sceneCenter - lightDir, sceneCenter, up);
 
-    // Compute AABB in light space from object bounds
+    // Transform scene AABB corners into light space
     glm::vec3 lsMin(FLT_MAX);
     glm::vec3 lsMax(-FLT_MAX);
-    for (const auto& inst : m_mainDrawContext.opaqueInstances) {
-      const auto& mesh = m_mainDrawContext.renderObjects[inst.meshIndex];
-      for (int cx = 0; cx <= 1; cx++)
-        for (int cy = 0; cy <= 1; cy++)
-          for (int cz = 0; cz <= 1; cz++) {
-            const glm::vec3 localPt(cx ? mesh.max.x : mesh.min.x,
-                                    cy ? mesh.max.y : mesh.min.y,
-                                    cz ? mesh.max.z : mesh.min.z);
-            const glm::vec3 worldPt =
-                glm::vec3(inst.world * glm::vec4(localPt, 1.0f));
-            const glm::vec3 ls =
-                glm::vec3(lightView * glm::vec4(worldPt, 1.0f));
-            lsMin = glm::min(lsMin, ls);
-            lsMax = glm::max(lsMax, ls);
-          }
-    }
+    for (int cx = 0; cx <= 1; cx++)
+      for (int cy = 0; cy <= 1; cy++)
+        for (int cz = 0; cz <= 1; cz++) {
+          const glm::vec3 worldPt(cx ? sceneMax.x : sceneMin.x,
+                                  cy ? sceneMax.y : sceneMin.y,
+                                  cz ? sceneMax.z : sceneMin.z);
+          const glm::vec3 ls =
+              glm::vec3(lightView * glm::vec4(worldPt, 1.0f));
+          lsMin = glm::min(lsMin, ls);
+          lsMax = glm::max(lsMax, ls);
+        }
 
-    // Pad Z slightly to avoid near/far clipping edge cases
     constexpr float zPad = 1.0f;
     lsMin.z -= zPad;
 

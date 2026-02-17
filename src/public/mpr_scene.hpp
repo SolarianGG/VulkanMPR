@@ -50,6 +50,9 @@ struct DrawContext {
   std::unordered_map<RenderObject, std::uint32_t, RenderObjectHash>
       transparentMeshes;
   std::vector<LightData> lights;
+
+  glm::vec3 opaqueSceneMin{FLT_MAX};
+  glm::vec3 opaqueSceneMax{-FLT_MAX};
 };
 
 struct Node : public IRenderable {

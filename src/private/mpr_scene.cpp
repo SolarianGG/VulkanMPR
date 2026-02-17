@@ -15,6 +15,8 @@ void DrawContext::clear() {
   renderObjects.clear();
   opaqueInstances.clear();
   transparentInstances.clear();
+  opaqueSceneMin = glm::vec3(FLT_MAX);
+  opaqueSceneMax = glm::vec3(-FLT_MAX);
 }
 
 void MeshNode::draw(const glm::mat4& topMatrix, DrawContext& ctx) {
@@ -50,6 +52,20 @@ void MeshNode::draw(const glm::mat4& topMatrix, DrawContext& ctx) {
         .meshIndex = submeshIndex,
         .materialIndices = s.material->data.indices,
     });
+
+    if (passType == MaterialPass::Opaque) {
+      for (int cx = 0; cx <= 1; cx++)
+        for (int cy = 0; cy <= 1; cy++)
+          for (int cz = 0; cz <= 1; cz++) {
+            const glm::vec3 localPt(
+                cx ? s.max.x : s.min.x,
+                cy ? s.max.y : s.min.y,
+                cz ? s.max.z : s.min.z);
+            const glm::vec3 worldPt = glm::vec3(nodeMatrix * glm::vec4(localPt, 1.0f));
+            ctx.opaqueSceneMin = glm::min(ctx.opaqueSceneMin, worldPt);
+            ctx.opaqueSceneMax = glm::max(ctx.opaqueSceneMax, worldPt);
+          }
+    }
   }
 
   Node::draw(topMatrix, ctx);
