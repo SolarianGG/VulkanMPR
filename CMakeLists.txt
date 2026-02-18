@@ -64,15 +64,18 @@ target_link_libraries(ImGuizmo PRIVATE ImGui)
 
 add_executable(VulkanMPR "${SRC_PATH}/VulkanMPR.cpp"
                          "${COMP_PATH}/mpr_engine.cpp"
+                         "${COMP_PATH}/mpr_engine_draw.cpp"
+                         "${COMP_PATH}/mpr_engine_init.cpp"
+                         "${COMP_PATH}/mpr_engine_resources.cpp"
+                         "${COMP_PATH}/mpr_engine_ui.cpp"
                          "${COMP_PATH}/mpr_error_check.cpp"
                          "${COMP_PATH}/mpr_image.cpp"
                          "${COMP_PATH}/mpr_descriptors.cpp"
                          "${COMP_PATH}/mpr_pipelines.cpp"
-                         "${COMP_PATH}/mpr_loader.cpp" 
-                          "${COMP_PATH}/mpr_camera.cpp"
-                          "${COMP_PATH}/mpr_materials.cpp"
-                          "${COMP_PATH}/mpr_scene.cpp"
-
+                         "${COMP_PATH}/mpr_loader.cpp"
+                         "${COMP_PATH}/mpr_camera.cpp"
+                         "${COMP_PATH}/mpr_materials.cpp"
+                         "${COMP_PATH}/mpr_scene.cpp"
 )
 
 target_include_directories(VulkanMPR PRIVATE 
@@ -81,13 +84,13 @@ target_include_directories(VulkanMPR PRIVATE
   ${SRC_PATH} 
   ${IMGUI_PATH} 
   ${IMGUIZMO_PATH}
+  ${Stb_INCLUDE_DIR}
   "${IMGUI_PATH}/backends")
 
 target_link_libraries(VulkanMPR PRIVATE 
   Vulkan::Vulkan 
   GPUOpen::VulkanMemoryAllocator
   vk-bootstrap::vk-bootstrap vk-bootstrap::vk-bootstrap-compiler-warnings
-  ${Stb_INCLUDE_DIR}
   SDL3::SDL3
   glm::glm
   fastgltf::fastgltf

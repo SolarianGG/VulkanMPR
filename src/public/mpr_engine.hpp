@@ -1,10 +1,11 @@
 #pragma once
 
+#include "mpr_types.hpp"
+
 #include "mpr_camera.hpp"
 #include "mpr_descriptors.hpp"
 #include "mpr_materials.hpp"
 #include "mpr_scene.hpp"
-#include "mpr_types.hpp"
 
 struct SDL_Window;
 
