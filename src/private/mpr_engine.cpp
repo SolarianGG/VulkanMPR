@@ -2416,7 +2416,6 @@ void Engine::update_scene() {
     lsMin.z -= zPad;
     lsMax.z += zPad;
 
-    // TODO: Update sceneCenter based on newly calculated bounding space
     lightView = glm::lookAtRH(sceneCenter - lightDir + lightDir * lsMin.z,
                               sceneCenter + lightDir * lsMin.z, up);
 
