@@ -21,7 +21,7 @@ See @README.md for project overview
 - `/src/public`: Directory containint header files
 - `/assets/`: Directory containing glTF assets
 
-## Important notes
-
+## Workflow
+- Be sure that project compiles after making series of code changes
 - Always ask for addition of any library (vcpkg)
 - If you are not sure abouth something, ask right away

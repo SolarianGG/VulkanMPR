@@ -60,9 +60,13 @@ With normal mapping
 - Indirect drawing with cull compute shader implemented using Wave Intrinsics
 - Frustrum culling
 - Directional shadow mapping
-![ShadowPassDepth](./screenshots/shadow_pass_depth.png)
+Directional shadow mapping for opaque surfaces implemented using 3x3 PCF with hardware SamplerComparisonState.
+Directional light's view projection matrix is calculated using Scene AABB + frustum AABB clipping in light space which leads to better shadow map object depth's distribution.
+Also applied constant bias to remove shadow acne.
 ![DSMShowcase](./screenshots/directional_shadow_mapping.png)
-
+![ShadowPassDepth](./screenshots/shadow_pass_depth.png)
+![DSMShowcase1](./screenshots/directional_shadow_mapping01.png)
+This simple approach for sun's shadow will be removed in favor of CSM.
 
 ### Planned Features
 - Point light cube shadow mapping
