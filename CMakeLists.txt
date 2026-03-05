@@ -87,8 +87,8 @@ target_include_directories(VulkanMPR PRIVATE
   ${Stb_INCLUDE_DIR}
   "${IMGUI_PATH}/backends")
 
-target_link_libraries(VulkanMPR PRIVATE 
-  Vulkan::Vulkan 
+target_link_libraries(VulkanMPR PRIVATE
+  Vulkan::Vulkan
   GPUOpen::VulkanMemoryAllocator
   vk-bootstrap::vk-bootstrap vk-bootstrap::vk-bootstrap-compiler-warnings
   SDL3::SDL3
@@ -97,5 +97,9 @@ target_link_libraries(VulkanMPR PRIVATE
   volk::volk volk::volk_headers
   ImGui
   ImGuizmo
+)
+
+target_compile_definitions(VulkanMPR PRIVATE
+  $<$<CONFIG:Debug>:MPR_DEBUG>
 )
 

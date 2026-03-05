@@ -30,9 +30,15 @@ It focuses on learning GPU resource management, descriptor systems, shader refle
 ### Building:
 - git clone --recursive https://github.com/SolarianGG/VulkanMPR.git
 - python ./vcpkg_init_project.py
-- python ./shader_cmp.py
 - cmake --preset=default
+
+#### Debug (default):
+- python ./shader_cmp.py
 - cmake --build build
+
+#### Release:
+- python ./shader_cmp.py --release
+- cmake --build build --config Release
 
 ### Implemented Features:
 - Vulkan deferred renderer
@@ -60,6 +66,7 @@ With normal mapping
 - Indirect drawing with cull compute shader implemented using Wave Intrinsics
 - Frustrum culling
 - Directional shadow mapping
+
 Directional shadow mapping for opaque surfaces implemented using 3x3 PCF with hardware SamplerComparisonState.
 Directional light's view projection matrix is calculated using Scene AABB + frustum AABB clipping in light space which leads to better shadow map object depth's distribution.
 Also applied constant bias to remove shadow acne.

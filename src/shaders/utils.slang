@@ -1,39 +1,73 @@
 module utils;
 
-public struct Vertex
+public float3 ReconstructWorldPos(
+    uint2 pixel,
+    uint2 resolution,
+    float4x4 invViewProj,
+    float depth)
 {
-    public float3 pos;
-    public float u;
-    public float3 norm;
-    public float v;
-    public float4 tangent;
-    public float4 col;
-};
+    float2 uv =
+        (float2(pixel) + 0.5) / float2(resolution);
 
-public struct Instance
+    float2 ndc;
+    ndc.x = uv.x * 2.0 - 1.0;
+    ndc.y = uv.y * 2.0 - 1.0;
+
+    float4 clip =
+        float4(ndc, depth, 1.0);
+
+    float4 world =
+        mul(invViewProj, clip);
+
+    return world.xyz / world.w;
+}
+
+[[ForceInline]]
+public float LinearizeDepth(float d, float zNear, float zFar)
 {
-    public float4x4 worldTransform;
-    public uint32_t meshIndex;
-    public uint32_t materialID;
-    public uint32_t colorTextureID;
-    public uint32_t colorSamplerID;
-    public uint32_t metalRoughTextureID;
-    public uint32_t metalRoughSamplerID;
-    public uint32_t normalTextureID;
-    public uint32_t normalSamplerID;
-};
+    return zNear * zFar / (zFar + d * (zNear - zFar));
+}
 
-public struct SceneData 
+public void AtomicMinFloat(uint *addr, float value)
 {
-    public float4x4 view;
-    public float4x4 proj;
-    public float4x4 projView;
-    public float3 cameraPos;
-    public float padding;
-};
+    uint newVal = asuint(value);
+    uint oldVal;
 
-public struct GLTFMaterialData {
-    public float4 colorFactors;
-    public float4 metalRoughnessFactors;
-    public float4 alphaCutoff;
-};
+    while (true)
+    {
+        InterlockedCompareExchange(*addr, ~0u, ~0u, oldVal);
+
+        float oldFloat = asfloat(oldVal);
+
+        if (oldFloat <= value)
+            break;
+
+        uint expected = oldVal;
+        InterlockedCompareExchange(*addr, expected, newVal, oldVal);
+
+        if (oldVal == expected)
+            break;
+    }
+}
+
+public void AtomicMaxFloat(uint *addr, float value)
+{
+    uint newVal = asuint(value);
+    uint oldVal;
+
+    while (true)
+    {
+        InterlockedCompareExchange(*addr, ~0u, ~0u, oldVal);
+
+        float oldFloat = asfloat(oldVal);
+
+        if (oldFloat >= value)
+            break;
+
+        uint expected = oldVal;
+        InterlockedCompareExchange(*addr, expected, newVal, oldVal);
+
+        if (oldVal == expected)
+            break;
+    }
+}

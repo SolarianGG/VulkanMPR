@@ -1,14 +1,15 @@
-﻿import os
+import argparse
+import os
 import re
 import subprocess
 
-def compile_shaders(input_dir="src/shaders", output_dir="src/compiled_shaders"):
+def compile_shaders(input_dir="src/shaders", output_dir="src/compiled_shaders", release=False):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
-    
+
     # List to store compiled SPIR-V files for validation
     compiled_files = []
-    
+
     for filename in os.listdir(input_dir):
         input_path = os.path.join(input_dir, filename)
 
@@ -16,13 +17,15 @@ def compile_shaders(input_dir="src/shaders", output_dir="src/compiled_shaders"):
         if filename.endswith((".vert", ".frag", ".comp")):
             output_path = os.path.join(output_dir, filename + ".spv")
             command = ["glslc", input_path, "-o", output_path]
+            if release:
+                command.append("-O")
             try:
                 subprocess.run(command, check=True)
                 print(f"Compiled {filename} -> {output_path}")
                 compiled_files.append(output_path)
             except subprocess.CalledProcessError:
                 print(f"Failed to compile {filename}")
-        
+
         # SLANG
         elif filename.endswith(".slang"):
             with open(input_path, "r", encoding="utf-8") as f:
@@ -49,9 +52,13 @@ def compile_shaders(input_dir="src/shaders", output_dir="src/compiled_shaders"):
                     "-target", "spirv",
                     "-entry", entry_name,
                     "-profile", _slang_profile(stage),
-                    "-g1",
                     "-o", output_path
                 ]
+
+                if release:
+                    command.extend(["-O2"])
+                else:
+                    command.extend(["-g1"])
 
                 try:
                     subprocess.run(command, check=True)
@@ -71,7 +78,7 @@ def validate_compiled_shaders(compiled_files):
 
     print("\nValidating compiled SPIR-V shaders...")
     validation_errors = []
-    
+
     for spv_file in compiled_files:
         if os.path.exists(spv_file):
             command = ["spirv-val", spv_file]
@@ -88,7 +95,7 @@ def validate_compiled_shaders(compiled_files):
                 break
         else:
             print(f"Warning: {spv_file} does not exist and cannot be validated")
-    
+
     if validation_errors:
         print(f"\nValidation completed with {len(validation_errors)} error(s).")
     else:
@@ -111,8 +118,12 @@ def _slang_profile(stage: str) -> str:
         "intersection": "is_6_0",
         "callable": "callable_6_0",
     }
-    return profiles.get(stage, "vs_6_0") 
+    return profiles.get(stage, "vs_6_0")
 
 
 if __name__ == "__main__":
-    compile_shaders()
+    parser = argparse.ArgumentParser(description="Compile shaders")
+    parser.add_argument("--release", action="store_true",
+                        help="Compile shaders with optimizations and without debug info")
+    args = parser.parse_args()
+    compile_shaders(release=args.release)

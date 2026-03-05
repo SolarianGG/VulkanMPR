@@ -102,7 +102,7 @@ void GLTFMetallicRoughness::build_pipelines(Engine& engine) {
     pipelineBuilder.pipelineLayout = opaquePipeline.pipelineLayout;
     pipelineBuilder.add_shader(meshVertShader, VK_SHADER_STAGE_VERTEX_BIT);
     pipelineBuilder.add_shader(meshFragShader, VK_SHADER_STAGE_FRAGMENT_BIT);
-    pipelineBuilder.enable_depth_test(true, VK_COMPARE_OP_LESS_OR_EQUAL);
+    pipelineBuilder.enable_depth_test(false, VK_COMPARE_OP_EQUAL);
     pipelineBuilder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
     pipelineBuilder.set_polygon_mode(VK_POLYGON_MODE_FILL);
     pipelineBuilder.add_color_attachment_format(

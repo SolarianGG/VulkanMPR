@@ -41,7 +41,8 @@ struct FrameData {
   AllocatedImage depthImage;
   AllocatedImage oitAccImage;
   AllocatedImage oitRevealImage;
-  AllocatedImage shadowPassDepthImage;
+  AllocatedImage shadowPassDepthArray;                    // array image view (for sampling)
+  VkImageView shadowPassLayerViews[MAX_CASCADES];         // per-layer views (for rendering)
 
   DescriptorBuffer lightPassDescriptorBuffer;
   DescriptorBuffer wboitCompositePassDescBuffer;
@@ -50,8 +51,15 @@ struct FrameData {
 
   AllocatedBuffer sceneDataBuffer;
   VkDeviceAddress sceneDataBufferAddr;
-  AllocatedBuffer lightDataBuffer;
-  VkDeviceAddress lightDataBufferAddr;
+  AllocatedBuffer dirLightBuffer;
+  VkDeviceAddress dirLightBufferAddr;
+  AllocatedBuffer pointLightBuffer;
+  VkDeviceAddress pointLightBufferAddr;
+  AllocatedBuffer minMaxBuffer;
+  VkDeviceAddress minMaxBufferAddr;
+  AllocatedBuffer splitsAABBBuffer;
+  VkDeviceAddress splitsAABBBufferAddr;
+  DescriptorBuffer cascadeDepthDescBuffer;
   AllocatedBuffer instanceBuffer;
   VkDeviceAddress instanceBufferAddr;
   AllocatedBuffer meshesBuffer;
@@ -105,106 +113,107 @@ class Engine final {
   struct WindowCleaner {
     void operator()(SDL_Window* window) const;
   };
-  std::unique_ptr<SDL_Window, WindowCleaner> m_window;
+  std::unique_ptr<SDL_Window, WindowCleaner> m_window{};
 
-  VkInstance m_instance;
-  VkDebugUtilsMessengerEXT m_debugMessenger;
-  VkPhysicalDevice m_chosenGpu;
-  VkDevice m_device;
-  VkSurfaceKHR m_surface;
+  VkInstance m_instance{};
+  VkDebugUtilsMessengerEXT m_debugMessenger{};
+  VkPhysicalDevice m_chosenGpu{};
+  VkDevice m_device{};
+  VkSurfaceKHR m_surface{};
 
-  VkSwapchainKHR m_swapchain;
-  VkFormat m_swapchainImageFormat;
+  VkSwapchainKHR m_swapchain{};
+  VkFormat m_swapchainImageFormat{};
 
-  std::vector<VkImage> m_swapchainImages;
-  std::vector<VkImageView> m_swapchainImageViews;
-  VkExtent2D m_swapchainExtent;
+  std::vector<VkImage> m_swapchainImages{};
+  std::vector<VkImageView> m_swapchainImageViews{};
+  VkExtent2D m_swapchainExtent{};
 
-  VkQueue m_queue;
-  std::uint32_t m_queueFamilyIndex;
+  VkQueue m_queue{};
+  std::uint32_t m_queueFamilyIndex{};
   // TODO: For multithreading add 1 per thread
-  VkCommandPool m_commandPool;
-  std::array<FrameData, kNumberOfFrames> m_frameData;
-  std::vector<VkSemaphore> m_swapchainSemaphores;
+  VkCommandPool m_commandPool{};
+  std::array<FrameData, kNumberOfFrames> m_frameData{};
+  std::vector<VkSemaphore> m_swapchainSemaphores{};
 
-  DeletionQueue m_mainDeletionQueue;
-  VmaAllocator m_allocator;
-  VkExtent2D m_drawExtent;
-  VkDescriptorSetLayout m_LightPassDescriptorSetLayout;
+  DeletionQueue m_mainDeletionQueue{};
+  VmaAllocator m_allocator{};
+  VkExtent2D m_drawExtent{};
+  VkDescriptorSetLayout m_LightPassDescriptorSetLayout{};
 
-  VkPipelineLayout m_LightPassPipelineLayout;
-  VkPipeline m_LightPassPipeline;
-  LightPassConstantRange m_LightPassConstants;
+  VkPipelineLayout m_LightPassPipelineLayout{};
+  VkPipeline m_LightPassPipeline{};
+  LightPassConstantRange m_LightPassConstants{};
 
   // Simple immediate submit structures
   // For future optimizations consider adding queue
-  VkCommandPool m_immCommandPool;
-  VkCommandBuffer m_immCommandBuffer;
-  VkFence m_immFence;
+  VkCommandPool m_immCommandPool{};
+  VkCommandBuffer m_immCommandBuffer{};
+  VkFence m_immFence{};
 
-  VkPipeline m_meshPipeline;
+  VkPipeline m_meshPipeline{};
 
-  GBufferPassPushConstants m_MeshPassPushConstants;
+  GBufferPassPushConstants m_MeshPassPushConstants{};
 
   bool m_bSwapchainResizeRequest = false;
   float m_renderScale{1.0f};
 
-  AllocatedImage m_whiteImage;
-  AllocatedImage m_blackImage;
-  AllocatedImage m_greyImage;
-  AllocatedImage m_errorImage;
-  AllocatedImage m_normalFallback;
+  AllocatedImage m_whiteImage{};
+  AllocatedImage m_blackImage{};
+  AllocatedImage m_greyImage{};
+  AllocatedImage m_errorImage{};
+  AllocatedImage m_normalFallback{};
 
-  VkSampler m_defaultSamplerLinear;
-  VkSampler m_defaultSamplerNearest;
-  VkSampler m_shadowSampler;
+  VkSampler m_defaultSamplerLinear{};
+  VkSampler m_defaultSamplerNearest{};
+  VkSampler m_shadowSampler{};
+  VkSampler m_debugSampler{};
 
-  GLTFMetallicRoughness m_metalRoughness;
+  GLTFMetallicRoughness m_metalRoughness{};
 
-  DrawContext m_mainDrawContext;
-  Scene m_scene;
+  DrawContext m_mainDrawContext{};
+  Scene m_scene{};
 
-  Camera m_camera;
+  Camera m_camera{};
 
   EngineStats m_stats{};
 
-  VkExtent3D m_CommonImageExtent3D;
-  VkExtent2D m_CommonImageExtent2D;
+  VkExtent3D m_CommonImageExtent3D{};
+  VkExtent2D m_CommonImageExtent2D{};
 
-  AllocatedBuffer m_globalVertexBuffer;
-  VkDeviceAddress m_globalVertexBufferAddress;
+  AllocatedBuffer m_globalVertexBuffer{};
+  VkDeviceAddress m_globalVertexBufferAddress{};
   std::size_t m_globalVertexCount = 0;
   std::size_t m_globalVertexCapacity = 0;
 
-  AllocatedBuffer m_globalIndexBuffer;
+  AllocatedBuffer m_globalIndexBuffer{};
   std::size_t m_globalIndexCount = 0;
   std::size_t m_globalIndexCapacity = 0;
 
   void ensure_vertex_capacity(std::size_t additionalCount);
   void ensure_index_capacity(std::size_t additionalCount);
 
-  GpuSceneData m_sceneData;
+  GpuSceneData m_sceneData{};
 
-  GBufferPassPushConstants m_GBufferMeshPushConstants;
-  OITForwardPassPushConstants m_WBOITForwardPassPushConstants;
+  GBufferPassPushConstants m_GBufferMeshPushConstants{};
+  OITForwardPassPushConstants m_WBOITForwardPassPushConstants{};
 
 
-  VkPipelineLayout m_WBOITCompositePassPipelineLayout;
-  VkPipeline m_WBOITCompositePassPipeline;
+  VkPipelineLayout m_WBOITCompositePassPipelineLayout{};
+  VkPipeline m_WBOITCompositePassPipeline{};
 
   std::uint64_t m_selectedNode = UINT64_MAX;
 
-  VkDescriptorSetLayout m_WboitCompositePassDescriptorSetLayout;
+  VkDescriptorSetLayout m_WboitCompositePassDescriptorSetLayout{};
 
-  VkDescriptorSetLayout m_DrawImageDescriptorSetLayout;
-  VkPipeline m_PostProcessPassPipeline;
-  VkPipelineLayout m_PostProcessPassPipelineLayout;
+  VkDescriptorSetLayout m_DrawImageDescriptorSetLayout{};
+  VkPipeline m_PostProcessPassPipeline{};
+  VkPipelineLayout m_PostProcessPassPipelineLayout{};
 
 #if 0
   VkDescriptorSetLayout m_CullPassDescriptorSetLayout;
 #endif
-  VkPipeline m_CullPassPipeline;
-  VkPipelineLayout m_CullPassPipelineLayout;
+  VkPipeline m_CullPassPipeline{};
+  VkPipelineLayout m_CullPassPipelineLayout{};
 
   std::uint32_t m_OpaqueSize = 0;
   std::uint32_t m_TransparentSize = 0;
@@ -212,9 +221,22 @@ class Engine final {
   Instance* m_CurrentFrameInstanceBuffer = nullptr;
   RenderObject* m_CurrentMeshBuffer = nullptr;
 
-  VkPipeline m_ShadowPassPipeline;
-  VkPipelineLayout m_ShadowPassPipelineLayout;
+  VkPipeline m_ShadowPassPipeline{};
+  VkPipelineLayout m_ShadowPassPipelineLayout{};
 
+  VkPipeline m_PrepassPipeline{};
+  VkPipelineLayout m_PrepassPipelineLayout{};
+
+  float m_LightDistance{50.0f};
+  DepthReductionPushConstants m_depthReductionPushConstants{};
+
+  VkDescriptorSetLayout m_DepthPassDescSetLayout{};
+  VkPipeline m_DepthReductionPipeline{};
+  VkPipelineLayout m_DepthReductionPipelineLayout{};
+  VkPipeline m_DepthPartitionPipeline{};
+  VkPipelineLayout m_DepthPartitionPipelineLayout{};
+  VkPipeline m_DirVpPipeline{};
+  VkPipelineLayout m_DirVpPipelineLayout{};
 
  private:
   void init_window();
@@ -226,7 +248,9 @@ class Engine final {
   void init_pipelines();
   void init_light_pass_pipeline();
   void init_wboit_composite_pass_pipeline();
+  void init_depth_reduction_pass();
   void init_shadow_pass();
+  void init_prepass();
   void init_post_pipeline();
   void init_cull_pipeline();
   void init_imgui();
@@ -241,6 +265,10 @@ class Engine final {
   void draw_wboit_composite(VkCommandBuffer cmd);
   void update_scene();
   void draw_post(VkCommandBuffer cmd);
+  void draw_prepass(VkCommandBuffer cmd);
+  void compute_depth_reduction(VkCommandBuffer cmd);
+  void compute_depth_partition(VkCommandBuffer cmd);
+  void compute_dir_lights_vp(VkCommandBuffer cmd);
   // TODO: Fix this bool isMetalRoughness
   void draw_meshes(VkCommandBuffer cmd,
                            const VkPipelineLayout drawPassPipelineLayout,

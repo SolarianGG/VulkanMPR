@@ -1,12 +1,16 @@
 import utils;
+import types;
 import light_utils;
+import shadows;
 
 struct PushConstants {
     Vertex *vertices;
     Instance *instances;
     SceneData *sceneData;
-    LightData *lights;
-    uint lightCount;
+    DirectionalLight *directionalLights;
+    uint directionalLightsCount;
+    PointLight *pointLights;
+    uint pointLightsCount;
 };
 
 [[vk::binding(0, 0)]] ConstantBuffer<GLTFMaterialData> materials[];
@@ -92,26 +96,20 @@ PSOutput fragmentMain(VSOutput input, float4 fragCoord : SV_Position)
 
   float4 color = 0.0f;
 
-  for (uint i = 0; i < pushConstants.lightCount; ++i)
+  uint dirLightsCount = pushConstants.directionalLightsCount;
+  for (uint i = 0; i < dirLightsCount; ++i)
   {
-      LightData light = pushConstants.lights[i];
-      if (light.type.x == 0)
-      {
-          DirectionalLight dirLight;
-          dirLight.direction = light.data0.xyz;
-          dirLight.color = light.data1.xyz;
-          dirLight.intensity = light.data1.w;
-          color.rgb += CalculateDirLightPBR(worldPos, pushConstants.sceneData.cameraPos, normal, diffuse.rgb, metallic, roughness, dirLight);
-      }
-      else if (light.type.x == 1)
-      {
-          PointLight pointLight;
-          pointLight.position = light.data0.xyz;
-          pointLight.range = light.data0.w;
-          pointLight.color = light.data1.xyz;
-          pointLight.intensity = light.data1.w;
-          color.rgb += CalculatePointLightPBR(worldPos, pushConstants.sceneData.cameraPos, normal, diffuse.rgb, metallic, roughness, pointLight);
-      }
+      DirectionalLight dirLight = pushConstants.directionalLights[i];
+      color.xyz += CalculateDirLightPBR(
+                    worldPos, pushConstants.sceneData.cameraPos, normal, diffuse.xyz, metallic, roughness, 
+                    dirLight);
+  }
+
+  uint pointLightsCount = pushConstants.pointLightsCount;
+  for (uint i = 0; i < pointLightsCount; ++i) {
+      PointLight pointLight = pushConstants.pointLights[i];
+      color.xyz += CalculatePointLightPBR(worldPos, 
+            pushConstants.sceneData.cameraPos, normal, diffuse.xyz, metallic, roughness, pointLight);
   }
   color.a = diffuse.a;
 
@@ -121,11 +119,8 @@ PSOutput fragmentMain(VSOutput input, float4 fragCoord : SV_Position)
                  clamp(0.03 / (1e-5 + pow(fragCoord.z / 200, 4.0)), 1e-2, 3e3);
   PSOutput output;
 
-  // blend func: GL_ONE, GL_ONE
-  // switch to pre-multiplied alpha and weight
   output.color = float4(color.rgb * color.a, color.a) * weight;
 
-  // blend func: GL_ZERO, GL_ONE_MINUS_SRC_ALPHA
   output.reveal = color.a;
   return output;
 };

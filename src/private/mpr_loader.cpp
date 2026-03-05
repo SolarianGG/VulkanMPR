@@ -472,20 +472,25 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
     if (node.meshIndex.has_value()) {
       newNode = std::make_shared<MeshNode>(meshes[node.meshIndex.value()]);
     } else if (node.lightIndex.has_value()) {
-      LightData data{
-
-      };
-      auto& gltfLightData = asset.lights[node.lightIndex.value()];
-
-      data.lightType =
-          gltfLightData.type == fastgltf::LightType::Point ? 1 : 0;
-      data.data1 = glm::vec4(gltfLightData.color.x(), gltfLightData.color.y(),
-                             gltfLightData.color.z(), gltfLightData.intensity);
-      if (data.lightType == 1) {
-        data.data0.w = gltfLightData.range.value();
+      auto& gltfLight = asset.lights[node.lightIndex.value()];
+      const glm::vec3 color{gltfLight.color.x(), gltfLight.color.y(),
+                            gltfLight.color.z()};
+      if (gltfLight.type == fastgltf::LightType::Point) {
+        newNode = std::make_shared<PointLightNode>(PointLightData{
+            .position = {},
+            .range = gltfLight.range.value_or(10.0f),
+            .color = color,
+            .intensity = gltfLight.intensity,
+        });
+      } else {
+        newNode = std::make_shared<DirectionalLightNode>(DirectionalLightData{
+            .direction = {},
+            .padding = 0.0f,
+            .color = color,
+            .intensity = gltfLight.intensity,
+            .cascadeCount = {4, 0, 0, 0},
+        });
       }
-      newNode =
-          std::make_shared<LightNode>(data);
     } else {
       newNode = std::make_shared<Node>();
     }

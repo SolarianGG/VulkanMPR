@@ -3,7 +3,9 @@
     "allow": [
       "Bash(grep:*)",
       "Bash(python shader_cmp.py:*)",
-      "Bash(cmake --build:*)"
+      "Bash(cmake --build:*)",
+      "Bash(ls:*)",
+      "Bash(python:*)"
     ]
   }
 }

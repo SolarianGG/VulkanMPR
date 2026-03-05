@@ -1,34 +1,13 @@
 module utils;
 
-#define PI 3.141592f;
-
-public struct DirectionalLight {
-    public float3 direction;
-    public float padding0;
-    public float3 color;
-    public float intensity;
-};
-
-public struct PointLight {
-    public float3 position;
-    public float range;
-    public float3 color;
-    public float intensity;
-};
-
-public struct LightData {
-    public int4 type;
-    public float4 data0; // xyz: position/direction, w: range for punctual
-    public float4 data1; // xyz: color, w: intensity
-    public float4x4 vp;
-};
+import types;
 
 float D_GGX(float NdotH, float roughness)
 {
     float a = roughness * roughness;
     float a2 = a * a;
     float denom = NdotH * NdotH * (a2 - 1.0f) + 1.0f;
-    return a2 / (3.1415926535f * denom * denom);
+    return a2 / (float::getPi() * denom * denom);
 }
 
 float G_Smith(float NdotL, float NdotV, float roughness)
@@ -54,7 +33,7 @@ public float3 CalculateDirLightPBR(
     float roughness,
     DirectionalLight light
 ) {
-    float3 lightDir = normalize(-light.direction);
+    float3 lightDir = normalize(-light.direction.xyz);
     float3 viewDir = normalize(cameraPos - worldPos);
     float3 halfDir = normalize(lightDir + viewDir);
 
@@ -74,9 +53,9 @@ public float3 CalculateDirLightPBR(
     float3 kD = 1.0f - kS;       
     kD *= 1.0f - metallic;       
 
-    float3 diffuse = kD * albedo / PI;
+    float3 diffuse = kD * albedo / float::getPi();
 
-    float3 radiance = light.color * light.intensity;
+    float3 radiance = light.color.xyz * light.color.w;
     return (diffuse + specular) * radiance * NdotL;
 }
 
@@ -112,49 +91,9 @@ public float3 CalculatePointLightPBR(
 
     float3 kS = F;
     float3 kD = (1.0f - kS) * (1.0f - metallic);
-    float3 diffuse = kD * albedo / PI;
+    float3 diffuse = kD * albedo / float::getPi();
 
     float3 radiance = light.color * light.intensity * attenuation;
     return (diffuse + specular) * radiance * NdotL;
 }
 
-public float CalculateShadow(float4x4 lightVP, float3 worldPos, Texture2D<float> shadowMap, SamplerComparisonState shadowSampler) {
-    float4 lightSpacePos = mul(lightVP, float4(worldPos, 1.0));
-    float3 projCoords = lightSpacePos.xyz / lightSpacePos.w;
-
-    float2 shadowUV = projCoords.xy * 0.5 + 0.5;
-    shadowUV.y = 1.0 - shadowUV.y;
-
-    if (shadowUV.x < 0 || shadowUV.x > 1 || shadowUV.y < 0 || shadowUV.y > 1)
-        return 1.0;
-
-    float currentDepth = projCoords.z;
-    float bias = 0.005;
-
-    float shadow = 0.0;
-    float texelSize = 1.0 / 2048.0;
-    for (int x = -1; x <= 1; x++) {
-        for (int y = -1; y <= 1; y++) {
-            shadow += shadowMap.SampleCmpLevelZero(
-                shadowSampler, shadowUV + float2(x, y) * texelSize, currentDepth - bias);
-        }
-    }
-    return shadow / 9.0;
-}
-
-public float3 CalculateDirLightGooch(float3 worldPos, float3 cameraPos,
-    float3 normal,
-    float3 albedo, DirectionalLight light) {
-    float3 lightDir = normalize(-light.direction);
-    float3 viewDir = normalize(cameraPos - worldPos);
-
-    float3 ccool = float3(0, 0, 0.55f) + 0.25f * albedo;
-    float3 cwarm = float3(0.3f, 0.3f, 0.0f) + 0.25f * albedo;
-    float3 chighlight = float3(1.0f, 1.0f, 1.0f);
-    float t = (dot(normal, lightDir) + 1) / 2;
-    float3 r = (2 * dot(normal, lightDir) * normal) - lightDir;
-    float s = (100 * dot(r, viewDir) - 97);
-    s = clamp(s, 0.0f, 1.0f);
-
-    return s * chighlight + (1.0f - s) * (t * cwarm + (1 - t) * ccool);
-}
