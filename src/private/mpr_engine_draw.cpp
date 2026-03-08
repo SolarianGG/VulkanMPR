@@ -121,7 +121,7 @@ void Engine::draw()
             .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
             .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
             .srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
-            .dstStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT,
             .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
             .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
             .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
@@ -135,11 +135,6 @@ void Engine::draw()
 
     // Base pass (GPass)
     {
-        barrierBuilder.add_image_barrier(gBuffer.position.image, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
-                                         VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                                         VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
-                                         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                                         utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
         barrierBuilder.add_image_barrier(gBuffer.normal.image, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
                                          VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                                          VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
@@ -168,12 +163,6 @@ void Engine::draw()
 
     // Light pass
     {
-        barrierBuilder.add_image_barrier(gBuffer.position.image, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                                         VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
-                                         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
-                                         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                                         utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
         barrierBuilder.add_image_barrier(gBuffer.normal.image, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                                          VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
                                          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
@@ -362,48 +351,55 @@ void Engine::draw()
 
 void Engine::draw_shadow_pass(VkCommandBuffer cmd)
 {
-    if (m_mainDrawContext.dirLights.empty())
+    if (!m_mainDrawContext.dirLight.has_value())
         return;
-    const auto &light = m_mainDrawContext.dirLights.front();
+    const auto &light = m_mainDrawContext.dirLight.value();
     const auto start = cn::steady_clock::now();
     constexpr VkExtent2D shadowPassExtent{2048, 2048};
     auto &currentFrame = get_current_frame();
 
-    const int cascadeCount = std::clamp(light.cascadeCount.x, 1, MAX_CASCADES);
+    const std::uint32_t cascadeCount = static_cast<std::uint32_t>(std::clamp(light.cascadeCount.x, 1, MAX_CASCADES));
 
-    for (std::uint32_t i = 0; i < cascadeCount; ++i)
-    {
-        const auto depthAttachment =
-            utils::depth_attachment(currentFrame.shadowPassLayerViews[i], VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
-        const auto renderInfo = utils::rendering_info(shadowPassExtent, 0, nullptr, &depthAttachment);
+    cull_objects(cmd, m_OpaqueSize, 0, m_LightCullMatrix);
 
-        vkCmdBeginRendering(cmd, &renderInfo);
+    const auto depthAttachment =
+        utils::depth_attachment(currentFrame.shadowPassDepthArray.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+    const VkRenderingInfo renderInfo{
+        .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+        .pNext = nullptr,
+        .renderArea = {.extent = shadowPassExtent},
+        .layerCount = cascadeCount,
+        .colorAttachmentCount = 0,
+        .pColorAttachments = nullptr,
+        .pDepthAttachment = &depthAttachment,
+        .pStencilAttachment = nullptr,
+    };
 
-        const VkViewport viewport{
-            .x = 0,
-            .y = static_cast<float>(shadowPassExtent.height),
-            .width = static_cast<float>(shadowPassExtent.width),
-            .height = -static_cast<float>(shadowPassExtent.height),
-            .minDepth = 0.0f,
-            .maxDepth = 1.0f,
-        };
-        vkCmdSetViewport(cmd, 0, 1, &viewport);
+    vkCmdBeginRendering(cmd, &renderInfo);
 
-        const VkRect2D scissor{.extent = shadowPassExtent};
-        vkCmdSetScissor(cmd, 0, 1, &scissor);
+    const VkViewport viewport{
+        .x = 0,
+        .y = static_cast<float>(shadowPassExtent.height),
+        .width = static_cast<float>(shadowPassExtent.width),
+        .height = -static_cast<float>(shadowPassExtent.height),
+        .minDepth = 0.0f,
+        .maxDepth = 1.0f,
+    };
+    vkCmdSetViewport(cmd, 0, 1, &viewport);
 
-        const ShadowPassPushConstants shadowPassPushConstants{
-            .globalVertexBufferAddr = m_globalVertexBufferAddress,
-            .instanceBufferDeviceAddr = currentFrame.instanceBufferAddr,
-            .dirLightsBufferAddr = currentFrame.dirLightBufferAddr,
-            .lightIndex = 0,
-            .cascadeIndex = i,
-        };
-        draw_meshes(cmd, m_ShadowPassPipelineLayout, m_ShadowPassPipeline, m_OpaqueSize, shadowPassPushConstants,
-                    VK_SHADER_STAGE_VERTEX_BIT, false);
+    const VkRect2D scissor{.extent = shadowPassExtent};
+    vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-        vkCmdEndRendering(cmd);
-    }
+    const ShadowPassPushConstants shadowPassPushConstants{
+        .globalVertexBufferAddr = m_globalVertexBufferAddress,
+        .instanceBufferDeviceAddr = currentFrame.instanceBufferAddr,
+        .dirLightsBufferAddr = currentFrame.dirLightBufferAddr,
+        .cascadeCount = cascadeCount,
+    };
+    draw_meshes(cmd, m_ShadowPassPipelineLayout, m_ShadowPassPipeline, m_OpaqueSize, shadowPassPushConstants,
+                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT, false);
+
+    vkCmdEndRendering(cmd);
 
     const auto end = cn::steady_clock::now();
     const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
@@ -418,8 +414,6 @@ void Engine::draw_gBuffer_pass(VkCommandBuffer cmd)
 
     // ---
     VkClearValue val{.color = {0.0f, 0.0f, 0.0f, 1.0f}};
-    const auto positionAttachment =
-        utils::attachment_info(gBuffer.position.imageView, &val, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     const auto normalAttachment =
         utils::attachment_info(gBuffer.normal.imageView, &val, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     const auto diffuseAttachment =
@@ -429,7 +423,7 @@ void Engine::draw_gBuffer_pass(VkCommandBuffer cmd)
     const auto depthAttachment =
         utils::depth_attachment(depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, false);
 
-    VkRenderingAttachmentInfo attachments[]{positionAttachment, normalAttachment, diffuseAttachment,
+    VkRenderingAttachmentInfo attachments[]{normalAttachment, diffuseAttachment,
                                             specularAttachment};
     const auto renderInfo =
         utils::rendering_info(m_CommonImageExtent2D, std::size(attachments), attachments, &depthAttachment);
@@ -749,8 +743,8 @@ void Engine::compute_depth_reduction(VkCommandBuffer cmd)
     auto &frame = get_current_frame();
 
     MinMax initMinMax;
-    initMinMax.min = std::bit_cast<std::uint32_t>(FLT_MAX);
-    initMinMax.max = std::bit_cast<std::uint32_t>(-FLT_MAX);
+    initMinMax.min = std::bit_cast<std::uint32_t>(std::numeric_limits<float>::max());
+    initMinMax.max = std::bit_cast<std::uint32_t>(-std::numeric_limits<float>::max());
     vkCmdUpdateBuffer(cmd, frame.minMaxBuffer.buffer, 0, sizeof(MinMax), &initMinMax);
 
     utils::BarrierBuilder barrierBuilder;
@@ -798,7 +792,7 @@ void Engine::compute_depth_reduction(VkCommandBuffer cmd)
 
 void Engine::compute_depth_partition(VkCommandBuffer cmd)
 {
-    if (m_mainDrawContext.dirLights.empty())
+    if (!m_mainDrawContext.dirLight.has_value())
         return;
     auto &frame = get_current_frame();
 
@@ -810,11 +804,8 @@ void Engine::compute_depth_partition(VkCommandBuffer cmd)
         aabb.maxX = aabb.maxY = aabb.maxZ = std::bit_cast<std::uint32_t>(-std::numeric_limits<float>::max());
         aabb._pad0 = aabb._pad1 = 0;
     }
-    const std::size_t dirLightCount = m_mainDrawContext.dirLights.size();
-    std::array<CascadesAABB, 16> initAABBArray{};
-    initAABBArray.fill(initAABB);
-    vkCmdUpdateBuffer(cmd, frame.splitsAABBBuffer.buffer, 0, sizeof(CascadesAABB) * dirLightCount,
-                      initAABBArray.data());
+    constexpr std::size_t dirLightCount = 1;
+    vkCmdUpdateBuffer(cmd, frame.splitsAABBBuffer.buffer, 0, sizeof(CascadesAABB), &initAABB);
 
     utils::BarrierBuilder barrierBuilder;
     // minMax: COMPUTE WRITE -> COMPUTE READ
@@ -879,7 +870,7 @@ void Engine::compute_depth_partition(VkCommandBuffer cmd)
 
 void Engine::compute_dir_lights_vp(VkCommandBuffer cmd)
 {
-    if (m_mainDrawContext.dirLights.empty())
+    if (!m_mainDrawContext.dirLight.has_value())
         return;
     auto &frame = get_current_frame();
 
@@ -916,11 +907,14 @@ void Engine::compute_dir_lights_vp(VkCommandBuffer cmd)
     const DirVpPushConstants pushConstants{
         .splitsAABBAddr = frame.splitsAABBBufferAddr,
         .dirLightsAddr = frame.dirLightBufferAddr,
+        .sceneMin = m_mainDrawContext.min,
+        .sceneMax = m_mainDrawContext.max,
+        .shadowMapSize = 2048u,
     };
     vkCmdPushConstants(cmd, m_DirVpPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(DirVpPushConstants),
                        &pushConstants);
 
-    vkCmdDispatch(cmd, static_cast<std::uint32_t>(m_mainDrawContext.dirLights.size()), 1, 1);
+    vkCmdDispatch(cmd, 1, 1, 1);
 }
 
 void Engine::copy_frame_buffers()

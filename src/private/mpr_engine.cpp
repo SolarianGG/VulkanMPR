@@ -1,5 +1,6 @@
 // clang-format off
 #define GLM_ENABLE_EXPERIMENTAL
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #define VMA_IMPLEMENTATION
 #define VOLK_IMPLEMENTATION
 #include "mpr_engine.hpp"
@@ -144,7 +145,6 @@ void Engine::run()
         {
             ImGui::DragFloat("Render scale", &m_renderScale, 0.01f, 0.01f, 1.0f);
             ImGui::DragFloat("Camera speed", &m_camera.cameraSpeed, 0.01f, 0.01f, 100.0f);
-            ImGui::DragFloat("Light distance", &m_LightDistance, 0.01f, 0.01f, 100.0f);
             // TODO: Add debug light visualization
 #if 0
       ImGui::Checkbox("Draw debug light positions", &m_IsLightsRendered);
@@ -155,14 +155,14 @@ void Engine::run()
         // TODO: These stats are only showing cpu execution time of vulkan commands,
         // for gpu metrics I plan to integrate tracy
         ImGui::Begin("Stats");
-        ImGui::Text("Frame time: %f ms", m_stats.frameTime);
-        ImGui::Text("Shadow Pass time: %f ms", m_stats.shadowPassDrawTime);
-        ImGui::Text("GBuffer Pass time: %f ms", m_stats.gBufferPassTime);
-        ImGui::Text("Deferred light pass time: %f ms", m_stats.gBufferLightPassTime);
-        ImGui::Text("WBOIT forward pass time: %f ms", m_stats.transparentForwardLightPassTime);
-        ImGui::Text("Post process pass time: %f ms", m_stats.postProcessPassTime);
-        ImGui::Text("ImGui draw time: %f ms", m_stats.imguiDrawTime);
-        ImGui::Text("Scene update tim: %f ms", m_stats.sceneUpdateTime);
+        ImGui::Text("Frame time: %f s", m_stats.frameTime);
+        ImGui::Text("Shadow Pass time: %f s", m_stats.shadowPassDrawTime);
+        ImGui::Text("GBuffer Pass time: %f s", m_stats.gBufferPassTime);
+        ImGui::Text("Deferred light pass time: %f s", m_stats.gBufferLightPassTime);
+        ImGui::Text("WBOIT forward pass time: %f s", m_stats.transparentForwardLightPassTime);
+        ImGui::Text("Post process pass time: %f s", m_stats.postProcessPassTime);
+        ImGui::Text("ImGui draw time: %f s", m_stats.imguiDrawTime);
+        ImGui::Text("Scene update tim: %f s", m_stats.sceneUpdateTime);
         ImGui::Text("Amount of draw calls: %i", m_stats.drawCallCount);
         ImGui::Text("Amount of triangles: %i", m_stats.triangleCount);
         ImGui::End();
@@ -179,7 +179,7 @@ void Engine::run()
                 m_selectedNode = render_scene_tree_ui(m_scene, topNode->nodeIndex, m_selectedNode);
             }
             ImGui::Separator();
-            if (ImGui::Button("Add light"))
+            if (!m_mainDrawContext.dirLight.has_value() && ImGui::Button("Add Directional light"))
             {
                 const auto nodeIndex = m_scene.add_node(std::make_shared<DirectionalLightNode>(DirectionalLightData{
                     .direction = {0.0f, -1.0f, 0.0f},
@@ -192,7 +192,22 @@ void Engine::run()
                 auto &node = m_scene.nodes.find(nodeIndex)->second;
                 node->worldTransform = glm::mat4(1.0f);
                 node->localTransform = glm::mat4(1.0f);
-                node->name = "Light";
+                node->name = "Directional Light";
+                node->nodeIndex = nodeIndex;
+                m_scene.topNodes.push_back(node);
+            }
+            if (ImGui::Button("Add Point light"))
+            {
+                const auto nodeIndex = m_scene.add_node(std::make_shared<PointLightNode>(
+                    PointLightData{.position = (m_mainDrawContext.max + m_mainDrawContext.min) * 0.5f,
+                                   .range = 10.0f,
+                                   .color = glm::vec3(1.0f, 1.0f, 1.0f),
+                                   .intensity = 3.0f}));
+
+                auto &node = m_scene.nodes.find(nodeIndex)->second;
+                node->worldTransform = glm::mat4(1.0f);
+                node->localTransform = glm::mat4(1.0f);
+                node->name = "Point Light";
                 node->nodeIndex = nodeIndex;
                 m_scene.topNodes.push_back(node);
             }
@@ -240,7 +255,7 @@ void Engine::update_scene()
 
     constexpr float cameraNear = 0.1f;
     constexpr float cameraFar = 100.0f;
-    const glm::mat4 proj = glm::perspectiveRH_ZO(
+    const glm::mat4 proj = glm::perspective(
         glm::radians(90.0f), static_cast<float>(m_drawExtent.width) / m_drawExtent.height, cameraNear, cameraFar);
 
     m_sceneData.view = m_camera.get_view_matrix();
@@ -250,45 +265,56 @@ void Engine::update_scene()
     m_sceneData.padding0 = 0.0f;
 
     const auto inverseViewProj = glm::inverse(m_sceneData.projView);
-    std::array<glm::vec3, 8> frustumCorners{
-        glm::vec3{-1.0f, -1.0f, 0.0f}, {1.0f, -1.0f, 0.0f}, {-1.0f, 1.0f, 0.0f}, {1.0f, 1.0f, 0.0f},
-        {-1.0f, -1.0f, 1.0f},          {1.0f, -1.0f, 1.0f}, {-1.0f, 1.0f, 1.0f}, {1.0f, 1.0f, 1.0f},
-    };
-    for (auto &corner : frustumCorners)
-    {
-        const glm::vec4 inversedCorner = inverseViewProj * glm::vec4(corner, 1.0f);
-        corner = inversedCorner / inversedCorner.w;
-    }
 
-    const auto frustumCenter = (frustumCorners[0] + frustumCorners[1] + frustumCorners[2] + frustumCorners[3] +
-                                frustumCorners[4] + frustumCorners[5] + frustumCorners[6] + frustumCorners[7]) /
-                               8.0f;
-
-    if (!m_mainDrawContext.dirLights.empty())
+    m_mainDrawContext.max += 1.0f;
+    m_mainDrawContext.min -= 1.0f;
+    const auto sceneDistance = (m_mainDrawContext.max) - (m_mainDrawContext.min);
+    const auto sceneMaxDistance = glm::max(sceneDistance.x, glm::max(sceneDistance.y, sceneDistance.z));
+    if (m_mainDrawContext.dirLight.has_value())
     {
-        auto &light = m_mainDrawContext.dirLights.front();
+        auto &light = m_mainDrawContext.dirLight.value();
         const auto lightDir = glm::normalize(light.direction);
-        const glm::vec3 up = (std::abs(glm::dot(lightDir, glm::vec3(0.0f, 1.0f, 0.0f))) > 0.99f)
-                                 ? glm::vec3(0.0f, 0.0f, 1.0f)
-                                 : glm::vec3(0.0f, 1.0f, 0.0f);
-        // Store light view matrix in cascadeVPs[0]; partition shader uses it
-        const auto lightPos = frustumCenter - lightDir * m_LightDistance;
-        light.cascadeVPs[0] = glm::lookAtRH(lightPos, lightPos + lightDir, up);
+        glm::vec3 up = (std::abs(glm::dot(lightDir, glm::vec3(0.0f, 1.0f, 0.0f))) > 0.99f)
+                           ? glm::vec3(0.0f, 0.0f, 1.0f)
+                           : glm::vec3(0.0f, 1.0f, 0.0f);
+
+        const glm::vec3 sceneCenter = (m_mainDrawContext.max + m_mainDrawContext.min) * 0.5f;
+        const auto lightPos = sceneCenter - lightDir * sceneMaxDistance;
+        light.cascadeVPs[0] = glm::lookAt(lightPos, sceneCenter, up);
+
+        glm::vec3 lsMin(FLT_MAX);
+        glm::vec3 lsMax(-FLT_MAX);
+        for (int cx = 0; cx <= 1; cx++)
+            for (int cy = 0; cy <= 1; cy++)
+                for (int cz = 0; cz <= 1; cz++)
+                {
+                    const glm::vec3 worldPt(cx ? m_mainDrawContext.max.x : m_mainDrawContext.min.x,
+                                            cy ? m_mainDrawContext.max.y : m_mainDrawContext.min.y,
+                                            cz ? m_mainDrawContext.max.z : m_mainDrawContext.min.z);
+                    const glm::vec3 ls = glm::vec3(light.cascadeVPs[0] * glm::vec4(worldPt, 1.0f));
+                    lsMin = glm::min(lsMin, ls);
+                    lsMax = glm::max(lsMax, ls);
+                }
+
+        m_LightCullMatrix = glm::ortho(lsMin.x, lsMax.x, lsMin.y, lsMax.y, -lsMax.z, -lsMin.z) * light.cascadeVPs[0];
     }
 
     auto &frame = get_current_frame();
     auto *sceneData = static_cast<GpuSceneData *>(frame.sceneDataBuffer.allocationInfo.pMappedData);
     *sceneData = m_sceneData;
 
-    std::memcpy(frame.dirLightBuffer.allocationInfo.pMappedData, m_mainDrawContext.dirLights.data(),
-                m_mainDrawContext.dirLights.size() * sizeof(DirectionalLightData));
+    if (m_mainDrawContext.dirLight.has_value())
+    {
+        std::memcpy(frame.dirLightBuffer.allocationInfo.pMappedData, &m_mainDrawContext.dirLight.value(),
+                    sizeof(DirectionalLightData));
+    }
     std::memcpy(frame.pointLightBuffer.allocationInfo.pMappedData, m_mainDrawContext.pointLights.data(),
                 m_mainDrawContext.pointLights.size() * sizeof(PointLightData));
 
     m_LightPassConstants = {
         .sceneDataBufferDeviceAddr = frame.sceneDataBufferAddr,
         .dirLightBufferDeviceAddr = frame.dirLightBufferAddr,
-        .dirLightCount = static_cast<std::uint32_t>(m_mainDrawContext.dirLights.size()),
+        .dirLightCount = m_mainDrawContext.dirLight.has_value() ? 1u : 0u,
         .pointLightBufferDeviceAddr = frame.pointLightBufferAddr,
         .pointLightCount = static_cast<std::uint32_t>(m_mainDrawContext.pointLights.size()),
         .inverseCameraViewProj = inverseViewProj,
@@ -305,7 +331,7 @@ void Engine::update_scene()
         .instanceBufferDeviceAddr = frame.instanceBufferAddr,
         .sceneDataBufferDeviceAddr = frame.sceneDataBufferAddr,
         .dirLightBufferDeviceAddr = frame.dirLightBufferAddr,
-        .dirLightCount = static_cast<std::uint32_t>(m_mainDrawContext.dirLights.size()),
+        .dirLightCount = m_mainDrawContext.dirLight.has_value() ? 1u : 0u,
         .pointLightBufferDeviceAddr = frame.pointLightBufferAddr,
         .pointLightCount = static_cast<std::uint32_t>(m_mainDrawContext.pointLights.size()),
     };

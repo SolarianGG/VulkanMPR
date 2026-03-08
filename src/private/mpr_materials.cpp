@@ -106,8 +106,6 @@ void GLTFMetallicRoughness::build_pipelines(Engine& engine) {
     pipelineBuilder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
     pipelineBuilder.set_polygon_mode(VK_POLYGON_MODE_FILL);
     pipelineBuilder.add_color_attachment_format(
-        engine.m_frameData.at(0).gBuffer.position.imageFormat);
-    pipelineBuilder.add_color_attachment_format(
         engine.m_frameData.at(0).gBuffer.normal.imageFormat);
     pipelineBuilder.add_color_attachment_format(
         engine.m_frameData.at(0).gBuffer.diffuse.imageFormat);

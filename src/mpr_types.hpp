@@ -43,6 +43,11 @@ struct DeletionQueue
     }
 };
 
+inline bool is_nearly_zero(const float value)
+{
+    return FP_ZERO == fpclassify(value);
+}
+
 struct AllocatedImage
 {
     VkImage image;
@@ -152,8 +157,7 @@ struct ShadowPassPushConstants
     VkDeviceAddress globalVertexBufferAddr;
     VkDeviceAddress instanceBufferDeviceAddr;
     VkDeviceAddress dirLightsBufferAddr;
-    std::uint32_t lightIndex;
-    std::uint32_t cascadeIndex;
+    std::uint32_t cascadeCount;
 };
 
 enum class MaterialPass : std::uint8_t
@@ -225,22 +229,26 @@ struct DepthReductionPushConstants
 
 struct DepthPartitionPushConstants
 {
-    VkDeviceAddress minMaxAddr;      // 8 @ 0
-    VkDeviceAddress splitsAABBAddr;  // 8 @ 8
-    VkDeviceAddress dirLightsAddr;   // 8 @ 16
-    std::uint32_t dirLightCount;     // 4 @ 32
+    VkDeviceAddress minMaxAddr;     // 8 @ 0
+    VkDeviceAddress splitsAABBAddr; // 8 @ 8
+    VkDeviceAddress dirLightsAddr;  // 8 @ 16
+    std::uint32_t dirLightCount;    // 4 @ 32
     float near, far;
     std::uint32_t _pad0;             // 4 @ 36
     std::uint32_t _pad1;             // 4 @ 36
     std::uint32_t _pad2;             // 4 @ 36
     glm::mat4 inverseCameraViewProj; // 64 @ 48
-}; 
+};
 
 struct DirVpPushConstants
 {
     VkDeviceAddress splitsAABBAddr; // 8 @ 0
     VkDeviceAddress dirLightsAddr;  // 8 @ 8
-}; // Total: 16 bytes
+    glm::vec3 sceneMin;             // 12 @ 16
+    float _pad0{};                  // 4  @ 28
+    glm::vec3 sceneMax;             // 12 @ 32
+    std::uint32_t shadowMapSize{};  // 4  @ 44
+}; // Total: 48 bytes
 
 struct DrawContext;
 class IRenderable

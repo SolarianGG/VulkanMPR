@@ -11,7 +11,7 @@ public float3 ReconstructWorldPos(
 
     float2 ndc;
     ndc.x = uv.x * 2.0 - 1.0;
-    ndc.y = uv.y * 2.0 - 1.0;
+    ndc.y = 1.0 - uv.y * 2.0;
 
     float4 clip =
         float4(ndc, depth, 1.0);

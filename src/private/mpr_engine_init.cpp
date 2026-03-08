@@ -132,6 +132,7 @@ void Engine::init_vulkan()
     };
     VkPhysicalDeviceFeatures features10{
         .independentBlend = true,
+        .geometryShader = true,
         .samplerAnisotropy = true,
         .shaderInt64 = true,
     };
@@ -254,9 +255,6 @@ void Engine::init_swapchain()
         create_draw_image(frame.drawImage, m_CommonImageExtent3D);
         create_depth_image(frame.depthImage, m_CommonImageExtent3D);
 
-        frame.gBuffer.position = create_image(m_CommonImageExtent3D, VK_FORMAT_R32G32B32A32_SFLOAT,
-                                              VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
-                                                  VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
         frame.gBuffer.normal = create_image(m_CommonImageExtent3D, VK_FORMAT_R32G32B32A32_SFLOAT,
                                             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
                                                 VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
@@ -336,7 +334,6 @@ void Engine::init_swapchain()
     m_mainDeletionQueue.push_function([this]() {
         for (auto &frame : m_frameData)
         {
-            destroy_image(frame.gBuffer.position);
             destroy_image(frame.gBuffer.normal);
             destroy_image(frame.gBuffer.diffuse);
             destroy_image(frame.gBuffer.specular);
@@ -345,9 +342,9 @@ void Engine::init_swapchain()
             destroy_image(frame.oitRevealImage);
 
             // Destroy per-layer shadow views, then array view + image
-            for (int i = 0; i < MAX_CASCADES; ++i)
+            for (auto &shadowPassLayerView : frame.shadowPassLayerViews)
             {
-                vkDestroyImageView(m_device, frame.shadowPassLayerViews[i], nullptr);
+                vkDestroyImageView(m_device, shadowPassLayerView, nullptr);
             }
             vkDestroyImageView(m_device, frame.shadowPassDepthArray.imageView, nullptr);
             vmaDestroyImage(m_allocator, frame.shadowPassDepthArray.image, frame.shadowPassDepthArray.allocation);
@@ -756,7 +753,9 @@ void Engine::init_depth_reduction_pass()
 void Engine::init_shadow_pass()
 {
     const VkPushConstantRange pushConstantRange{
-        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT, .offset = 0, .size = sizeof(ShadowPassPushConstants)};
+        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
+        .offset = 0,
+        .size = sizeof(ShadowPassPushConstants)};
 
     const VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
                                                               .pNext = nullptr,
@@ -772,6 +771,12 @@ void Engine::init_shadow_pass()
         throw std::runtime_error("Failed to load shadow pass vertex shader");
     }
 
+    VkShaderModule shadowPassGeom;
+    if (!mp::load_shader_module("../../src/compiled_shaders/shadow_pass.geometry.spv", m_device, &shadowPassGeom))
+    {
+        throw std::runtime_error("Failed to load shadow pass geometry shader");
+    }
+
     VkShaderModule shadowPassFrag;
     if (!mp::load_shader_module("../../src/compiled_shaders/shadow_pass.pixel.spv", m_device, &shadowPassFrag))
     {
@@ -784,6 +789,7 @@ void Engine::init_shadow_pass()
     builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
     builder.set_polygon_mode(VK_POLYGON_MODE_FILL);
     builder.add_shader(shadowPassVert, VK_SHADER_STAGE_VERTEX_BIT);
+    builder.add_shader(shadowPassGeom, VK_SHADER_STAGE_GEOMETRY_BIT);
     builder.add_shader(shadowPassFrag, VK_SHADER_STAGE_FRAGMENT_BIT);
     builder.set_depth_format(m_frameData.at(0).shadowPassDepthArray.imageFormat);
     builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
@@ -792,6 +798,7 @@ void Engine::init_shadow_pass()
     m_ShadowPassPipeline = builder.build_pipeline(m_device);
 
     vkDestroyShaderModule(m_device, shadowPassVert, nullptr);
+    vkDestroyShaderModule(m_device, shadowPassGeom, nullptr);
     vkDestroyShaderModule(m_device, shadowPassFrag, nullptr);
 
     m_mainDeletionQueue.push_function([this]() {

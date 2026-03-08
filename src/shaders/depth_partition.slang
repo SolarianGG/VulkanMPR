@@ -47,7 +47,6 @@ void depthPartitionCS(uint3 threadID : SV_DispatchThreadID)
     for (uint i = 0; i < dirLightCount; ++i) {
         uint cascadeCount = pushConstants.dirLights[i].cascadeCount.r;
         float splitDistances[MAX_CASCADE_COUNT];
-        // Compute logarithmic cascade splits
         for (uint j = 0; j < cascadeCount; ++j) {
             if (cascadeCount > 1) {
                 splitDistances[j] = depthMin * pow(ratio, float(j) / float(cascadeCount));

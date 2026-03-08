@@ -15,7 +15,7 @@ void DrawContext::clear()
     max = glm::vec3{-FLT_MAX};
     opaqueMeshes.clear();
     transparentMeshes.clear();
-    dirLights.clear();
+    dirLight = std::nullopt;
     pointLights.clear();
     renderObjects.clear();
     opaqueInstances.clear();
@@ -78,7 +78,7 @@ void MeshNode::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
 void DirectionalLightNode::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
 {
     m_Data.direction = glm::normalize(glm::vec3(worldTransform[2]));
-    ctx.dirLights.push_back(m_Data);
+    ctx.dirLight = m_Data;
 
     Node::draw(topMatrix, ctx);
 }

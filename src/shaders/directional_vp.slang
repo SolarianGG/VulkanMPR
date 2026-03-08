@@ -7,7 +7,11 @@ struct CascadesAABB {
 
 struct PushConstants {
     CascadesAABB *splitsAABB;
-    DirectionalLight *dirLights;	
+    DirectionalLight *dirLights;
+    float3 sceneMin;
+    float _pad0;
+    float3 sceneMax;
+    uint shadowMapSize;
 };
 
 [[vk::push_constant]]
@@ -18,7 +22,7 @@ float4x4 orthoRH_ZO(float left, float right, float bottom, float top, float zNea
     float4x4 res = 0;
     res[0][0] = 2.0 / (right - left);
     res[1][1] = 2.0 / (top - bottom);
-    res[2][2] = 1.0 / (zFar - zNear);
+    res[2][2] = -1.0 / (zFar - zNear);
 
     res[0][3] = -(right + left) / (right - left);
     res[1][3] = -(top + bottom) / (top - bottom);
@@ -37,6 +41,20 @@ void dirVpComputeMain(uint3 threadID : SV_DispatchThreadID)
     uint cascadeCount = pushConstants.dirLights[threadID.x].cascadeCount.r;
     float4x4 lightView = pushConstants.dirLights[threadID.x].cascadeVPs[0];
     CascadesAABB cascadesBounds = pushConstants.splitsAABB[threadID.x];
+
+    // Extend near plane to cover off-camera occluders between the light and the camera frustum.
+    float3 s0 = pushConstants.sceneMin;
+    float3 s1 = pushConstants.sceneMax;
+    float sceneMaxZ = -float::maxValue;
+    for (uint ci = 0; ci < 8; ++ci) {
+        float3 corner = float3(
+            ((ci & 1) != 0) ? s1.x : s0.x,
+            ((ci & 2) != 0) ? s1.y : s0.y,
+            ((ci & 4) != 0) ? s1.z : s0.z);
+        const float depth = mul(lightView, float4(corner, 1.0f)).z;
+        sceneMaxZ = max(sceneMaxZ, depth);
+    }
+
     for (uint i = 0; i < cascadeCount; ++i) {
         AABB bounds = cascadesBounds.bounds[i];
         float minX = asfloat(bounds.minX);
@@ -45,8 +63,19 @@ void dirVpComputeMain(uint3 threadID : SV_DispatchThreadID)
         float maxY = asfloat(bounds.maxY);
         float minZ = asfloat(bounds.minZ);
         float maxZ = asfloat(bounds.maxZ);
-        float4x4 lightProj = orthoRH_ZO(minX, maxX, minY, maxY, minZ, maxZ);
+        maxZ = max(sceneMaxZ, maxZ);
+        float4x4 lightProj = orthoRH_ZO(minX, maxX, minY, maxY, -maxZ, -minZ);
         float4x4 lightProjView = mul(lightProj, lightView);
-        pushConstants.dirLights[threadID.x].cascadeVPs[i] = mul(lightView, lightProj);
+
+        // Texel snapping: align projection to shadow map texel grid to prevent edge shimmering.
+        // Project world origin into shadow NDC, snap to nearest texel, feed offset back.
+        float4 shadowOrigin = mul(lightProjView, float4(0.0f, 0.0f, 0.0f, 1.0f));
+        float halfSize = float(pushConstants.shadowMapSize) * 0.5f;
+        float2 texelOrigin = shadowOrigin.xy * halfSize;
+        float2 roundOffset = (round(texelOrigin) - texelOrigin) * (2.0f / float(pushConstants.shadowMapSize));
+        lightProjView[0][3] += roundOffset.x;
+        lightProjView[1][3] += roundOffset.y;
+
+        pushConstants.dirLights[threadID.x].cascadeVPs[i] = lightProjView;
     }
 }

@@ -16,7 +16,6 @@ PushConstants pushConstants;
 struct VSOutput
 {
     float4 pos : SV_Position;
-    float4 worldPos;
     float4 col;
     float2 uv;
     float3x3 TBN;
@@ -38,7 +37,6 @@ VSOutput vertexMain(uint vertexID : SV_VulkanVertexID, uint instanceID : SV_Vulk
     VSOutput output;
     float4 vertexPos = float4(vertex.pos, 1.0);
     output.pos = mul(scene.projView, mul(instance.worldTransform, vertexPos));
-    output.worldPos = mul(instance.worldTransform, vertexPos);
     output.col = vertex.col;
     // Normal mapping TBN
     float3 T = normalize(mul((float3x3)instance.worldTransform, vertex.tangent.xyz));
@@ -61,10 +59,9 @@ VSOutput vertexMain(uint vertexID : SV_VulkanVertexID, uint instanceID : SV_Vulk
 };
 
 struct PSOutput {
-    float4 pos : SV_Target0;
-    float4 normal : SV_Target1;
-    float4 albedo : SV_Target2;
-    float4 metalRoughness : SV_Target3;
+    float4 normal : SV_Target0;
+    float4 albedo : SV_Target1;
+    float4 metalRoughness : SV_Target2;
 }
 
 
@@ -81,7 +78,6 @@ PSOutput fragmentMain(VSOutput input)
   bumpMapNormal = normalize(bumpMapNormal * 2.0f - float3(1.0f, 1.0f, 1.0f));
   
   PSOutput output;
-  output.pos = input.worldPos;
   output.normal = float4(mul(bumpMapNormal, input.TBN), 1.0f);
   output.albedo = materialData.colorFactors * input.col * baseColor;
   if (output.albedo.a < materialData.alphaCutoff.r)
