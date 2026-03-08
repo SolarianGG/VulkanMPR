@@ -51,7 +51,7 @@ def compile_shaders(input_dir="src/shaders", output_dir="src/compiled_shaders", 
                     input_path,
                     "-target", "spirv",
                     "-entry", entry_name,
-                    "-profile", _slang_profile(stage),
+                    "-profile", "spirv_1_6",
                     "-o", output_path
                 ]
 
@@ -103,22 +103,22 @@ def validate_compiled_shaders(compiled_files):
 
 def _slang_profile(stage: str) -> str:
     profiles = {
-        "vertex": "vs_6_0",
-        "hull": "hs_6_0",
-        "domain": "ds_6_0",
-        "geometry": "gs_6_0",
-        "pixel": "ps_6_0",
-        "compute": "cs_6_0",
-        "amplification": "as_6_0",
-        "mesh": "ms_6_0",
-        "raygeneration": "rgs_6_0",
-        "closesthit": "chs_6_0",
-        "miss": "ms_6_0",
-        "anyhit": "ahs_6_0",
-        "intersection": "is_6_0",
-        "callable": "callable_6_0",
+        "vertex": "vs_6_6",
+        "hull": "hs_6_6",
+        "domain": "ds_6_6",
+        "geometry": "gs_6_6",
+        "pixel": "ps_6_6",
+        "compute": "cs_6_6",
+        "amplification": "as_6_6",
+        "mesh": "ms_6_6",
+        "raygeneration": "rgs_6_6",
+        "closesthit": "chs_6_6",
+        "miss": "ms_6_6",
+        "anyhit": "ahs_6_6",
+        "intersection": "is_6_6",
+        "callable": "callable_6_6",
     }
-    return profiles.get(stage, "vs_6_0")
+    return profiles.get(stage, "vs_6_6")
 
 
 if __name__ == "__main__":

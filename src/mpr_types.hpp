@@ -229,21 +229,18 @@ struct DepthReductionPushConstants
 
 struct DepthPartitionPushConstants
 {
-    VkDeviceAddress minMaxAddr;     // 8 @ 0
-    VkDeviceAddress splitsAABBAddr; // 8 @ 8
-    VkDeviceAddress dirLightsAddr;  // 8 @ 16
-    std::uint32_t dirLightCount;    // 4 @ 32
+    VkDeviceAddress minMaxAddr;    
+    VkDeviceAddress splitsAABBAddr; 
+    VkDeviceAddress dirLightsAddr; 
     float near, far;
-    std::uint32_t _pad0;             // 4 @ 36
-    std::uint32_t _pad1;             // 4 @ 36
-    std::uint32_t _pad2;             // 4 @ 36
-    glm::mat4 inverseCameraViewProj; // 64 @ 48
+    glm::mat4 inverseCameraViewProj; 
+    glm::mat4 lightViewMatrix; 
 };
 
 struct DirVpPushConstants
 {
     VkDeviceAddress splitsAABBAddr; // 8 @ 0
-    VkDeviceAddress dirLightsAddr;  // 8 @ 8
+    VkDeviceAddress dirLightAddr;  // 8 @ 8
     glm::vec3 sceneMin;             // 12 @ 16
     float _pad0{};                  // 4  @ 28
     glm::vec3 sceneMax;             // 12 @ 32

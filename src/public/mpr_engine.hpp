@@ -238,7 +238,8 @@ class Engine final
     VkPipelineLayout m_DirVpPipelineLayout{};
 
 
-    glm::mat4 m_LightCullMatrix{1.0f};
+    glm::mat4 m_DirLightCullMatrix{1.0f};
+    glm::mat4 m_DirLightViewMatrix{1.0f};
   private:
     void init_window();
     void init_vulkan();

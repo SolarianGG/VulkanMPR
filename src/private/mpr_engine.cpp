@@ -280,7 +280,7 @@ void Engine::update_scene()
 
         const glm::vec3 sceneCenter = (m_mainDrawContext.max + m_mainDrawContext.min) * 0.5f;
         const auto lightPos = sceneCenter - lightDir * sceneMaxDistance;
-        light.cascadeVPs[0] = glm::lookAt(lightPos, sceneCenter, up);
+        light.cascadeVPs[0] = m_DirLightViewMatrix =  glm::lookAt(lightPos, sceneCenter, up);
 
         glm::vec3 lsMin(FLT_MAX);
         glm::vec3 lsMax(-FLT_MAX);
@@ -296,7 +296,7 @@ void Engine::update_scene()
                     lsMax = glm::max(lsMax, ls);
                 }
 
-        m_LightCullMatrix = glm::ortho(lsMin.x, lsMax.x, lsMin.y, lsMax.y, -lsMax.z, -lsMin.z) * light.cascadeVPs[0];
+        m_DirLightCullMatrix = glm::ortho(lsMin.x, lsMax.x, lsMin.y, lsMax.y, -lsMax.z, -lsMin.z) * light.cascadeVPs[0];
     }
 
     auto &frame = get_current_frame();

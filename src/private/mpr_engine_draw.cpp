@@ -360,7 +360,7 @@ void Engine::draw_shadow_pass(VkCommandBuffer cmd)
 
     const std::uint32_t cascadeCount = static_cast<std::uint32_t>(std::clamp(light.cascadeCount.x, 1, MAX_CASCADES));
 
-    cull_objects(cmd, m_OpaqueSize, 0, m_LightCullMatrix);
+    cull_objects(cmd, m_OpaqueSize, 0, m_DirLightCullMatrix);
 
     const auto depthAttachment =
         utils::depth_attachment(currentFrame.shadowPassDepthArray.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
@@ -423,8 +423,7 @@ void Engine::draw_gBuffer_pass(VkCommandBuffer cmd)
     const auto depthAttachment =
         utils::depth_attachment(depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, false);
 
-    VkRenderingAttachmentInfo attachments[]{normalAttachment, diffuseAttachment,
-                                            specularAttachment};
+    VkRenderingAttachmentInfo attachments[]{normalAttachment, diffuseAttachment, specularAttachment};
     const auto renderInfo =
         utils::rendering_info(m_CommonImageExtent2D, std::size(attachments), attachments, &depthAttachment);
 
@@ -804,7 +803,6 @@ void Engine::compute_depth_partition(VkCommandBuffer cmd)
         aabb.maxX = aabb.maxY = aabb.maxZ = std::bit_cast<std::uint32_t>(-std::numeric_limits<float>::max());
         aabb._pad0 = aabb._pad1 = 0;
     }
-    constexpr std::size_t dirLightCount = 1;
     vkCmdUpdateBuffer(cmd, frame.splitsAABBBuffer.buffer, 0, sizeof(CascadesAABB), &initAABB);
 
     utils::BarrierBuilder barrierBuilder;
@@ -856,10 +854,10 @@ void Engine::compute_depth_partition(VkCommandBuffer cmd)
         .minMaxAddr = frame.minMaxBufferAddr,
         .splitsAABBAddr = frame.splitsAABBBufferAddr,
         .dirLightsAddr = frame.dirLightBufferAddr,
-        .dirLightCount = static_cast<std::uint32_t>(dirLightCount),
         .near = cameraNear,
         .far = cameraFar,
         .inverseCameraViewProj = glm::inverse(m_sceneData.projView),
+        .lightViewMatrix = m_DirLightViewMatrix,
     };
     vkCmdPushConstants(cmd, m_DepthPartitionPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                        sizeof(DepthPartitionPushConstants), &pushConstants);
@@ -906,7 +904,7 @@ void Engine::compute_dir_lights_vp(VkCommandBuffer cmd)
 
     const DirVpPushConstants pushConstants{
         .splitsAABBAddr = frame.splitsAABBBufferAddr,
-        .dirLightsAddr = frame.dirLightBufferAddr,
+        .dirLightAddr = frame.dirLightBufferAddr,
         .sceneMin = m_mainDrawContext.min,
         .sceneMax = m_mainDrawContext.max,
         .shadowMapSize = 2048u,

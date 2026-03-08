@@ -104,6 +104,7 @@ void Engine::init_vulkan()
 
     const VkPhysicalDeviceVulkan13Features features13{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+        .shaderDemoteToHelperInvocation = true,
         .synchronization2 = true,
         .dynamicRendering = true,
     };
@@ -1020,7 +1021,6 @@ void Engine::init_imgui()
 void Engine::init_frames_data()
 {
     constexpr auto kMaxInstances = 100'000;
-    constexpr auto kMaxDirLights = 16;
     constexpr auto kMaxPointLights = 1'000;
     constexpr auto kMaxMeshes = 50'000;
     for (auto &frame : m_frameData)
@@ -1031,7 +1031,7 @@ void Engine::init_frames_data()
         frame.sceneDataBufferAddr = frame.sceneDataBuffer.get_buffer_device_address(m_device);
 
         frame.dirLightBuffer =
-            create_buffer(sizeof(DirectionalLightData) * kMaxDirLights,
+            create_buffer(sizeof(DirectionalLightData),
                           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
                           VMA_MEMORY_USAGE_CPU_TO_GPU);
         frame.dirLightBufferAddr = frame.dirLightBuffer.get_buffer_device_address(m_device);
@@ -1048,7 +1048,7 @@ void Engine::init_frames_data()
                                            VMA_MEMORY_USAGE_GPU_ONLY);
         frame.minMaxBufferAddr = frame.minMaxBuffer.get_buffer_device_address(m_device);
 
-        frame.splitsAABBBuffer = create_buffer(sizeof(CascadesAABB) * kMaxDirLights,
+        frame.splitsAABBBuffer = create_buffer(sizeof(CascadesAABB),
                                                VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                                                    VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
                                                VMA_MEMORY_USAGE_GPU_ONLY);
