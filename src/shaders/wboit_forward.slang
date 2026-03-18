@@ -1,16 +1,15 @@
 import utils;
 import types;
-import light_utils;
+import lights;
 import shadows;
 
 struct PushConstants {
     Vertex *vertices;
     Instance *instances;
     SceneData *sceneData;
-    DirectionalLight *directionalLights;
-    uint directionalLightsCount;
-    PointLight *pointLights;
-    uint pointLightsCount;
+    DirectionalLight *directionalLight;
+    PointLight *visiblePointLights;
+    uint32_t *visiblePointLightsCount;
 };
 
 [[vk::binding(0, 0)]] ConstantBuffer<GLTFMaterialData> materials[];
@@ -96,18 +95,16 @@ PSOutput fragmentMain(VSOutput input, float4 fragCoord : SV_Position)
 
   float4 color = 0.0f;
 
-  uint dirLightsCount = pushConstants.directionalLightsCount;
-  for (uint i = 0; i < dirLightsCount; ++i)
   {
-      DirectionalLight dirLight = pushConstants.directionalLights[i];
-      color.xyz += CalculateDirLightPBR(
-                    worldPos, pushConstants.sceneData.cameraPos, normal, diffuse.xyz, metallic, roughness, 
-                    dirLight);
+   DirectionalLight dirLight = *pushConstants.directionalLight;
+   color.xyz += CalculateDirLightPBR(
+                worldPos, pushConstants.sceneData.cameraPos, normal, diffuse.xyz, metallic, roughness, 
+                dirLight);
   }
 
-  uint pointLightsCount = pushConstants.pointLightsCount;
+  uint pointLightsCount = *pushConstants.visiblePointLightsCount;
   for (uint i = 0; i < pointLightsCount; ++i) {
-      PointLight pointLight = pushConstants.pointLights[i];
+      PointLight pointLight = pushConstants.visiblePointLights[i];
       color.xyz += CalculatePointLightPBR(worldPos, 
             pushConstants.sceneData.cameraPos, normal, diffuse.xyz, metallic, roughness, pointLight);
   }

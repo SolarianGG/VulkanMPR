@@ -23,6 +23,22 @@
 namespace mp
 {
 
+constexpr auto kNumberOfFrames = 2;
+
+constexpr float cameraNear = 0.1f;
+constexpr float cameraFar = 100.0f;
+constexpr int kMaxCascadeCount = 4;
+constexpr int MAX_CASCADES = kMaxCascadeCount;
+
+constexpr std::uint32_t kDirectionalShadowMapSize = 2048u;
+
+constexpr std::uint32_t kPointLightsShadowMapSize = 8192u;
+constexpr std::uint32_t kPointLightTileSize = 512u;
+constexpr std::uint32_t kMaxPointLights =
+    (kPointLightsShadowMapSize * kPointLightsShadowMapSize) / (kPointLightTileSize * kPointLightTileSize);
+constexpr float kPointLightNear = 0.1f;
+constexpr std::uint32_t kPointLightTilesPerRow = kPointLightsShadowMapSize / kPointLightTileSize;
+
 struct DeletionQueue
 {
     std::deque<std::function<void()>> deletors;
@@ -110,27 +126,36 @@ struct GBufferPassPushConstants
 
 struct OITForwardPassPushConstants
 {
-    VkDeviceAddress globalVertexBufferAddr;     // 8 @ 0
-    VkDeviceAddress instanceBufferDeviceAddr;   // 8 @ 8
-    VkDeviceAddress sceneDataBufferDeviceAddr;  // 8 @ 16
-    VkDeviceAddress dirLightBufferDeviceAddr;   // 8 @ 24
-    std::uint32_t dirLightCount;                // 4 @ 32
-    std::uint32_t _pad0;                        // 4 @ 36
-    VkDeviceAddress pointLightBufferDeviceAddr; // 8 @ 40
-    std::uint32_t pointLightCount;              // 4 @ 48
-}; // Total: 52 bytes
+    VkDeviceAddress vertices;
+    VkDeviceAddress instances;
+    VkDeviceAddress sceneData;
+    VkDeviceAddress directionalLight;
+    VkDeviceAddress visiblePointLights;
+    VkDeviceAddress visiblePointLightsCount;
+};
 
-struct LightPassConstantRange
+struct LightPassPushConstants
 {
-    VkDeviceAddress sceneDataBufferDeviceAddr;  // 8 @ 0
-    VkDeviceAddress dirLightBufferDeviceAddr;   // 8 @ 8
-    std::uint32_t dirLightCount;                // 4 @ 16
-    std::uint32_t _pad0;                        // 4 @ 20
-    VkDeviceAddress pointLightBufferDeviceAddr; // 8 @ 24
-    std::uint32_t pointLightCount;              // 4 @ 32
-    std::uint32_t _pad1, _pad2, _pad3;          // 12 @ 36
-    glm::mat4 inverseCameraViewProj;            // 64 @ 48
-}; // Total: 112 bytes
+    VkDeviceAddress sceneData;
+    VkDeviceAddress directionalLight;
+    VkDeviceAddress visiblePointLights;
+    VkDeviceAddress visiblePointLightsCount;
+    VkDeviceAddress tetrahedronDataAddr;
+    float cameraNear;
+    float cameraFar;
+
+    glm::mat4 inverseCameraViewProj;
+};
+
+struct PointLightsShadowPassPushConstants
+{
+    VkDeviceAddress vertices;
+    VkDeviceAddress instances;
+    VkDeviceAddress visiblePointLights;
+    VkDeviceAddress pointLightIndices;
+    VkDeviceAddress pointLightOffsets;
+    VkDeviceAddress tetrahedronDataAddr;
+};
 
 struct CullPassPushConstants
 {
@@ -143,6 +168,16 @@ struct CullPassPushConstants
     std::uint32_t objectsOffset;
 };
 
+struct CullPointLightsPassPushConstants
+{
+    VkDeviceAddress pointLights;
+    VkDeviceAddress pointLightsVisibleBuffer;
+    VkDeviceAddress pointLightsVisibleCountBuffer;
+    std::uint32_t pointLightsCount;
+    std::uint32_t _padding0;
+    glm::mat4 viewProj;
+};
+
 struct GpuSceneData
 {
     glm::mat4 view;
@@ -152,7 +187,7 @@ struct GpuSceneData
     float padding0;
 };
 
-struct ShadowPassPushConstants
+struct DirectionalShadowPassPushConstants
 {
     VkDeviceAddress globalVertexBufferAddr;
     VkDeviceAddress instanceBufferDeviceAddr;
@@ -180,20 +215,23 @@ struct MaterialInstance
     MaterialInstanceIndices indices;
 };
 
-constexpr int kMaxCascadeCount = 4;
-constexpr int MAX_CASCADES = kMaxCascadeCount;
+struct TetrahedronData
+{
+    std::array<glm::vec4, 4> faceVectors;
+    std::array<glm::vec4, 12> planeNormals;
+};
 
 struct DirectionalLightData
 {
-    glm::vec3 direction;     // 12 @ 0
-    float padding;           // 4  @ 12  → matches float4 direction in shader
-    glm::vec3 color;         // 12 @ 16
-    float intensity;         // 4  @ 28  → matches float4 color.w in shader
-    glm::ivec4 cascadeCount; // 16 @ 32 → .x = count; .yzw = padding
+    glm::vec3 direction;
+    float padding;
+    glm::vec3 color;
+    float intensity;
+    glm::ivec4 cascadeCount; // r -> cascade count, gba -> padding
 
-    std::array<float, kMaxCascadeCount> splitDistances; // 16 @ 48
-    std::array<glm::mat4, kMaxCascadeCount> cascadeVPs; // 256 @ 64
-}; // Total: 320 bytes
+    std::array<float, kMaxCascadeCount> splitDistances;
+    std::array<glm::mat4, kMaxCascadeCount> cascadeVPs;
+};
 static_assert(sizeof(DirectionalLightData) == 320);
 
 struct PointLightData
@@ -202,8 +240,14 @@ struct PointLightData
     float range;
     glm::vec3 color;
     float intensity;
+    std::array<glm::mat4, 4> tetrahedronFacesMatrices;
+
+#if 0
+    glm::mat4 viewProject;
+#endif
 };
 
+// GPU structures for SDSM, values are in uint32_t because nvidia gpu's do not support atomic float min/max
 struct MinMax
 {
     std::uint32_t min;
@@ -221,6 +265,7 @@ struct CascadesAABB
     std::array<AABB, kMaxCascadeCount> bounds;
 };
 
+
 struct DepthReductionPushConstants
 {
     VkDeviceAddress minMaxAddr;
@@ -229,23 +274,40 @@ struct DepthReductionPushConstants
 
 struct DepthPartitionPushConstants
 {
-    VkDeviceAddress minMaxAddr;    
-    VkDeviceAddress splitsAABBAddr; 
-    VkDeviceAddress dirLightsAddr; 
+    VkDeviceAddress minMaxAddr;
+    VkDeviceAddress splitsAABBAddr;
+    VkDeviceAddress dirLightsAddr;
     float near, far;
-    glm::mat4 inverseCameraViewProj; 
-    glm::mat4 lightViewMatrix; 
+    glm::mat4 inverseCameraViewProj;
+    glm::mat4 lightViewMatrix;
 };
 
 struct DirVpPushConstants
 {
-    VkDeviceAddress splitsAABBAddr; // 8 @ 0
-    VkDeviceAddress dirLightAddr;  // 8 @ 8
-    glm::vec3 sceneMin;             // 12 @ 16
-    float _pad0{};                  // 4  @ 28
-    glm::vec3 sceneMax;             // 12 @ 32
-    std::uint32_t shadowMapSize{};  // 4  @ 44
-}; // Total: 48 bytes
+    VkDeviceAddress splitsAABBAddr;
+    VkDeviceAddress dirLightAddr;
+    glm::vec3 sceneMin;
+    float _pad0{};
+    glm::vec3 sceneMax;
+    std::uint32_t shadowMapSize{};
+    glm::mat4 lightView;
+};
+
+struct GeneratePointLightCommandsPushConstants
+{
+    VkDeviceAddress meshes;
+    VkDeviceAddress instances;
+    VkDeviceAddress meshDrawCommands;
+    VkDeviceAddress meshDrawCommandsCount;
+    VkDeviceAddress visiblePointLights;
+    VkDeviceAddress visiblePointLightsCount;
+    std::uint32_t _padding0;
+    std::uint32_t _padding1;
+    VkDeviceAddress pointLightIndices;
+    VkDeviceAddress pointLightOffsets;
+    VkDeviceAddress pointLightOffsetsCounter;
+};
+static_assert(sizeof(GeneratePointLightCommandsPushConstants) == 80);
 
 struct DrawContext;
 class IRenderable

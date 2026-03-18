@@ -12,6 +12,7 @@
 #include "mpr_error_check.hpp"
 #include "mpr_image.hpp"
 #include "mpr_init_vk_stucts.hpp"
+#include "mpr_debug_utils.hpp"
 // clang-format on
 
 namespace cn = std::chrono;
@@ -63,8 +64,8 @@ void Engine::draw()
     const AllocatedImage &currentDrawingImage = currentFrame.drawImage;
     const AllocatedImage &currentDepthImage = currentFrame.depthImage;
     const auto &gBuffer = currentFrame.gBuffer;
-    m_drawExtent.width = std::min(currentDrawingImage.imageExtent.width, m_swapchainExtent.width) * m_renderScale;
-    m_drawExtent.height = std::min(currentDrawingImage.imageExtent.height, m_swapchainExtent.height) * m_renderScale;
+    m_drawExtent.width = std::min(currentDrawingImage.imageExtent.width, m_swapchainExtent.width);
+    m_drawExtent.height = std::min(currentDrawingImage.imageExtent.height, m_swapchainExtent.height);
 
     vkBeginCommandBuffer(cmd, &beginInfo) >> chk;
 
@@ -74,6 +75,7 @@ void Engine::draw()
 
     vkCmdBindIndexBuffer(cmd, m_globalIndexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 
+    cull_point_lights(cmd);
     // Draw prepass
     {
 
@@ -86,6 +88,84 @@ void Engine::draw()
         barrierBuilder.barrier(cmd);
     }
     draw_prepass(cmd);
+
+    // Generate point light commands
+    {
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+            .srcAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.drawCommandsBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+            .srcAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.countBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+        barrierBuilder.barrier(cmd);
+    }
+    compute_point_lights_commands(cmd);
+
+    {
+        barrierBuilder.add_image_barrier(
+            currentFrame.pointLightsShadowTileMap.image, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+            VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+            VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+            utils::init_subresource_range(VK_IMAGE_ASPECT_DEPTH_BIT));
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+            .dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.drawCommandsBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT,
+            .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.pointLightIndicesBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT,
+            .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.pointLightIndicesOffsetsBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+        barrierBuilder.barrier(cmd);
+    }
+    draw_point_lights_shadows_pass(cmd);
+
 
     // Compute minZ/maxZ from prepass depth
     {
@@ -112,7 +192,7 @@ void Engine::draw()
 
     {
         barrierBuilder.add_image_barrier(
-            currentFrame.shadowPassDepthArray.image, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+            currentFrame.directionalShadowPassDepthArray.image, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
             VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
             VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
             VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
@@ -131,7 +211,7 @@ void Engine::draw()
         });
         barrierBuilder.barrier(cmd);
     }
-    draw_shadow_pass(cmd);
+    draw_directional_shadow_pass(cmd);
 
     // Base pass (GPass)
     {
@@ -186,7 +266,13 @@ void Engine::draw()
                                          VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
                                          utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
         barrierBuilder.add_image_barrier(
-            currentFrame.shadowPassDepthArray.image,
+            currentFrame.directionalShadowPassDepthArray.image,
+            VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+            VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            VK_ACCESS_2_SHADER_READ_BIT, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+            VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL, utils::init_subresource_range(VK_IMAGE_ASPECT_DEPTH_BIT));
+        barrierBuilder.add_image_barrier(
+            currentFrame.pointLightsShadowTileMap.image,
             VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
             VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
             VK_ACCESS_2_SHADER_READ_BIT, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
@@ -200,7 +286,7 @@ void Engine::draw()
             utils::init_subresource_range(VK_IMAGE_ASPECT_DEPTH_BIT));
         barrierBuilder.add_buffer_barrier({
             .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
-            .srcStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
+            .srcStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT,
             .srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
             .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
             .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
@@ -229,6 +315,11 @@ void Engine::draw()
                                          VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
                                          VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                                          utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+        barrierBuilder.add_image_barrier(
+            currentDepthImage.image, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+            VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+            VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT, VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL,
+            VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, utils::init_subresource_range(VK_IMAGE_ASPECT_DEPTH_BIT));
         barrierBuilder.barrier(cmd);
     }
 
@@ -349,13 +440,14 @@ void Engine::draw()
     ++m_frameNumber;
 }
 
-void Engine::draw_shadow_pass(VkCommandBuffer cmd)
+void Engine::draw_directional_shadow_pass(VkCommandBuffer cmd)
 {
     if (!m_mainDrawContext.dirLight.has_value())
         return;
+    mp::debug::cmd_begin_label(cmd, "Directional Shadow Pass", {0.9f, 0.2f, 0.2f, 1.f});
     const auto &light = m_mainDrawContext.dirLight.value();
     const auto start = cn::steady_clock::now();
-    constexpr VkExtent2D shadowPassExtent{2048, 2048};
+    const VkExtent2D shadowPassExtent{kDirectionalShadowMapSize, kDirectionalShadowMapSize};
     auto &currentFrame = get_current_frame();
 
     const std::uint32_t cascadeCount = static_cast<std::uint32_t>(std::clamp(light.cascadeCount.x, 1, MAX_CASCADES));
@@ -363,7 +455,7 @@ void Engine::draw_shadow_pass(VkCommandBuffer cmd)
     cull_objects(cmd, m_OpaqueSize, 0, m_DirLightCullMatrix);
 
     const auto depthAttachment =
-        utils::depth_attachment(currentFrame.shadowPassDepthArray.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+        utils::depth_attachment(currentFrame.directionalShadowPassDepthArray.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
     const VkRenderingInfo renderInfo{
         .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
         .pNext = nullptr,
@@ -390,17 +482,18 @@ void Engine::draw_shadow_pass(VkCommandBuffer cmd)
     const VkRect2D scissor{.extent = shadowPassExtent};
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-    const ShadowPassPushConstants shadowPassPushConstants{
+    const DirectionalShadowPassPushConstants shadowPassPushConstants{
         .globalVertexBufferAddr = m_globalVertexBufferAddress,
         .instanceBufferDeviceAddr = currentFrame.instanceBufferAddr,
         .dirLightsBufferAddr = currentFrame.dirLightBufferAddr,
         .cascadeCount = cascadeCount,
     };
     draw_meshes(cmd, m_ShadowPassPipelineLayout, m_ShadowPassPipeline, m_OpaqueSize, shadowPassPushConstants,
-                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT, false);
+                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT);
 
     vkCmdEndRendering(cmd);
 
+    mp::debug::cmd_end_label(cmd);
     const auto end = cn::steady_clock::now();
     const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
     m_stats.shadowPassDrawTime = elapsed.count() / 1000.0f;
@@ -408,6 +501,7 @@ void Engine::draw_shadow_pass(VkCommandBuffer cmd)
 
 void Engine::draw_gBuffer_pass(VkCommandBuffer cmd)
 {
+    mp::debug::cmd_begin_label(cmd, "GBuffer Pass", {0.6f, 0.3f, 0.9f, 1.f});
     const auto start = cn::steady_clock::now();
     auto &gBuffer = get_current_frame().gBuffer;
     auto &depthImage = get_current_frame().depthImage;
@@ -444,10 +538,24 @@ void Engine::draw_gBuffer_pass(VkCommandBuffer cmd)
     };
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
+    const VkDescriptorBufferBindingInfoEXT gBufferBindingInfo{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+        .address = m_metalRoughness.descriptors.get_device_address(),
+        .usage =
+            VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT};
+    vkCmdBindDescriptorBuffersEXT(cmd, 1, &gBufferBindingInfo);
+
+    const std::uint32_t gBufferBufferIndices[]{0};
+    const VkDeviceSize gBufferOffsets[]{0};
+    vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                       m_metalRoughness.opaquePipeline.pipelineLayout, 0, 1, gBufferBufferIndices,
+                                       gBufferOffsets);
+
     draw_meshes(cmd, m_metalRoughness.opaquePipeline.pipelineLayout, m_metalRoughness.opaquePipeline.pipeline,
                 m_OpaqueSize, m_GBufferMeshPushConstants, VK_SHADER_STAGE_VERTEX_BIT);
 
     vkCmdEndRendering(cmd);
+    mp::debug::cmd_end_label(cmd);
     const auto end = cn::steady_clock::now();
     const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
     m_stats.gBufferPassTime = elapsed.count() / 1000.0f;
@@ -455,6 +563,7 @@ void Engine::draw_gBuffer_pass(VkCommandBuffer cmd)
 
 void Engine::draw_light_pass(const VkCommandBuffer cmd)
 {
+    mp::debug::cmd_begin_label(cmd, "Light Pass", {1.0f, 0.8f, 0.2f, 1.f});
     const auto start = cn::steady_clock::now();
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_LightPassPipeline);
 
@@ -476,12 +585,13 @@ void Engine::draw_light_pass(const VkCommandBuffer cmd)
     vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_LightPassPipelineLayout, 0,
                                        std::size(offsets), indices, offsets);
 
-    vkCmdPushConstants(cmd, m_LightPassPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(LightPassConstantRange),
+    vkCmdPushConstants(cmd, m_LightPassPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(LightPassPushConstants),
                        &m_LightPassConstants);
 
     vkCmdDispatch(cmd, std::ceil(m_CommonImageExtent2D.width / 16.0f), std::ceil(m_CommonImageExtent2D.height / 16.0f),
                   1);
 
+    mp::debug::cmd_end_label(cmd);
     const auto end = cn::steady_clock::now();
     const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
     m_stats.gBufferLightPassTime = elapsed.count() / 1000.0f;
@@ -489,6 +599,7 @@ void Engine::draw_light_pass(const VkCommandBuffer cmd)
 
 void Engine::draw_wboit(VkCommandBuffer cmd)
 {
+    mp::debug::cmd_begin_label(cmd, "WBOIT Forward Pass", {0.2f, 0.8f, 0.9f, 1.f});
     const auto start = cn::steady_clock::now();
     const auto &currentFrame = get_current_frame();
 
@@ -506,10 +617,25 @@ void Engine::draw_wboit(VkCommandBuffer cmd)
 
     cull_objects(cmd, m_TransparentSize, m_OpaqueSize, m_sceneData.projView);
     vkCmdBeginRendering(cmd, &renderInfo);
+
+    const VkDescriptorBufferBindingInfoEXT wboitBindingInfo{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+        .address = m_metalRoughness.descriptors.get_device_address(),
+        .usage =
+            VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT};
+    vkCmdBindDescriptorBuffersEXT(cmd, 1, &wboitBindingInfo);
+
+    const std::uint32_t wboitBufferIndices[]{0};
+    const VkDeviceSize wboitOffsets[]{0};
+    vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                       m_metalRoughness.transparentPipeline.pipelineLayout, 0, 1, wboitBufferIndices,
+                                       wboitOffsets);
+
     draw_meshes(cmd, m_metalRoughness.transparentPipeline.pipelineLayout, m_metalRoughness.transparentPipeline.pipeline,
                 m_TransparentSize, m_WBOITForwardPassPushConstants,
                 VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
     vkCmdEndRendering(cmd);
+    mp::debug::cmd_end_label(cmd);
     const auto end = cn::steady_clock::now();
     const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
     m_stats.transparentForwardLightPassTime = elapsed.count() / 1000.0f;
@@ -517,6 +643,7 @@ void Engine::draw_wboit(VkCommandBuffer cmd)
 
 void Engine::draw_wboit_composite(VkCommandBuffer cmd)
 {
+    mp::debug::cmd_begin_label(cmd, "WBOIT Composite Pass", {0.1f, 0.7f, 0.9f, 1.f});
     const auto start = cn::steady_clock::now();
 
     const auto attachment = utils::attachment_info(get_current_frame().drawImage.imageView, nullptr,
@@ -541,6 +668,7 @@ void Engine::draw_wboit_composite(VkCommandBuffer cmd)
     vkCmdDraw(cmd, 6, 1, 0, 0);
 
     vkCmdEndRendering(cmd);
+    mp::debug::cmd_end_label(cmd);
     const auto end = cn::steady_clock::now();
     const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
     m_stats.postProcessPassTime = elapsed.count() / 1000.0f;
@@ -548,6 +676,7 @@ void Engine::draw_wboit_composite(VkCommandBuffer cmd)
 
 void Engine::draw_imgui(const VkCommandBuffer cmd, const VkImageView targetImageView)
 {
+    mp::debug::cmd_begin_label(cmd, "ImGui", {0.7f, 0.7f, 0.7f, 1.f});
     const auto start = cn::steady_clock::now();
     const auto colorAttachment =
         utils::attachment_info(targetImageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
@@ -558,6 +687,7 @@ void Engine::draw_imgui(const VkCommandBuffer cmd, const VkImageView targetImage
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
 
     vkCmdEndRendering(cmd);
+    mp::debug::cmd_end_label(cmd);
     const auto end = cn::steady_clock::now();
     const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
     m_stats.imguiDrawTime = elapsed.count() / 1000.0f;
@@ -566,6 +696,7 @@ void Engine::draw_imgui(const VkCommandBuffer cmd, const VkImageView targetImage
 void Engine::cull_objects(VkCommandBuffer cmd, const std::uint32_t objectCount, const std::uint32_t objectOffset,
                           const glm::mat4 &viewProj)
 {
+    mp::debug::cmd_begin_label(cmd, "Cull Objects", {0.8f, 0.8f, 0.2f, 1.f});
     auto &currentFrame = get_current_frame();
     utils::BarrierBuilder barrierBuilder;
     barrierBuilder.add_buffer_barrier({
@@ -653,31 +784,246 @@ void Engine::cull_objects(VkCommandBuffer cmd, const std::uint32_t objectCount, 
     });
 
     barrierBuilder.barrier(cmd);
+    mp::debug::cmd_end_label(cmd);
+}
+
+void Engine::cull_point_lights(VkCommandBuffer cmd)
+{
+    mp::debug::cmd_begin_label(cmd, "Cull Point Lights", {0.8f, 0.7f, 0.2f, 1.f});
+    auto &currentFrame = get_current_frame();
+    utils::BarrierBuilder barrierBuilder;
+    barrierBuilder.add_buffer_barrier({
+        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+        .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .srcAccessMask = 0,
+        .dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+        .dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .buffer = currentFrame.pointLightIndicesOffsetsBuffer.buffer,
+        .offset = 0,
+        .size = VK_WHOLE_SIZE,
+    });
+    barrierBuilder.add_buffer_barrier({
+        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+        .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .srcAccessMask = 0,
+        .dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+        .dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .buffer = currentFrame.visiblePointLightsCountBuffer.buffer,
+        .offset = 0,
+        .size = VK_WHOLE_SIZE,
+    });
+    barrierBuilder.add_buffer_barrier({
+        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+        .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .srcAccessMask = 0,
+        .dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+        .dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .buffer = currentFrame.pointLightIndicesOffsetsCounterBuffer.buffer,
+        .offset = 0,
+        .size = VK_WHOLE_SIZE,
+    });
+    barrierBuilder.barrier(cmd);
+
+    vkCmdFillBuffer(cmd, currentFrame.pointLightIndicesOffsetsBuffer.buffer, 0, VK_WHOLE_SIZE, 0);
+    vkCmdFillBuffer(cmd, currentFrame.visiblePointLightsCountBuffer.buffer, 0, VK_WHOLE_SIZE, 0);
+    vkCmdFillBuffer(cmd, currentFrame.pointLightIndicesOffsetsCounterBuffer.buffer, 0, VK_WHOLE_SIZE, 0);
+
+    barrierBuilder.add_buffer_barrier({
+        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+        .srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+        .srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+        .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        .dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .buffer = currentFrame.pointLightIndicesOffsetsBuffer.buffer,
+        .offset = 0,
+        .size = VK_WHOLE_SIZE,
+    });
+    barrierBuilder.add_buffer_barrier({
+        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+        .srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+        .srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+        .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        .dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .buffer = currentFrame.visiblePointLightsCountBuffer.buffer,
+        .offset = 0,
+        .size = VK_WHOLE_SIZE,
+    });
+    barrierBuilder.add_buffer_barrier({
+        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+        .srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+        .srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+        .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        .dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .buffer = currentFrame.pointLightIndicesOffsetsCounterBuffer.buffer,
+        .offset = 0,
+        .size = VK_WHOLE_SIZE,
+    });
+    barrierBuilder.add_buffer_barrier({
+        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+        .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .srcAccessMask = 0,
+        .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        .dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .buffer = currentFrame.pointLightIndicesBuffer.buffer,
+        .offset = 0,
+        .size = VK_WHOLE_SIZE,
+    });
+
+    barrierBuilder.barrier(cmd);
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_CullPointLightsPassPipeline);
+
+    const std::uint32_t pointLightsCount = m_mainDrawContext.pointLights.size();
+    const CullPointLightsPassPushConstants cullPassConstants{
+        .pointLights = currentFrame.pointLightBufferAddr,
+        .pointLightsVisibleBuffer = currentFrame.visiblePointLightsBufferAddr,
+        .pointLightsVisibleCountBuffer = currentFrame.visiblePointLightsCountBufferAddr,
+        .pointLightsCount = pointLightsCount,
+        .viewProj = m_sceneData.projView,
+    };
+    vkCmdPushConstants(cmd, m_CullPointLightsPassPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                       sizeof(CullPointLightsPassPushConstants), &cullPassConstants);
+
+    vkCmdDispatch(cmd, std::ceil(pointLightsCount / 64.0f), 1, 1);
+
+    // Make visible to light pass (compute) and WBOIT pass (vertex/fragment)
+    const VkPipelineStageFlags2 dstStages = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                                            VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT |
+                                            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+    barrierBuilder.add_buffer_barrier({
+        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+        .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT,
+        .dstStageMask = dstStages,
+        .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .buffer = currentFrame.pointLightIndicesBuffer.buffer,
+        .offset = 0,
+        .size = VK_WHOLE_SIZE,
+    });
+    barrierBuilder.add_buffer_barrier({
+        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+        .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT,
+        .dstStageMask = dstStages,
+        .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .buffer = currentFrame.pointLightIndicesOffsetsBuffer.buffer,
+        .offset = 0,
+        .size = VK_WHOLE_SIZE,
+    });
+    barrierBuilder.barrier(cmd);
+    mp::debug::cmd_end_label(cmd);
+}
+
+void Engine::compute_point_lights_commands(VkCommandBuffer cmd)
+{
+    if (m_mainDrawContext.pointLights.empty() || m_OpaqueSize == 0)
+        return;
+    mp::debug::cmd_begin_label(cmd, "Generate Point Light Commands", {0.7f, 0.5f, 0.2f, 1.f});
+
+    auto &currentFrame = get_current_frame();
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_GeneratePointLightCommandsPipeline);
+
+    const GeneratePointLightCommandsPushConstants pc{
+        .meshes = currentFrame.meshBufferAddr,
+        .instances = currentFrame.instanceBufferAddr,
+        .meshDrawCommands = currentFrame.drawCommandsBufferAddr,
+        .meshDrawCommandsCount = currentFrame.countBufferAddr,
+        .visiblePointLights = currentFrame.visiblePointLightsBufferAddr,
+        .visiblePointLightsCount = currentFrame.visiblePointLightsCountBufferAddr,
+        ._padding0 = 0,
+        ._padding1 = 0,
+        .pointLightIndices = currentFrame.pointLightIndicesBufferAddr,
+        .pointLightOffsets = currentFrame.pointLightIndicesOffsetsBufferAddr,
+        .pointLightOffsetsCounter = currentFrame.pointLightIndicesOffsetsCounterBufferAddr,
+    };
+    vkCmdPushConstants(cmd, m_GeneratePointLightCommandsPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                       sizeof(GeneratePointLightCommandsPushConstants), &pc);
+
+    vkCmdDispatch(cmd, m_OpaqueSize, 1, 1);
+    mp::debug::cmd_end_label(cmd);
+}
+
+void Engine::draw_point_lights_shadows_pass(VkCommandBuffer cmd)
+{
+    if (m_mainDrawContext.pointLights.empty())
+        return;
+    mp::debug::cmd_begin_label(cmd, "Point Light Shadow Pass", {0.9f, 0.4f, 0.1f, 1.f});
+
+    auto &currentFrame = get_current_frame();
+
+    const VkExtent2D shadowExtent{kPointLightsShadowMapSize, kPointLightsShadowMapSize};
+
+    const auto depthAttachment =
+        utils::depth_attachment(currentFrame.pointLightsShadowTileMap.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+    const VkRenderingInfo renderInfo{
+        .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+        .pNext = nullptr,
+        .renderArea = {.extent = shadowExtent},
+        .layerCount = 1,
+        .colorAttachmentCount = 0,
+        .pColorAttachments = nullptr,
+        .pDepthAttachment = &depthAttachment,
+        .pStencilAttachment = nullptr,
+    };
+
+    vkCmdBeginRendering(cmd, &renderInfo);
+
+    const VkViewport viewport{
+        .x = 0,
+        .y = static_cast<float>(shadowExtent.height),
+        .width = static_cast<float>(shadowExtent.width),
+        .height = -static_cast<float>(shadowExtent.height),
+        .minDepth = 0.0f,
+        .maxDepth = 1.0f,
+    };
+    vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+    const VkRect2D scissor{.extent = shadowExtent};
+    vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+    const PointLightsShadowPassPushConstants pc{
+        .vertices = m_globalVertexBufferAddress,
+        .instances = currentFrame.instanceBufferAddr,
+        .visiblePointLights = currentFrame.visiblePointLightsBufferAddr,
+        .pointLightIndices = currentFrame.pointLightIndicesBufferAddr,
+        .pointLightOffsets = currentFrame.pointLightIndicesOffsetsBufferAddr,
+        .tetrahedronDataAddr = m_tetrahedronBuffer.get_buffer_device_address(m_device),
+    };
+
+    draw_meshes(cmd, m_PointLightShadowPassPipelineLayout, m_PointLightShadowPassPipeline, m_OpaqueSize, pc,
+                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT);
+
+    vkCmdEndRendering(cmd);
+    mp::debug::cmd_end_label(cmd);
 }
 
 void Engine::draw_meshes(VkCommandBuffer cmd, const VkPipelineLayout drawPassPipelineLayout,
                          const VkPipeline drawPipeline, const std::uint32_t objectCount, auto &pushConstants,
-                         const VkShaderStageFlags pushConstantsShaderStage, bool isMetalRoughness)
+                         const VkShaderStageFlags pushConstantsShaderStage)
 {
     auto &currentFrame = get_current_frame();
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, drawPipeline);
 
     vkCmdPushConstants(cmd, drawPassPipelineLayout, pushConstantsShaderStage, 0, sizeof(pushConstants), &pushConstants);
-    if (isMetalRoughness)
-    {
-        // Bind textures
-        const VkDescriptorBufferBindingInfoEXT bindingInfo = {
-            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-            .address = m_metalRoughness.descriptors.get_device_address(),
-            .usage =
-                VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT};
-        vkCmdBindDescriptorBuffersEXT(cmd, 1, &bindingInfo);
-
-        const std::uint32_t bufferIndices[]{0};
-        const VkDeviceSize offsets[]{0};
-        vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, drawPassPipelineLayout, 0,
-                                           std::size(bufferIndices), bufferIndices, offsets);
-    }
 
     vkCmdDrawIndexedIndirectCount(cmd, currentFrame.drawCommandsBuffer.buffer, 0, currentFrame.countBuffer.buffer, 0,
                                   objectCount, sizeof(VkDrawIndexedIndirectCommand));
@@ -686,6 +1032,7 @@ void Engine::draw_meshes(VkCommandBuffer cmd, const VkPipelineLayout drawPassPip
 
 void Engine::draw_post(VkCommandBuffer cmd)
 {
+    mp::debug::cmd_begin_label(cmd, "Post-Process", {0.9f, 0.5f, 0.9f, 1.f});
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_PostProcessPassPipeline);
 
     const VkDescriptorBufferBindingInfoEXT buffersInfo[]{
@@ -704,10 +1051,12 @@ void Engine::draw_post(VkCommandBuffer cmd)
 
     vkCmdDispatch(cmd, std::ceil(m_CommonImageExtent2D.width / 16.0f), std::ceil(m_CommonImageExtent2D.height / 16.0f),
                   1.0f);
+    mp::debug::cmd_end_label(cmd);
 }
 
 void Engine::draw_prepass(VkCommandBuffer cmd)
 {
+    mp::debug::cmd_begin_label(cmd, "Prepass", {0.4f, 0.6f, 1.0f, 1.f});
     auto &currentFrame = get_current_frame();
 
     cull_objects(cmd, m_OpaqueSize, 0, m_sceneData.projView);
@@ -731,14 +1080,28 @@ void Engine::draw_prepass(VkCommandBuffer cmd)
     const VkRect2D scissor{.extent = m_CommonImageExtent2D};
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
+    const VkDescriptorBufferBindingInfoEXT prepassBindingInfo{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+        .address = m_metalRoughness.descriptors.get_device_address(),
+        .usage =
+            VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT};
+    vkCmdBindDescriptorBuffersEXT(cmd, 1, &prepassBindingInfo);
+
+    const std::uint32_t prepassBufferIndices[]{0};
+    const VkDeviceSize prepassOffsets[]{0};
+    vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_PrepassPipelineLayout, 0, 1,
+                                       prepassBufferIndices, prepassOffsets);
+
     draw_meshes(cmd, m_PrepassPipelineLayout, m_PrepassPipeline, m_OpaqueSize, m_GBufferMeshPushConstants,
                 VK_SHADER_STAGE_VERTEX_BIT);
 
     vkCmdEndRendering(cmd);
+    mp::debug::cmd_end_label(cmd);
 }
 
 void Engine::compute_depth_reduction(VkCommandBuffer cmd)
 {
+    mp::debug::cmd_begin_label(cmd, "Depth Reduction", {0.5f, 0.9f, 0.5f, 1.f});
     auto &frame = get_current_frame();
 
     MinMax initMinMax;
@@ -775,8 +1138,6 @@ void Engine::compute_depth_reduction(VkCommandBuffer cmd)
     vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_DepthReductionPipelineLayout, 0, 1,
                                        &bufferIndex, &offset);
 
-    constexpr float cameraNear = 0.1f;
-    constexpr float cameraFar = 100.0f;
     const DepthReductionPushConstants pushConstants{
         .minMaxAddr = frame.minMaxBufferAddr,
         .cameraNear = cameraNear,
@@ -787,14 +1148,15 @@ void Engine::compute_depth_reduction(VkCommandBuffer cmd)
 
     vkCmdDispatch(cmd, static_cast<std::uint32_t>(std::ceil(m_CommonImageExtent2D.width / 16.0f)),
                   static_cast<std::uint32_t>(std::ceil(m_CommonImageExtent2D.height / 16.0f)), 1);
+    mp::debug::cmd_end_label(cmd);
 }
 
 void Engine::compute_depth_partition(VkCommandBuffer cmd)
 {
     if (!m_mainDrawContext.dirLight.has_value())
         return;
+    mp::debug::cmd_begin_label(cmd, "Depth Partition", {0.3f, 0.8f, 0.3f, 1.f});
     auto &frame = get_current_frame();
-
     // Reset splitsAABB: min* = FLT_MAX, max* = -FLT_MAX
     CascadesAABB initAABB{};
     for (auto &aabb : initAABB.bounds)
@@ -848,8 +1210,6 @@ void Engine::compute_depth_partition(VkCommandBuffer cmd)
     vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_DepthPartitionPipelineLayout, 0, 1,
                                        &bufferIndex, &offset);
 
-    constexpr float cameraNear = 0.1f;
-    constexpr float cameraFar = 100.0f;
     const DepthPartitionPushConstants pushConstants{
         .minMaxAddr = frame.minMaxBufferAddr,
         .splitsAABBAddr = frame.splitsAABBBufferAddr,
@@ -864,12 +1224,14 @@ void Engine::compute_depth_partition(VkCommandBuffer cmd)
 
     vkCmdDispatch(cmd, static_cast<std::uint32_t>(std::ceil(m_CommonImageExtent2D.width / 16.0f)),
                   static_cast<std::uint32_t>(std::ceil(m_CommonImageExtent2D.height / 16.0f)), 1);
+    mp::debug::cmd_end_label(cmd);
 }
 
 void Engine::compute_dir_lights_vp(VkCommandBuffer cmd)
 {
     if (!m_mainDrawContext.dirLight.has_value())
         return;
+    mp::debug::cmd_begin_label(cmd, "Directional VP", {0.2f, 0.7f, 0.2f, 1.f});
     auto &frame = get_current_frame();
 
     // splitsAABB and dirLight (splitDistances written by partition): COMPUTE WRITE -> COMPUTE READ
@@ -907,12 +1269,14 @@ void Engine::compute_dir_lights_vp(VkCommandBuffer cmd)
         .dirLightAddr = frame.dirLightBufferAddr,
         .sceneMin = m_mainDrawContext.min,
         .sceneMax = m_mainDrawContext.max,
-        .shadowMapSize = 2048u,
+        .shadowMapSize = kDirectionalShadowMapSize,
+        .lightView = m_DirLightViewMatrix,
     };
     vkCmdPushConstants(cmd, m_DirVpPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(DirVpPushConstants),
                        &pushConstants);
 
     vkCmdDispatch(cmd, 1, 1, 1);
+    mp::debug::cmd_end_label(cmd);
 }
 
 void Engine::copy_frame_buffers()

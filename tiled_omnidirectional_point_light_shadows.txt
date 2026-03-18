@@ -1,0 +1,315 @@
+2. Tile-Based Omnidirectional Shadows 323
+which would be more expensive [Harada et al. 13]. After all relevant lights are
+processed for a mesh, a new indirect draw command is added to the indirect draw
+buﬀer, but only if at least one light overlaps the AABB of the processed mesh.
+This is done by incrementing the atomic counter of the indirect draw buﬀer and
+writing the new draw command to the corresponding location. At this point,
+we additionally increment the atomic counter of the light-index buﬀer with the
+number of overlapping lights. This will return a start index into the light-index
+buﬀer, which resides in the global video memory, from where the acquired light
+indices in the shared thread group memory can be copied into the light-index
+buﬀer. The copying process is done in parallel by each thread of a thread group
+at the end of the compute shader.
+Besides passing the firstIndex and count of the current mesh to the new in-
+direct draw command, the number of overlapping lights is forwarded as instance
+Count—i.e., later on, when the indirect draw command is executed, for each light
+source a new mesh instance will be rendered. However, at that stage it is nec-
+essary to acquire for each instance the corresponding light index. For this, we
+write the obtained start index, which points into the light-index buﬀer, into the
+baseInstance member of the draw command. This member will be only used by
+the OpenGL pipeline if instanced vertex attributes are utilized—that is, vertex
+attributes with a nonzero divisor. Since traditional instancing (e.g., to create
+multiple instances of the same mesh at various locations) does not make much
+sense in the proposed method, we can relinquish instanced vertex attributes,
+which enables the use of the valuable baseInstance parameter. Fortunately, in
+the context of OpenGL 4.4, the GL_ARB_shader_draw_parameters extension has
+been introduced, which allows a shader to fetch various draw command related
+parameters such as the baseInstance one. In this way, when the indirect draw
+commands are executed later on, for each instance, an oﬀset into the light-index
+buﬀer can be retrieved in the vertex shader by summing the OpenGL supplied
+draw parameters gl_BaseInstanceARB and gl_InstanceID. At this oﬀset, the cor-
+responding light index can be fetched from the light-index buﬀer. This approach
+signiﬁcantly reduces the required amount of video memory space in contrast to
+generating for each overlapping light source a new indirect draw command, which
+requires ﬁve times more space than a single light index. Listing 2.2 shows how
+this can be done for OpenGL in GLSL.
+#d e f i n e MAX NUM LIGHTS 1024
+#d e f i n e LOCAL SIZE X 256
+s h a r e d u i n t g r o u p C o u n t e r ;
+s h a r e d u i n t g r o u p L i g h t I n d i c e s [ M A X _ N U M _ L I G H T S ] ;
+s h a r e d u i n t s t a r t L i g h t I n d e x ;
+l a y o u t ( l o c a l _ s i z e _ x=L O C A L _ S I Z E _ X ) i n ;
+v o i d m a i n ( )
+324 IV Shadows
+{
+// i n i t i a l i z e g r o u p c o u n t e r
+i f ( g l _ L o c a l I n v o c a t i o n I n d e x == 0 )
+g r o u p C o u n t e r = 0 ;
+b a r r i e r ( ) ;
+m e m o r y B a r r i e r S h a r e d ( ) ;
+// i t e r a t e o v e r a l l r e l e v a n t l i g h t s o u r c e s
+u i n t m e s h I n d e x = g l _ W o r k G r o u p I D . x ;
+f o r ( u i n t i =0; i<u n i f o r m B u f f e r . n u m L i g h t s ; i+=L O C A L _ S I Z E _ X )
+{
+u i n t l i g h t I n d e x = g l _ L o c a l I n v o c a t i o n I n d e x +i ;
+i f ( l i g h t I n d e x < u n i f o r m B u f f e r . n u m L i g h t s )
+{
+v e c 3 l i g h t P o s i t i o n = l i g h t B u f f e r . l i g h t s [ l i g h t I n d e x ] . ←↩
+p o s i t i o n ;
+f l o a t l i g h t R a d i u s = l i g h t B u f f e r . l i g h t s [ l i g h t I n d e x ] . r a d i u s ;
+v e c 3 m i n s = m e s h I n f o B u f f e r . i n f o s [ m e s h I n d e x ] . m i n s ;
+v e c 3 m a x e s = m e s h I n f o B u f f e r . i n f o s [ m e s h I n d e x ] . m a x e s ;
+// p e r f o r m AABB−s p h e r e o v e r l a p t e s t
+v e c 3 d i s t a n c e s = m a x ( m i n s−l i g h t P o s i t i o n , 0 . 0 ) +
+m a x ( l i g h t P o s i t i o n−m a x e s , 0 . 0 ) ;
+i f ( d o t ( d i s t a n c e s , d i s t a n c e s ) <= ( l i g h t R a d i u s  l i g h t R a d i u s ) )
+{
+// For e a c h o v e r l a p i n c r e m e n t g r o u p Co u n t e r and add
+// l i g h t I n d e x t o l i g h t −i n d e x a r r a y i n s h a r e d t h r e a d
+// g r o u p memory .
+u i n t i n d e x = a t o m i c A d d ( g r o u p C o u n t e r , 1 ) ;
+g r o u p L i g h t I n d i c e s [ i n d e x ] = l i g h t I n d e x ;
+}
+}
+}
+b a r r i e r ( ) ;
+m e m o r y B a r r i e r S h a r e d ( ) ;
+// I n c a s e a t l e a s t one o v e r l a p h a s been d e t e c t e d , add new
+// i n d i r e c t draw draw command t o i n d i r e c t draw b u f f e r and
+// d e t e r m i n e s t a r t i n d e x i n t o l i g h t −i n d e x b u f f e r . Both
+// b u f f e r s r e s i d e i n g l o b a l v i d e o memory .
+i f ( g l _ L o c a l I n v o c a t i o n I n d e x == 0 )
+{
+i f ( g r o u p C o u n t e r > 0 )
+{
+u i n t c m d I n d e x = a t o m i c A d d ( d r a w I n d i r e c t C m d B u f f e r . c o u n t e r , ←↩
+1 ) ;
+s t a r t L i g h t I n d e x = a t o m i c A d d ( l i g h t I n d e x B u f f e r . c o u n t e r ,
+g r o u p C o u n t e r ) ;
+d r a w I n d i r e c t C m d B u f f e r . c m d s [ c m d I n d e x ] . c o u n t =
+m e s h I n f o B u f f e r . i n f o s [ m e s h I n d e x ] . n u m I n d i c e s ;
+d r a w I n d i r e c t C m d B u f f e r . c m d s [ c m d I n d e x ] . i n s t a n c e C o u n t = ←↩
+g r o u p C o u n t e r ;
+d r a w I n d i r e c t C m d B u f f e r . c m d s [ c m d I n d e x ] . f i r s t I n d e x =
+m e s h I n f o B u f f e r . i n f o s [ m e s h I n d e x ] . f i r s t I n d e x ;
+d r a w I n d i r e c t C m d B u f f e r . c m d s [ c m d I n d e x ] . b a s e V e r t e x = 0 ;
+d r a w I n d i r e c t C m d B u f f e r . c m d s [ c m d I n d e x ] . b a s e I n s t a n c e =
+s t a r t L i g h t I n d e x ;
+}
+}
+b a r r i e r ( ) ;
+m e m o r y B a r r i e r S h a r e d ( ) ;
+// Copy l i g h t i n d i c e s from s h a r e d t h r e a d g r o u p memory i n t o
+// g l o b a l v i d e o memory .
+2. Tile-Based Omnidirectional Shadows 325
+f o r ( u i n t i=g l _ L o c a l I n v o c a t i o n I n d e x ; i<g r o u p C o u n t e r ; i+=←↩
+L O C A L _ S I Z E _ X )
+{
+l i g h t I n d e x B u f f e r . l i g h t I n d i c e s [ s t a r t L i g h t I n d e x+i ] =
+g r o u p L i g h t I n d i c e s [ i ] ;
+}
+}
+Listing 2.2. Compute shader for generating indirect draw buﬀer.
+For the Crytek Sponza scene with 103 meshes and 128 processed light sources,
+the GPU time taken for this computation task was about 0.02 ms on an NVIDIA
+GeForce GTX 880 Mobile.
+Finally, care must be taken to reset the atomic counters of the indirect draw
+and light-index buﬀers at the beginning of each frame, which can be done by
+using the OpenGL command glClearBufferSubData().
+2.3.3 Indirect Shadow Map Rendering
+At this stage, the previously generated indirect draw buﬀer is executed by the
+OpenGL draw command glMultiDrawElementsIndirectCountARB(). This draw call
+has been introduced in the context of OpenGL 4.4 with the GL_ARB_indirect_
+parameters extension and is an improved version of the previously available
+glMultiDrawElementsIndirect(). Since we have no idea on the host side how many
+draw commands the GPU has generated and a corresponding query would be very
+ineﬃcient (since it introduces a synchronization point between CPU and GPU),
+previously the only possibility was to execute glMultiDrawElementsIndirect()
+with a maximum number of elements and discard draws by writing zero to the
+instanceCount member of the indirect draw command. However, discarding draws
+is not free [Riccio and Lilley 13]. With the new draw call glMultiDrawElements
+IndirectCountARB(), the number of executed elements will be determined by tak-
+ing the minimum of the value speciﬁed in the draw command itself and a value
+that is sourced from a GL_PARAMETER_BUFFER_ARB type GPU buﬀer, for which the
+atomic counter of the indirect draw buﬀer is used.
+Programmable clipping. There is still one major obstacle that needs to be solved
+prior to being able to render indirectly all shadow map tiles into the tiled shadow
+map. As demonstrated, the previously generated shadow matrices will create tri-
+angular projected areas that can be theoretically tightly packed as squared tiles,
+but since we are rendering into a 2D texture atlas, these areas will overlap and
+cause major artifacts. One possible solution could be the use of a viewport array.
+However, since the maximum number of simultaneously set viewports is usually
+limited to a small number, typically around 16, and the viewports are rectan-
+gular and not triangular, this approach is not viable. Another possible solution
+could be to discard in a fragment shader all fragments outside the projected tri-
+angular areas, but this would be far too slow to be feasible. Fortunately, with
+326 IV Shadows
+c
+2
+f
+D
+f
+C
+f
+A
+c
+1
+c
+0
+c
+3
+p
+Figure 2.3. The green arrows show the tetrahedron face vectors fA, fC , and fD . Face
+vector fB is pointing away from the camera. The four corners of the tetrahedron are
+marked as c0, . . . , c3, and the center of the tetrahedron that coincides with the point
+light position is shown as p. The three clipping planes that separate the view volume
+of tetrahedron face D from its neighbors are depicted in blue, green, and yellow.
+programmable clipping there exists another hardware-accelerated approach that,
+to the knowledge of the author, had previously not been used in this context. The
+clipping unit of current consumer graphics hardware allows the user to insert cus-
+tom clipping planes inside shaders. This algorithm will take advantage of this
+feature to eﬃciently render indirectly all shadow map tiles into the tiled shadow
+map. Even though on the GPU a triangle setup that uses custom clipping planes
+is slower than a regular setup, this will not have a signiﬁcant performance impact
+since only triangles that are actually clipped at the border of each tetrahedron
+view volume are aﬀected.
+As stated at the beginning of this section, a regular tetrahedron is used to
+subdivide the 3D space into four view volumes. Hence, each view volume is
+separated from its neighbors by exactly three planes, as shown in Figure 2.3. In
+order to clip against these planes, ﬁrst the plane normals have to be calculated.
+This can be done by using the four normalized tetrahedron face vectors as given
+in [Liao 10] (Table 2.3).
+With the help of the tetrahedron face vectors fA, . . . fD, the vectors v0, . . . , v3
+can be calculated, which point from the tetrahedron center p to the tetrahedron
+corners c0, . . . , c3 (Figure 2.3):
+v0 = −fA, v1 = −fC , v2 = −fA, v3 = −fD.
+In Listing 2.3, the normal of the yellow clipping plane illustrated in Figure 2.3
+2. Tile-Based Omnidirectional Shadows 327
+Face x y z
+A 0.0 −0.57735026 0.81649661
+B 0.0 −0.57735026 −0.81649661
+C −0.81649661 0.57735026 0.0
+D 0.81649661 0.57735026 0.0
+Table 2.3. The x, y, and z components of the four normalized tetrahedron face vectors.
+n o r m a l = n o r m a l i z e ( c r o s s ( v1 , v ) ) ;
+r o t a t i o n A x i s = n o r m a l i z e ( c r o s s ( fA , f D ) ) ;
+// q u a t ( r o t a t i o n A x i s , a l p h a ) i s a q u a t e r n i o n t h a t r o t a t e s a l p h a
+// d e g r e e s around r o t a t i o n A x i s
+r o t a t e d N o r m a l = q u a t ( r o t a t i o n A x i s , a l p h a )  n o r m a l ;
+Listing 2.3. Pseudocode for calculating clipping plane normal.
+will be calculated, which separates the view volumes of faces A and D. All other
+clipping plane normals can be calculated correspondingly.
+Since later on it should be possible to generate soft shadows by applying,
+e.g., percentage closer ﬁltering (PCF), the plane normals have to be adjusted
+appropriately. For this the plane normals are rotated in order to increase the
+aperture of the tetrahedron view volumes. The angle α used for this is the same
+as derived in the section “Matrix setup” on page 319; this angle ensures, on the
+one hand, that a suﬃcient amount of primitives pass the clipping stage to account
+for shadow map ﬁltering and, on the other hand, that the projected tetrahedron
+view areas do not overlap in the eﬀective sampling area. Since the resulting 12
+clipping plane normals are equal for all lights and never change at runtime, they
+can be precalculated and added as constants into the corresponding shader.
+At runtime, the precalculated normals are combined each time with the posi-
+tion of the processed light source to construct the appropriate clipping planes.
+Vertex processing. To render indirectly the shadow maps, a simple vertex shader is
+required to fetch the vertex attributes (typically the vertex position), to calculate
+the light index (as already described in the section “Computation” on page 322),
+and to pass this value to a subsequent geometry shader.
+Primitive processing. After the vertex shader, a geometry shader is invoked to
+perform clipping with the precalculated plane normals. Depending on which of
+the four view volumes of the tetrahedron the processed triangle intersects, up
+to four new primitives have to be generated. Against all expectations, it has
+proven to be far more performant to run a loop over four primitives in a single
+geometry shader invocation than using geometry shader instancing and invoking
+the geometry shader four times. The reasons for this can be that, in a high
+328 IV Shadows
+percentage of cases, less than four primitives have to be emitted and that the
+light buﬀer data has to be fetched only once for each incoming primitive in the
+loop-based approach.
+An alternative strategy would be to cull the AABBs of the relevant meshes
+against the four tetrahedron view volumes for each light in the indirect draw buﬀer
+generation step and add for each overlap a new indirect draw command, thus
+avoiding later the use of the geometry shader. However, it has shown that this
+approach not only requires more video memory for storing the increased amount of
+indirect draw commands, but also runs notably slower than the geometry shader
+approach. A reason for this can be that the geometry shader performs culling on
+a per-triangle basis, in contrast to culling AABBs of the relevant meshes.
+Since back-face culling as implemented by the graphics hardware is performed
+after the vertex and primitive processing stage, it is done manually at the begin-
+ning of the geometry shader. By reducing the amount of processed primitives,
+runtime performance can be further increased [R´akos 12]. This can be an addi-
+tional reason why geometry shader instancing is performing more slowly, because
+the back-face culling code has to be performed four times in contrast to the
+loop-based solution, where this code is shared for all four primitives.
+Though the clip distances are passed via gl_ClipDistance to the clipping unit
+of the graphics hardware, it has proven that additionally culling primitives in the
+shader further improves runtime performance. This can be done by only emitting
+a new primitive when at least one of the calculated clip distances of the three
+processed triangle vertices is greater than zero for all three clipping planes of the
+processed tetrahedron face.
+Finally, transforming the incoming vertices boils down to performing for each
+relevant tetrahedron face one matrix multiplication with the matching shadow
+matrix. Listing 2.4 shows the corresponding GLSL geometry shader.
+f l o a t G e t C l i p D i s t ( i n v e c 3 l i g h t P o s , i n u i n t v e r t e x I n d e x , i n u i n t
+p l a n e I n d e x )
+{
+v e c 3 n o r m a l = p l a n e N o r m a l s [ p l a n e I n d e x ] ; // c l i p p i n g p l a n e normal
+r e t u r n ( d o t ( g l _ i n [ v e r t e x I n d e x ] . g l _ P o s i t i o n . xyz , n o r m a l )
++d o t (− n o r m a l , l i g h t P o s i t i o n ) ) ;
+}
+l a y o u t ( t r i a n g l e s ) i n ;
+l a y o u t ( t r i a n g l e _ s t r i p , m a x _ v e r t i c e s = 1 2 ) o u t ;
+v o i d m a i n ( )
+{
+c o n s t u i n t l i g h t I n d e x = i n p u t G S [ 0 ] . l i g h t I n d e x ;
+c o n s t v e c 3 l i g h t P o s i t i o n = l i g h t B u f f e r . l i g h t s [ l i g h t I n d e x ] . p o s i t i o n ;
+// p e r f o r m back−f a c e c u l l i n g
+v e c 3 n o r m a l = c r o s s ( g l _ i n [ 2 ] . g l _ P o s i t i o n . xyz−g l _ i n [ 0 ]
+. g l _ P o s i t i o n . xyz ,
+g l _ i n [ 0 ] . g l _ P o s i t i o n . xyz−g l _ i n [ 1 ]
+. g l _ P o s i t i o n . x y z ) ;
+2. Tile-Based Omnidirectional Shadows 329
+v e c 3 v i e w = l i g h t P o s i t i o n−g l _ i n [ 0 ] . g l _ P o s i t i o n . x y z ;
+i f ( d o t ( n o r m a l , v i e w ) < 0 . 0 f )
+r e t u r n ;
+// i t e r a t e o v e r t e t r a h e d r o n f a c e s
+f o r ( u i n t f a c e I n d e x =0; f a c e I n d e x <4; f a c e I n d e x++)
+{
+u i n t i n s i d e = 0 ;
+f l o a t c l i p D i s t a n c e s [ 9 ] ;
+// C a l c u l a t e f o r e a c h v e r t e x d i s t a n c e t o c l i p p i n g p l a n e s and
+// d e t e r m i n e wh e t h e r p r o c e s s e d t r i a n g l e i s i n s i d e v i e w
+// volume .
+f o r ( u i n t s i d e I n d e x =0; s i d e I n d e x <3; s i d e I n d e x++)
+{
+c o n s t u i n t p l a n e I n d e x = ( f a c e I n d e x  3)+ s i d e I n d e x ;
+c o n s t u i n t b i t = 1 << s i d e I n d e x ;
+f o r ( u i n t v e r t e x I n d e x =0; v e r t e x I n d e x <3; v e r t e x I n d e x++)
+{
+u i n t c l i p D i s t I n d e x = s i d e I n d e x 3+ v e r t e x I n d e x ;
+c l i p D i s t a n c e s [ c l i p D i s t I n d e x ] = G e t C l i p D i s t ( l i g h t P o s i t i o n ,
+v e r t e x I n d e x , p l a n e I n d e x ) ;
+i n s i d e |= ( c l i p D i s t a n c e s [ c l i p D i s t I n d e x ] > 0 . 0 0 1 ) ?
+b i t : 0 ;
+}
+}
+// I f t r i a n g l e i s i n s i d e volume , e m i t p r i m i t i v e .
+i f ( i n s i d e == 0 x 7 )
+{
+c o n s t m a t 4 s h a d o w M a t r i x =
+l i g h t B u f f e r . l i g h t s [ l i g h t I n d e x ] . s h a d o w M a t r i c e s [ f a c e I n d e x ] ;
+// Transform v e r t e x p o s i t i o n s wi t h shadow m a t r i x and
+// f o r w a r d c l i p d i s t a n c e s t o g r a p h i c s hardware .
+f o r ( u i n t v e r t e x I n d e x =0; v e r t e x I n d e x <3; v e r t e x I n d e x++)
+{
+g l _ P o s i t i o n = s h a d o w M a t r i x  g l _ i n [ v e r t e x I n d e x ] . g l _ P o s i t i o n ;
+g l _ C l i p D i s t a n c e [ 0 ] = c l i p D i s t a n c e s [ v e r t e x I n d e x ] ;
+g l _ C l i p D i s t a n c e [ 1 ] = c l i p D i s t a n c e s [3+ v e r t e x I n d e x ] ;
+g l _ C l i p D i s t a n c e [ 2 ] = c l i p D i s t a n c e s [6+ v e r t e x I n d e x ] ;
+E m i t V e r t e x ( ) ;
+}
+E n d P r i m i t i v e ( ) ;
+}
+}
+}
+Listing 2.4. Geometry shader for indirect shadow map rendering.

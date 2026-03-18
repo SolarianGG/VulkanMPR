@@ -34,10 +34,11 @@ VSOutput vertexMain(uint vertexID: SV_VulkanVertexID, uint instanceID: SV_Vulkan
 void geometryMain(triangle VSOutput input[3], inout TriangleStream<GSOutput> output) {
     for (uint c = 0; c < pushConstants.cascadeCount; ++c)
     {
+        float4x4 cascadeViewProj = pushConstants.dirLight.cascadeVPs[c];
         for (uint v = 0; v < 3; ++v)
         {
             GSOutput o;
-            o.pos = mul(pushConstants.dirLight[0].cascadeVPs[c], input[v].worldPos);
+            o.pos = mul(cascadeViewProj, input[v].worldPos);
             o.layer = c;
             output.Append(o);
         }

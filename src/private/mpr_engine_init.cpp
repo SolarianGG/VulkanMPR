@@ -16,6 +16,7 @@
 #include "mpr_init_vk_stucts.hpp"
 #include "mpr_loader.hpp"
 #include "mpr_pipelines.hpp"
+#include "mpr_debug_utils.hpp"
 // clang-format on
 
 namespace
@@ -109,7 +110,7 @@ void Engine::init_vulkan()
         .dynamicRendering = true,
     };
 
-      VkPhysicalDeviceShaderAtomicFloatFeaturesEXT atomicFloatFeatures{
+    VkPhysicalDeviceShaderAtomicFloatFeaturesEXT atomicFloatFeatures{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_FEATURES_EXT,
         .shaderBufferFloat32Atomics = true,
         .shaderBufferFloat32AtomicAdd = true,
@@ -130,19 +131,26 @@ void Engine::init_vulkan()
         .runtimeDescriptorArray = true,
         .scalarBlockLayout = true,
         .bufferDeviceAddress = true,
+        .shaderOutputLayer = true,
+    };
+
+    const VkPhysicalDeviceVulkan11Features features11{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
+        .shaderDrawParameters = true, 
     };
     VkPhysicalDeviceFeatures features10{
         .independentBlend = true,
         .geometryShader = true,
         .samplerAnisotropy = true,
+        .shaderClipDistance = true,
         .shaderInt64 = true,
     };
 
     vkb::PhysicalDeviceSelector selector{result.value()};
 
     std::vector<const char *> requiredExtensions{
-        VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME,
-        VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME,
+        VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME, VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME,
+        VK_NV_SHADER_SUBGROUP_PARTITIONED_EXTENSION_NAME, // VK_EXT_SHADER_SUBGROUP_PARTITIONED_EXTENSION_NAME
     };
     const auto physicalDevice = selector.set_minimum_version(1, 3)
                                     .add_required_extensions(requiredExtensions)
@@ -150,6 +158,7 @@ void Engine::init_vulkan()
                                     .add_required_extension_features(descriptorBufferFeatures)
                                     .add_required_extension_features(atomicFloatFeatures)
                                     .set_required_features_12(features12)
+                                    .set_required_features_11(features11)
                                     .set_required_features(features10)
                                     .set_surface(m_surface)
 #ifdef GPU_USAGE_DISCRETE
@@ -251,32 +260,54 @@ void Engine::init_swapchain()
         .height = m_windowExtent.height,
     };
     m_drawExtent = m_windowExtent;
-    for (auto &frame : m_frameData)
+    for (std::size_t i = 0; i < m_frameData.size(); ++i)
     {
+        auto &frame = m_frameData[i];
         create_draw_image(frame.drawImage, m_CommonImageExtent3D);
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
+                                   reinterpret_cast<uint64_t>(frame.drawImage.image),
+                                   std::format("Draw Image [{}]", i).c_str());
         create_depth_image(frame.depthImage, m_CommonImageExtent3D);
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
+                                   reinterpret_cast<uint64_t>(frame.depthImage.image),
+                                   std::format("Depth Image [{}]", i).c_str());
 
         frame.gBuffer.normal = create_image(m_CommonImageExtent3D, VK_FORMAT_R32G32B32A32_SFLOAT,
                                             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
                                                 VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
+                                   reinterpret_cast<uint64_t>(frame.gBuffer.normal.image),
+                                   std::format("GBuffer Normal [{}]", i).c_str());
         frame.gBuffer.diffuse = create_image(m_CommonImageExtent3D, VK_FORMAT_R8G8B8A8_UNORM,
                                              VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
                                                  VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
+                                   reinterpret_cast<uint64_t>(frame.gBuffer.diffuse.image),
+                                   std::format("GBuffer Diffuse [{}]", i).c_str());
         frame.gBuffer.specular = create_image(m_CommonImageExtent3D, VK_FORMAT_R8G8B8A8_UNORM,
                                               VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
                                                   VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
+                                   reinterpret_cast<uint64_t>(frame.gBuffer.specular.image),
+                                   std::format("GBuffer Specular [{}]", i).c_str());
 
         frame.oitAccImage = create_image(m_CommonImageExtent3D, VK_FORMAT_R16G16B16A16_SFLOAT,
                                          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
+                                   reinterpret_cast<uint64_t>(frame.oitAccImage.image),
+                                   std::format("OIT Accumulation [{}]", i).c_str());
         frame.oitRevealImage = create_image(m_CommonImageExtent3D, VK_FORMAT_R16_SFLOAT,
                                             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
+                                   reinterpret_cast<uint64_t>(frame.oitRevealImage.image),
+                                   std::format("OIT Reveal [{}]", i).c_str());
         // Create layered shadow depth image for CSM
         {
             const VkImageCreateInfo shadowImgInfo{
                 .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
                 .imageType = VK_IMAGE_TYPE_2D,
                 .format = VK_FORMAT_D32_SFLOAT,
-                .extent = {2048, 2048, 1},
+                .extent = {kDirectionalShadowMapSize, kDirectionalShadowMapSize, 1},
                 .mipLevels = 1,
                 .arrayLayers = static_cast<std::uint32_t>(MAX_CASCADES),
                 .samples = VK_SAMPLE_COUNT_1_BIT,
@@ -287,16 +318,16 @@ void Engine::init_swapchain()
                 .usage = VMA_MEMORY_USAGE_GPU_ONLY,
                 .requiredFlags = static_cast<VkMemoryPropertyFlags>(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT),
             };
-            vmaCreateImage(m_allocator, &shadowImgInfo, &shadowAllocInfo, &frame.shadowPassDepthArray.image,
-                           &frame.shadowPassDepthArray.allocation, nullptr) >>
+            vmaCreateImage(m_allocator, &shadowImgInfo, &shadowAllocInfo, &frame.directionalShadowPassDepthArray.image,
+                           &frame.directionalShadowPassDepthArray.allocation, nullptr) >>
                 chk;
-            frame.shadowPassDepthArray.imageFormat = VK_FORMAT_D32_SFLOAT;
-            frame.shadowPassDepthArray.imageExtent = {2048, 2048, 1};
+            frame.directionalShadowPassDepthArray.imageFormat = VK_FORMAT_D32_SFLOAT;
+            frame.directionalShadowPassDepthArray.imageExtent = {kDirectionalShadowMapSize, kDirectionalShadowMapSize, 1};
 
             // Array image view for sampling in light pass
             const VkImageViewCreateInfo arrayViewInfo{
                 .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-                .image = frame.shadowPassDepthArray.image,
+                .image = frame.directionalShadowPassDepthArray.image,
                 .viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY,
                 .format = VK_FORMAT_D32_SFLOAT,
                 .subresourceRange =
@@ -308,28 +339,17 @@ void Engine::init_swapchain()
                         .layerCount = static_cast<std::uint32_t>(MAX_CASCADES),
                     },
             };
-            vkCreateImageView(m_device, &arrayViewInfo, nullptr, &frame.shadowPassDepthArray.imageView) >> chk;
-
-            // Per-layer image views for rendering each cascade
-            for (int i = 0; i < MAX_CASCADES; ++i)
-            {
-                const VkImageViewCreateInfo layerViewInfo{
-                    .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-                    .image = frame.shadowPassDepthArray.image,
-                    .viewType = VK_IMAGE_VIEW_TYPE_2D,
-                    .format = VK_FORMAT_D32_SFLOAT,
-                    .subresourceRange =
-                        {
-                            .aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
-                            .baseMipLevel = 0,
-                            .levelCount = 1,
-                            .baseArrayLayer = static_cast<std::uint32_t>(i),
-                            .layerCount = 1,
-                        },
-                };
-                vkCreateImageView(m_device, &layerViewInfo, nullptr, &frame.shadowPassLayerViews[i]) >> chk;
-            }
+            vkCreateImageView(m_device, &arrayViewInfo, nullptr, &frame.directionalShadowPassDepthArray.imageView) >> chk;
+            mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
+                                       reinterpret_cast<uint64_t>(frame.directionalShadowPassDepthArray.image),
+                                       std::format("Directional Shadow Array [{}]", i).c_str());
         }
+        frame.pointLightsShadowTileMap =
+            create_image({kPointLightsShadowMapSize, kPointLightsShadowMapSize, 1}, VK_FORMAT_D16_UNORM,
+                         VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
+                                   reinterpret_cast<uint64_t>(frame.pointLightsShadowTileMap.image),
+                                   std::format("Point Light Shadow Map [{}]", i).c_str());
     }
 
     m_mainDeletionQueue.push_function([this]() {
@@ -341,14 +361,10 @@ void Engine::init_swapchain()
 
             destroy_image(frame.oitAccImage);
             destroy_image(frame.oitRevealImage);
+            destroy_image(frame.pointLightsShadowTileMap);
 
-            // Destroy per-layer shadow views, then array view + image
-            for (auto &shadowPassLayerView : frame.shadowPassLayerViews)
-            {
-                vkDestroyImageView(m_device, shadowPassLayerView, nullptr);
-            }
-            vkDestroyImageView(m_device, frame.shadowPassDepthArray.imageView, nullptr);
-            vmaDestroyImage(m_allocator, frame.shadowPassDepthArray.image, frame.shadowPassDepthArray.allocation);
+            vkDestroyImageView(m_device, frame.directionalShadowPassDepthArray.imageView, nullptr);
+            vmaDestroyImage(m_allocator, frame.directionalShadowPassDepthArray.image, frame.directionalShadowPassDepthArray.allocation);
         }
     });
 }
@@ -420,6 +436,8 @@ void Engine::init_descriptors()
             .borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
         };
         vkCreateSampler(m_device, &shadowSamplerInfo, nullptr, &m_shadowSampler);
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_SAMPLER,
+                                   reinterpret_cast<uint64_t>(m_shadowSampler), "Shadow Sampler");
         m_mainDeletionQueue.push_function([&] { vkDestroySampler(m_device, m_shadowSampler, nullptr); });
     }
     {
@@ -432,6 +450,8 @@ void Engine::init_descriptors()
             .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
         };
         vkCreateSampler(m_device, &debugSamplerInfo, nullptr, &m_debugSampler);
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_SAMPLER,
+                                   reinterpret_cast<uint64_t>(m_debugSampler), "Debug Sampler");
         m_mainDeletionQueue.push_function([&] { vkDestroySampler(m_device, m_debugSampler, nullptr); });
     }
     {
@@ -447,6 +467,7 @@ void Engine::init_descriptors()
                 .add_binding(3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT)
                 .add_binding(4, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT)
                 .add_binding(5, VK_DESCRIPTOR_TYPE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT)
+                .add_binding(6, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT)
                 .build(m_device, VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
     }
     for (auto &frame : m_frameData)
@@ -476,9 +497,11 @@ void Engine::init_descriptors()
                                                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         frame.lightPassDescriptorBuffer.write_sampled_image(3, 0, frame.gBuffer.specular.imageView,
                                                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        frame.lightPassDescriptorBuffer.write_sampled_image(4, 0, frame.shadowPassDepthArray.imageView,
+        frame.lightPassDescriptorBuffer.write_sampled_image(4, 0, frame.directionalShadowPassDepthArray.imageView,
                                                             VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL);
         frame.lightPassDescriptorBuffer.write_sampler(5, 0, m_shadowSampler);
+        frame.lightPassDescriptorBuffer.write_sampled_image(6, 0, frame.pointLightsShadowTileMap.imageView,
+                                                            VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL);
     }
 
     m_mainDeletionQueue.push_function([&]() mutable {
@@ -495,10 +518,13 @@ void Engine::init_descriptors()
 void Engine::init_pipelines()
 {
     init_light_pass_pipeline();
-    init_cull_pipeline();
+    init_cull_meshes_pipeline();
+    init_cull_point_lights_pipeline();
     init_wboit_composite_pass_pipeline();
     init_post_pipeline();
-    init_shadow_pass();
+    init_generate_point_light_commands_pipeline();
+    init_directional_shadow_pass();
+    init_point_shadow_pass();
     init_depth_reduction_pass();
     m_metalRoughness.build_pipelines(*this);
     init_prepass();
@@ -509,7 +535,7 @@ void Engine::init_light_pass_pipeline()
     constexpr VkPushConstantRange pushConstantRange{
         .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
         .offset = 0,
-        .size = static_cast<std::uint32_t>(sizeof(LightPassConstantRange)),
+        .size = static_cast<std::uint32_t>(sizeof(LightPassPushConstants)),
     };
 
     VkDescriptorSetLayout setLayouts[]{m_DrawImageDescriptorSetLayout, m_LightPassDescriptorSetLayout};
@@ -547,6 +573,8 @@ void Engine::init_light_pass_pipeline()
     };
 
     vkCreateComputePipelines(m_device, nullptr, 1, &createInfo, nullptr, &m_LightPassPipeline) >> chk;
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
+                               reinterpret_cast<uint64_t>(m_LightPassPipeline), "Light Pass Pipeline");
 
     vkDestroyShaderModule(m_device, lightPassShader, nullptr);
     m_mainDeletionQueue.push_function([this] {
@@ -623,6 +651,8 @@ void Engine::init_wboit_composite_pass_pipeline()
                                                                  VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT});
         m_WBOITCompositePassPipeline =
             pipelineBuilder.build_pipeline(m_device, VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT);
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
+                                   reinterpret_cast<uint64_t>(m_WBOITCompositePassPipeline), "WBOIT Composite Pipeline");
     }
 
     vkDestroyShaderModule(m_device, compositeVertexShader, nullptr);
@@ -676,6 +706,8 @@ void Engine::init_depth_reduction_pass()
             .layout = m_DepthReductionPipelineLayout,
         };
         vkCreateComputePipelines(m_device, nullptr, 1, &createInfo, nullptr, &m_DepthReductionPipeline) >> chk;
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
+                                   reinterpret_cast<uint64_t>(m_DepthReductionPipeline), "Depth Reduction Pipeline");
         vkDestroyShaderModule(m_device, shaderModule, nullptr);
     }
 
@@ -707,6 +739,8 @@ void Engine::init_depth_reduction_pass()
             .layout = m_DepthPartitionPipelineLayout,
         };
         vkCreateComputePipelines(m_device, nullptr, 1, &createInfo, nullptr, &m_DepthPartitionPipeline) >> chk;
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
+                                   reinterpret_cast<uint64_t>(m_DepthPartitionPipeline), "Depth Partition Pipeline");
         vkDestroyShaderModule(m_device, shaderModule, nullptr);
     }
 
@@ -737,6 +771,8 @@ void Engine::init_depth_reduction_pass()
             .layout = m_DirVpPipelineLayout,
         };
         vkCreateComputePipelines(m_device, nullptr, 1, &createInfo, nullptr, &m_DirVpPipeline) >> chk;
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
+                                   reinterpret_cast<uint64_t>(m_DirVpPipeline), "Directional VP Pipeline");
         vkDestroyShaderModule(m_device, shaderModule, nullptr);
     }
 
@@ -751,12 +787,11 @@ void Engine::init_depth_reduction_pass()
     });
 }
 
-void Engine::init_shadow_pass()
+void Engine::init_directional_shadow_pass()
 {
-    const VkPushConstantRange pushConstantRange{
-        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
-        .offset = 0,
-        .size = sizeof(ShadowPassPushConstants)};
+    const VkPushConstantRange pushConstantRange{.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
+                                                .offset = 0,
+                                                .size = sizeof(DirectionalShadowPassPushConstants)};
 
     const VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
                                                               .pNext = nullptr,
@@ -767,19 +802,19 @@ void Engine::init_shadow_pass()
     vkCreatePipelineLayout(m_device, &pipelineLayoutCreateInfo, nullptr, &m_ShadowPassPipelineLayout) >> chk;
 
     VkShaderModule shadowPassVert;
-    if (!mp::load_shader_module("../../src/compiled_shaders/shadow_pass.vertex.spv", m_device, &shadowPassVert))
+    if (!mp::load_shader_module("../../src/compiled_shaders/directional_shadow_pass.vertex.spv", m_device, &shadowPassVert))
     {
         throw std::runtime_error("Failed to load shadow pass vertex shader");
     }
 
     VkShaderModule shadowPassGeom;
-    if (!mp::load_shader_module("../../src/compiled_shaders/shadow_pass.geometry.spv", m_device, &shadowPassGeom))
+    if (!mp::load_shader_module("../../src/compiled_shaders/directional_shadow_pass.geometry.spv", m_device, &shadowPassGeom))
     {
         throw std::runtime_error("Failed to load shadow pass geometry shader");
     }
 
     VkShaderModule shadowPassFrag;
-    if (!mp::load_shader_module("../../src/compiled_shaders/shadow_pass.pixel.spv", m_device, &shadowPassFrag))
+    if (!mp::load_shader_module("../../src/compiled_shaders/directional_shadow_pass.pixel.spv", m_device, &shadowPassFrag))
     {
         throw std::runtime_error("Failed to load shadow pass fragment shader");
     }
@@ -792,11 +827,13 @@ void Engine::init_shadow_pass()
     builder.add_shader(shadowPassVert, VK_SHADER_STAGE_VERTEX_BIT);
     builder.add_shader(shadowPassGeom, VK_SHADER_STAGE_GEOMETRY_BIT);
     builder.add_shader(shadowPassFrag, VK_SHADER_STAGE_FRAGMENT_BIT);
-    builder.set_depth_format(m_frameData.at(0).shadowPassDepthArray.imageFormat);
+    builder.set_depth_format(m_frameData.at(0).directionalShadowPassDepthArray.imageFormat);
     builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
     builder.set_multisampling_none();
 
     m_ShadowPassPipeline = builder.build_pipeline(m_device);
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
+                               reinterpret_cast<uint64_t>(m_ShadowPassPipeline), "Directional Shadow Pass Pipeline");
 
     vkDestroyShaderModule(m_device, shadowPassVert, nullptr);
     vkDestroyShaderModule(m_device, shadowPassGeom, nullptr);
@@ -805,6 +842,69 @@ void Engine::init_shadow_pass()
     m_mainDeletionQueue.push_function([this]() {
         vkDestroyPipeline(m_device, m_ShadowPassPipeline, nullptr);
         vkDestroyPipelineLayout(m_device, m_ShadowPassPipelineLayout, nullptr);
+    });
+}
+
+void Engine::init_point_shadow_pass()
+{
+    const VkPushConstantRange pushConstantRange{
+        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
+        .offset = 0,
+        .size = sizeof(PointLightsShadowPassPushConstants),
+    };
+
+    const VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .pNext = nullptr,
+        .setLayoutCount = 0,
+        .pSetLayouts = nullptr,
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &pushConstantRange,
+    };
+    vkCreatePipelineLayout(m_device, &pipelineLayoutCreateInfo, nullptr, &m_PointLightShadowPassPipelineLayout) >> chk;
+
+    VkShaderModule vert;
+    if (!mp::load_shader_module("../../src/compiled_shaders/point_lights_shadow_pass.vertex.spv", m_device, &vert))
+    {
+        throw std::runtime_error("Failed to load point light shadow pass vertex shader");
+    }
+
+    VkShaderModule geom;
+    if (!mp::load_shader_module("../../src/compiled_shaders/point_lights_shadow_pass.geometry.spv", m_device, &geom))
+    {
+        throw std::runtime_error("Failed to load point light shadow pass geometry shader");
+    }
+
+    VkShaderModule frag;
+    if (!mp::load_shader_module("../../src/compiled_shaders/point_lights_shadow_pass.pixel.spv", m_device, &frag))
+    {
+        throw std::runtime_error("Failed to load point light shadow pass fragment shader");
+    }
+
+    mp::PipelineBuilder builder;
+    builder.pipelineLayout = m_PointLightShadowPassPipelineLayout;
+    builder.enable_depth_test(true, VK_COMPARE_OP_LESS_OR_EQUAL);
+    builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+    builder.set_polygon_mode(VK_POLYGON_MODE_FILL);
+    builder.add_shader(vert, VK_SHADER_STAGE_VERTEX_BIT);
+    builder.add_shader(geom, VK_SHADER_STAGE_GEOMETRY_BIT);
+    builder.add_shader(frag, VK_SHADER_STAGE_FRAGMENT_BIT);
+    builder.set_depth_format(m_frameData.at(0).pointLightsShadowTileMap.imageFormat);
+    builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+    builder.set_multisampling_none();
+
+    m_PointLightShadowPassPipeline = builder.build_pipeline(m_device);
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
+                               reinterpret_cast<uint64_t>(m_PointLightShadowPassPipeline),
+                               "Point Light Shadow Pass Pipeline");
+
+    vkDestroyShaderModule(m_device, vert, nullptr);
+    vkDestroyShaderModule(m_device, geom, nullptr);
+    vkDestroyShaderModule(m_device, frag, nullptr);
+
+    m_mainDeletionQueue.push_function([this]() {
+        vkDestroyPipeline(m_device, m_PointLightShadowPassPipeline, nullptr);
+        vkDestroyPipelineLayout(m_device, m_PointLightShadowPassPipelineLayout, nullptr);
     });
 }
 
@@ -850,6 +950,8 @@ void Engine::init_prepass()
     builder.set_multisampling_none();
 
     m_PrepassPipeline = builder.build_pipeline(m_device, VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT);
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
+                               reinterpret_cast<uint64_t>(m_PrepassPipeline), "Prepass Pipeline");
 
     vkDestroyShaderModule(m_device, prepassVert, nullptr);
     vkDestroyShaderModule(m_device, prepassFrag, nullptr);
@@ -893,6 +995,8 @@ void Engine::init_post_pipeline()
         .layout = m_PostProcessPassPipelineLayout,
     };
     vkCreateComputePipelines(m_device, nullptr, 1, &pipelineCreateInfo, nullptr, &m_PostProcessPassPipeline);
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
+                               reinterpret_cast<uint64_t>(m_PostProcessPassPipeline), "Postprocess Pipeline");
 
     vkDestroyShaderModule(m_device, postprocessShader, nullptr);
 
@@ -902,7 +1006,114 @@ void Engine::init_post_pipeline()
     });
 }
 
-void Engine::init_cull_pipeline()
+void Engine::init_cull_point_lights_pipeline()
+{
+    const VkPushConstantRange constantRange{
+        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+        .offset = 0,
+        .size = sizeof(CullPointLightsPassPushConstants),
+    };
+
+    const VkPipelineLayoutCreateInfo layoutCreateInfo{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .pNext = nullptr,
+        .setLayoutCount = 0,
+        .pSetLayouts = nullptr,
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &constantRange,
+    };
+
+    vkCreatePipelineLayout(m_device, &layoutCreateInfo, nullptr, &m_CullPointLightsPassPipelineLayout) >> chk;
+
+    VkShaderModule cullShader;
+    if (!load_shader_module("../../src/compiled_shaders/cull_point_lights.compute.spv", m_device, &cullShader))
+    {
+        throw std::runtime_error("Failed to load cull shader");
+    }
+
+    const VkPipelineShaderStageCreateInfo shaderStage{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .pNext = nullptr,
+        .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+        .module = cullShader,
+        .pName = "main",
+    };
+
+    const VkComputePipelineCreateInfo pipelineCreateInfo{
+        .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        .pNext = nullptr,
+        .stage = shaderStage,
+        .layout = m_CullPointLightsPassPipelineLayout,
+    };
+
+    vkCreateComputePipelines(m_device, nullptr, 1, &pipelineCreateInfo, nullptr, &m_CullPointLightsPassPipeline) >> chk;
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
+                               reinterpret_cast<uint64_t>(m_CullPointLightsPassPipeline), "Cull Point Lights Pipeline");
+
+    vkDestroyShaderModule(m_device, cullShader, nullptr);
+
+    m_mainDeletionQueue.push_function([this] {
+        vkDestroyPipeline(m_device, m_CullPointLightsPassPipeline, nullptr);
+        vkDestroyPipelineLayout(m_device, m_CullPointLightsPassPipelineLayout, nullptr);
+    });
+}
+
+void Engine::init_generate_point_light_commands_pipeline()
+{
+    const VkPushConstantRange constantRange{
+        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+        .offset = 0,
+        .size = sizeof(GeneratePointLightCommandsPushConstants),
+    };
+
+    const VkPipelineLayoutCreateInfo layoutCreateInfo{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .pNext = nullptr,
+        .setLayoutCount = 0,
+        .pSetLayouts = nullptr,
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &constantRange,
+    };
+
+    vkCreatePipelineLayout(m_device, &layoutCreateInfo, nullptr, &m_GeneratePointLightCommandsPipelineLayout) >> chk;
+
+    VkShaderModule shader;
+    if (!load_shader_module("../../src/compiled_shaders/generate_point_light_shadows_commands.compute.spv", m_device,
+                            &shader))
+    {
+        throw std::runtime_error("Failed to load generate point light commands shader");
+    }
+
+    const VkPipelineShaderStageCreateInfo shaderStage{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .pNext = nullptr,
+        .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+        .module = shader,
+        .pName = "main",
+    };
+
+    const VkComputePipelineCreateInfo pipelineCreateInfo{
+        .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        .pNext = nullptr,
+        .stage = shaderStage,
+        .layout = m_GeneratePointLightCommandsPipelineLayout,
+    };
+
+    vkCreateComputePipelines(m_device, nullptr, 1, &pipelineCreateInfo, nullptr, &m_GeneratePointLightCommandsPipeline) >>
+        chk;
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
+                               reinterpret_cast<uint64_t>(m_GeneratePointLightCommandsPipeline),
+                               "Generate Point Light Commands Pipeline");
+
+    vkDestroyShaderModule(m_device, shader, nullptr);
+
+    m_mainDeletionQueue.push_function([this] {
+        vkDestroyPipeline(m_device, m_GeneratePointLightCommandsPipeline, nullptr);
+        vkDestroyPipelineLayout(m_device, m_GeneratePointLightCommandsPipelineLayout, nullptr);
+    });
+}
+
+void Engine::init_cull_meshes_pipeline()
 {
 #if 0
   m_CullPassDescriptorSetLayout =
@@ -950,6 +1161,8 @@ void Engine::init_cull_pipeline()
     };
 
     vkCreateComputePipelines(m_device, nullptr, 1, &pipelineCreateInfo, nullptr, &m_CullPassPipeline) >> chk;
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
+                               reinterpret_cast<uint64_t>(m_CullPassPipeline), "Cull Meshes Pipeline");
 
     vkDestroyShaderModule(m_device, cullShader, nullptr);
 
@@ -1021,38 +1234,91 @@ void Engine::init_imgui()
 void Engine::init_frames_data()
 {
     constexpr auto kMaxInstances = 100'000;
-    constexpr auto kMaxPointLights = 1'000;
     constexpr auto kMaxMeshes = 50'000;
-    for (auto &frame : m_frameData)
+    for (std::size_t i = 0; i < m_frameData.size(); ++i)
     {
+        auto &frame = m_frameData[i];
         frame.sceneDataBuffer = create_buffer(
             sizeof(GpuSceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
             VMA_MEMORY_USAGE_CPU_TO_GPU);
         frame.sceneDataBufferAddr = frame.sceneDataBuffer.get_buffer_device_address(m_device);
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_BUFFER,
+                                   reinterpret_cast<uint64_t>(frame.sceneDataBuffer.buffer),
+                                   std::format("Scene Data Buffer [{}]", i).c_str());
 
         frame.dirLightBuffer =
             create_buffer(sizeof(DirectionalLightData),
                           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
                           VMA_MEMORY_USAGE_CPU_TO_GPU);
         frame.dirLightBufferAddr = frame.dirLightBuffer.get_buffer_device_address(m_device);
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_BUFFER,
+                                   reinterpret_cast<uint64_t>(frame.dirLightBuffer.buffer),
+                                   std::format("Directional Light Buffer [{}]", i).c_str());
 
         frame.pointLightBuffer =
             create_buffer(sizeof(PointLightData) * kMaxPointLights,
                           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
                           VMA_MEMORY_USAGE_CPU_TO_GPU);
         frame.pointLightBufferAddr = frame.pointLightBuffer.get_buffer_device_address(m_device);
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_BUFFER,
+                                   reinterpret_cast<uint64_t>(frame.pointLightBuffer.buffer),
+                                   std::format("Point Light Buffer [{}]", i).c_str());
+
+        frame.visiblePointLightsBuffer =
+            create_buffer(sizeof(PointLightData) * kMaxPointLights,
+                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                          VMA_MEMORY_USAGE_GPU_ONLY);
+        frame.visiblePointLightsBufferAddr = frame.visiblePointLightsBuffer.get_buffer_device_address(m_device);
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_BUFFER,
+                                   reinterpret_cast<uint64_t>(frame.visiblePointLightsBuffer.buffer),
+                                   std::format("Visible Point Lights Buffer [{}]", i).c_str());
+
+        frame.visiblePointLightsCountBuffer =
+            create_buffer(sizeof(std::uint32_t),
+                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+                              VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                          VMA_MEMORY_USAGE_GPU_ONLY);
+        frame.visiblePointLightsCountBufferAddr =
+            frame.visiblePointLightsCountBuffer.get_buffer_device_address(m_device);
+
+        frame.pointLightIndicesBuffer = create_buffer(
+            sizeof(std::uint32_t) * kMaxPointLights * kMaxPointLights,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        frame.pointLightIndicesBufferAddr = frame.pointLightIndicesBuffer.get_buffer_device_address(m_device);
+
+        frame.pointLightIndicesOffsetsBuffer =
+            create_buffer(sizeof(std::uint32_t) * kMaxPointLights,
+                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+                              VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                          VMA_MEMORY_USAGE_GPU_ONLY);
+        frame.pointLightIndicesOffsetsBufferAddr =
+            frame.pointLightIndicesOffsetsBuffer.get_buffer_device_address(m_device);
+
+        frame.pointLightIndicesOffsetsCounterBuffer =
+            create_buffer(sizeof(std::uint32_t),
+                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+                              VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                          VMA_MEMORY_USAGE_GPU_ONLY);
+        frame.pointLightIndicesOffsetsCounterBufferAddr =
+            frame.pointLightIndicesOffsetsCounterBuffer.get_buffer_device_address(m_device);
 
         frame.minMaxBuffer = create_buffer(sizeof(MinMax),
                                            VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                                                VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
                                            VMA_MEMORY_USAGE_GPU_ONLY);
         frame.minMaxBufferAddr = frame.minMaxBuffer.get_buffer_device_address(m_device);
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_BUFFER,
+                                   reinterpret_cast<uint64_t>(frame.minMaxBuffer.buffer),
+                                   std::format("MinMax Buffer [{}]", i).c_str());
 
         frame.splitsAABBBuffer = create_buffer(sizeof(CascadesAABB),
                                                VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                                                    VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
                                                VMA_MEMORY_USAGE_GPU_ONLY);
         frame.splitsAABBBufferAddr = frame.splitsAABBBuffer.get_buffer_device_address(m_device);
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_BUFFER,
+                                   reinterpret_cast<uint64_t>(frame.splitsAABBBuffer.buffer),
+                                   std::format("Splits AABB Buffer [{}]", i).c_str());
 
         frame.cascadeDepthDescBuffer =
             DescriptorBuffer(m_device, m_DepthPassDescSetLayout, DescriptorBufferProperties::query(m_chosenGpu));
@@ -1068,6 +1334,9 @@ void Engine::init_frames_data()
                           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
                           VMA_MEMORY_USAGE_CPU_TO_GPU);
         frame.instanceBufferAddr = frame.instanceBuffer.get_buffer_device_address(m_device);
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_BUFFER,
+                                   reinterpret_cast<uint64_t>(frame.instanceBuffer.buffer),
+                                   std::format("Instance Buffer [{}]", i).c_str());
 
         frame.meshesBuffer =
             create_buffer(sizeof(RenderObject) * kMaxMeshes,
@@ -1075,18 +1344,27 @@ void Engine::init_frames_data()
                           VMA_MEMORY_USAGE_CPU_TO_GPU);
 
         frame.meshBufferAddr = frame.meshesBuffer.get_buffer_device_address(m_device);
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_BUFFER,
+                                   reinterpret_cast<uint64_t>(frame.meshesBuffer.buffer),
+                                   std::format("Meshes Buffer [{}]", i).c_str());
         frame.drawCommandsBuffer =
             create_buffer(sizeof(VkDrawIndexedIndirectCommand) * kMaxInstances,
                           VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT |
                               VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT,
                           VMA_MEMORY_USAGE_GPU_ONLY);
         frame.drawCommandsBufferAddr = frame.drawCommandsBuffer.get_buffer_device_address(m_device);
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_BUFFER,
+                                   reinterpret_cast<uint64_t>(frame.drawCommandsBuffer.buffer),
+                                   std::format("Draw Commands Buffer [{}]", i).c_str());
 
         frame.countBuffer = create_buffer(sizeof(std::uint32_t),
                                           VK_BUFFER_USAGE_2_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT |
                                               VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT,
                                           VMA_MEMORY_USAGE_GPU_ONLY);
         frame.countBufferAddr = frame.countBuffer.get_buffer_device_address(m_device);
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_BUFFER,
+                                   reinterpret_cast<uint64_t>(frame.countBuffer.buffer),
+                                   std::format("Count Buffer [{}]", i).c_str());
     }
 
     m_mainDeletionQueue.push_function([this] {
@@ -1098,6 +1376,11 @@ void Engine::init_frames_data()
             destroy_buffer(frame.countBuffer);
             destroy_buffer(frame.sceneDataBuffer);
             destroy_buffer(frame.dirLightBuffer);
+            destroy_buffer(frame.pointLightIndicesBuffer);
+            destroy_buffer(frame.pointLightIndicesOffsetsBuffer);
+            destroy_buffer(frame.pointLightIndicesOffsetsCounterBuffer);
+            destroy_buffer(frame.visiblePointLightsBuffer);
+            destroy_buffer(frame.visiblePointLightsCountBuffer);
             destroy_buffer(frame.pointLightBuffer);
             destroy_buffer(frame.minMaxBuffer);
             destroy_buffer(frame.splitsAABBBuffer);
@@ -1110,13 +1393,21 @@ void Engine::init_default_data()
 {
     std::uint32_t whiteColor = glm::packUnorm4x8(glm::vec4(1.0f, 1.0f, 1.0f, 1.0f));
     m_whiteImage = create_image(&whiteColor, VkExtent3D{1, 1, 1}, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
+                               reinterpret_cast<uint64_t>(m_whiteImage.image), "Default White Image");
     std::uint32_t blackColor = glm::packUnorm4x8(glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
     m_blackImage = create_image(&blackColor, VkExtent3D{1, 1, 1}, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
+                               reinterpret_cast<uint64_t>(m_blackImage.image), "Default Black Image");
     std::uint32_t greyColor = glm::packUnorm4x8(glm::vec4(0.5f, 0.5f, 0.5f, 1.0f));
     m_greyImage = create_image(&greyColor, VkExtent3D{1, 1, 1}, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
+                               reinterpret_cast<uint64_t>(m_greyImage.image), "Default Grey Image");
     std::uint32_t normalFallback = glm::packUnorm4x8(glm::vec4(0.5f, 0.5f, 1.0f, 1.0f));
     m_normalFallback =
         create_image(&normalFallback, VkExtent3D{1, 1, 1}, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
+                               reinterpret_cast<uint64_t>(m_normalFallback.image), "Default Normal Fallback Image");
 
     const std::uint32_t magentaColor = glm::packUnorm4x8(glm::vec4(1.0f, 0.0f, 1.0f, 1.0f));
     std::array<std::uint32_t, 16 * 16> errorPixels;
@@ -1129,6 +1420,8 @@ void Engine::init_default_data()
     }
     m_errorImage =
         create_image(errorPixels.data(), VkExtent3D{16, 16, 1}, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
+                               reinterpret_cast<uint64_t>(m_errorImage.image), "Default Error Image");
 
     VkSamplerCreateInfo samplerCreateInfo{
         .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
@@ -1136,9 +1429,13 @@ void Engine::init_default_data()
         .minFilter = VK_FILTER_LINEAR,
     };
     vkCreateSampler(m_device, &samplerCreateInfo, nullptr, &m_defaultSamplerLinear);
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_SAMPLER,
+                               reinterpret_cast<uint64_t>(m_defaultSamplerLinear), "Default Linear Sampler");
     samplerCreateInfo.minFilter = VK_FILTER_NEAREST;
     samplerCreateInfo.magFilter = VK_FILTER_NEAREST;
     vkCreateSampler(m_device, &samplerCreateInfo, nullptr, &m_defaultSamplerNearest);
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_SAMPLER,
+                               reinterpret_cast<uint64_t>(m_defaultSamplerNearest), "Default Nearest Sampler");
 
     [[maybe_unused]] auto samplerIdx = m_metalRoughness.write_sampler(m_defaultSamplerLinear);
     assert(0 == samplerIdx);
@@ -1168,11 +1465,11 @@ void Engine::init_mesh_data()
     ensure_index_capacity(1024);
 
 #if 1
-  const std::string sponzaPath =
-      "../../assets/gltf-samples/Models/Sponza/glTF/sponza.gltf";
-  if (!load_gltf(*this, sponzaPath)) {
-    throw std::runtime_error("Failed to load glTF file: " + sponzaPath);
-  }
+    const std::string sponzaPath = "../../assets/gltf-samples/Models/Sponza/glTF/sponza.gltf";
+    if (!load_gltf(*this, sponzaPath))
+    {
+        throw std::runtime_error("Failed to load glTF file: " + sponzaPath);
+    }
 #endif
 
 #if 0
@@ -1239,6 +1536,10 @@ void Engine::create_swapchain(const std::uint32_t width, const std::uint32_t hei
     m_swapchain = vkbSwapchainResult.value().swapchain;
     m_swapchainImages = vkbSwapchainResult.value().get_images().value();
     m_swapchainImageViews = vkbSwapchainResult.value().get_image_views().value();
+    for (std::size_t i = 0; i < m_swapchainImages.size(); ++i)
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
+                                   reinterpret_cast<uint64_t>(m_swapchainImages[i]),
+                                   std::format("Swapchain Image [{}]", i).c_str());
 }
 
 void Engine::destroy_swapchain()

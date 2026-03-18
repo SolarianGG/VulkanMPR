@@ -1,6 +1,7 @@
 module types;
 
 public static const int MAX_CASCADE_COUNT = 4;
+public static const int MAX_POINT_LIGHTS = 256;
 
 public struct Vertex
 {
@@ -10,6 +11,29 @@ public struct Vertex
     public float v;
     public float4 tangent;
     public float4 col;
+};
+
+public struct Mesh {
+    public uint32_t indexCount;
+    public uint32_t firstIndex;
+    public int32_t vertexOffset;
+    public uint32_t padding;
+    public float3 min;
+    public float padding1;
+    public float3 max;
+    public float padding2;
+};
+
+public struct Command {
+    public uint32_t indexCount;
+    public uint32_t instanceCount;
+    public uint32_t firstIndex;
+    public int32_t vertexOffset;
+    public uint32_t firstInstance;
+};
+
+public struct Count {
+    public uint32_t commandCount;
 };
 
 public struct Instance
@@ -50,11 +74,18 @@ public struct DirectionalLight {
     public float4x4 cascadeVPs[MAX_CASCADE_COUNT];
 };
 
+public struct TetrahedronData {
+    public float4 faceVectors[4];
+    public float4 planeNormals[12];
+};
+
 public struct PointLight {
     public float3 position;
     public float range;
     public float3 color;
     public float intensity;
+
+    public float4x4 lightMatrices[4];
 };
 
 public struct MinMax {

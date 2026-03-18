@@ -14,10 +14,14 @@
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/ext/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <glm/gtx/euler_angles.hpp>
+#include <glm/gtx/quaternion.hpp>
+#include <glm/gtx/transform.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <chrono>
+#include <print>
 #include <ranges>
 #include <thread>
 
@@ -36,6 +40,165 @@ namespace cn = std::chrono;
 namespace
 {
 mp::Engine *gLoadedEngine = nullptr;
+
+std::array<glm::mat4, 4> get_view_rotation_matrices_for_tetrahedron()
+{
+    std::array<glm::mat4, 4> res;
+    constexpr std::array<glm::vec3, 4> yawPitchRolls{
+        glm::vec3{27.36780516f, 180.0f, 0.0f},
+        glm::vec3{27.36780516f, 0.0f, 90.0f},
+        glm::vec3{-27.36780516f, 270.0f, 0.0f},
+        glm::vec3{-27.36780516f, 90.0f, 90.0f},
+    };
+
+    for (int i = 0; const auto &yawPitchRoll : yawPitchRolls)
+    {
+        const glm::quat yawRotation = glm::angleAxis(glm::radians(yawPitchRoll.x), glm::vec3{0.f, -1.f, 0.f});
+        const glm::quat pitchRotation = glm::angleAxis(glm::radians(yawPitchRoll.y), glm::vec3{1.f, 0.f, 0.f});
+        const glm::quat rollRotation = glm::angleAxis(glm::radians(yawPitchRoll.z), glm::vec3{0.0f, 0.0f, 1.0f});
+
+        res.at(i) = glm::toMat4(yawRotation) * glm::toMat4(pitchRotation) * glm::toMat4(rollRotation);
+        i++;
+    }
+
+    return res;
+}
+
+std::pair<float, float> compute_alpha_beta()
+{
+    constexpr float hFOV_orig = 143.98570868f;
+    constexpr float vFOV_orig = 125.26438968f;
+    constexpr float r = 0.0625f;
+
+    const float aspect = glm::tan(glm::radians(hFOV_orig / 2.0f))
+                       / glm::tan(glm::radians(vFOV_orig / 2.0f));
+    const glm::mat4 projA = glm::perspectiveRH_ZO(glm::radians(vFOV_orig), aspect,
+                                              mp::kPointLightNear, 1.0f);
+    const glm::mat4 invProjA = glm::inverse(projA);
+
+    glm::vec3 centers[4] = {
+        {-1.0f,  0.0f, -1.0f},
+        { 1.0f,  0.0f, -1.0f},
+        { 0.0f, -1.0f, -1.0f},
+        { 0.0f,  1.0f, -1.0f},
+    };
+    const glm::vec3 offsets[4] = {{-r, 0, 0}, {r, 0, 0}, {0, -r, 0}, {0, r, 0}};
+    glm::vec3 v[4];
+    for (int i = 0; i < 4; ++i)
+    {
+        centers[i] += offsets[i];
+        const glm::vec4 vs = invProjA * glm::vec4(centers[i], 1.0f);
+        v[i] = glm::normalize(glm::vec3(vs));
+    }
+
+    const float dilatedFovX = glm::degrees(glm::acos(glm::dot(v[0], v[1])));
+    const float dilatedFovY = glm::degrees(glm::acos(glm::dot(v[2], v[3])));
+    return {dilatedFovX - hFOV_orig, dilatedFovY - vFOV_orig};
+}
+
+mp::TetrahedronData compute_tetrahedron_data()
+{
+    const auto [alpha, beta] = compute_alpha_beta();
+
+    const glm::vec3 faceVecs[4] = {
+        { 0.0f,        -0.57735026f,  0.81649661f },
+        { 0.0f,        -0.57735026f, -0.81649661f },
+        {-0.81649661f,  0.57735026f,  0.0f        },
+        { 0.81649661f,  0.57735026f,  0.0f        },
+    };
+    const glm::vec3 corners[4] = {
+        -faceVecs[0], -faceVecs[1], -faceVecs[2], -faceVecs[3]
+    };
+
+    mp::TetrahedronData data{};
+    for (int i = 0; i < 4; ++i)
+        data.faceVectors[i] = glm::vec4(faceVecs[i], 0.0f);
+
+    int planeIdx = 0;
+    for (int i = 0; i < 4; ++i)
+    {
+        int neighbors[3];
+        int ni = 0;
+        for (int j = 0; j < 4; ++j)
+            if (j != i) neighbors[ni++] = j;
+
+        for (int s = 0; s < 3; ++s)
+        {
+            int j = neighbors[s];
+            glm::vec3 edgeCorners[2];
+            int ec = 0;
+            for (int k = 0; k < 4; ++k)
+                if (k != i && k != j) edgeCorners[ec++] = corners[k];
+
+            glm::vec3 n = glm::normalize(glm::cross(edgeCorners[0], edgeCorners[1]));
+            if (glm::dot(n, faceVecs[i]) < 0.0f) n = -n;
+            const glm::vec3 rotAxis = glm::normalize(glm::cross(faceVecs[i], faceVecs[j]));
+            n = glm::rotate(glm::angleAxis(glm::radians(alpha), rotAxis), n);
+
+            data.planeNormals[planeIdx++] = glm::vec4(glm::normalize(n), 0.0f);
+        }
+    }
+
+    return data;
+}
+
+void compute_tetrahedron_shadow_matrices(mp::PointLightData &pointLight, const std::uint32_t lightIndex)
+{
+    static const auto pointLightRotations = get_view_rotation_matrices_for_tetrahedron();
+    static const auto [alpha, beta] = compute_alpha_beta();
+
+    const float hFOV_AC = 143.98570868f + alpha;
+    const float vFOV_AC = 125.26438968f + beta;
+    const float aspect_AC = glm::tan(glm::radians(hFOV_AC / 2.0f))
+                          / glm::tan(glm::radians(vFOV_AC / 2.0f));
+    const glm::mat4 projAC = glm::perspectiveRH_ZO(glm::radians(vFOV_AC),
+                                                    aspect_AC, mp::kPointLightNear, pointLight.range);
+
+    const float hFOV_BD = 125.26438968f + beta;
+    const float vFOV_BD = 143.98570868f + alpha;
+    const float aspect_BD = glm::tan(glm::radians(hFOV_BD / 2.0f))
+                          / glm::tan(glm::radians(vFOV_BD / 2.0f));
+    const glm::mat4 projBD = glm::perspectiveRH_ZO(glm::radians(vFOV_BD),
+                                                    aspect_BD, mp::kPointLightNear, pointLight.range);
+
+    const glm::mat4 projMatrices[4] = {projAC, projBD, projAC, projBD};
+
+    const float tileUV = static_cast<float>(mp::kPointLightTileSize)
+                       / static_cast<float>(mp::kPointLightsShadowMapSize);
+    const float s  = tileUV * 0.5f;
+    const float px = (static_cast<float>(lightIndex % mp::kPointLightTilesPerRow) + 0.5f) * tileUV;
+    const float py = (static_cast<float>(lightIndex / mp::kPointLightTilesPerRow) + 0.5f) * tileUV;
+
+    // Builds a matrix that maps face NDC [-1,1] to tile clip-space NDC.
+    // Rasterizer then maps clip-NDC to screen pixels that correspond to the tile's UV region.
+    // Parameters (sx, sy, tx, ty) are the same UV-space parameters used for sampling,
+    // so the two transforms stay in sync without storing two separate matrices.
+    auto make_gen_matrix = [](float sx, float sy, float tx, float ty) -> glm::mat4 {
+        glm::mat4 m(0.0f);
+        m[0][0] = 2.0f * sx;           // x: NDC_x = 2*UV_x - 1  → scale doubles
+        m[1][1] = -2.0f * sy;          // y: NDC_y = 1 - 2*UV_y   → sign flips for Vulkan
+        m[2][2] = 1.0f;
+        m[3][3] = 1.0f;
+        m[3][0] = 2.0f * tx - 1.0f;   // x translation
+        m[3][1] = 1.0f - 2.0f * ty;   // y translation
+        return m;
+    };
+
+    const glm::mat4 genMatrices[4] = {
+        make_gen_matrix( s,       -s / 2.f, px,           py - s / 2.f),
+        make_gen_matrix( s / 2.f, -s,       px + s / 2.f, py          ),
+        make_gen_matrix( s,       -s / 2.f, px,           py + s / 2.f),
+        make_gen_matrix( s / 2.f, -s,       px - s / 2.f, py          ),
+    };
+
+    const glm::mat4 pointLightTranslation = glm::translate(glm::mat4(1.0f), pointLight.position);
+
+    for (int i = 0; i < 4; ++i)
+    {
+        const glm::mat4 viewMatrix = glm::inverse(pointLightTranslation * pointLightRotations[i]);
+        pointLight.tetrahedronFacesMatrices[i] = genMatrices[i] * projMatrices[i] * viewMatrix;
+    }
+}
 } // namespace
 
 namespace mp
@@ -80,6 +243,16 @@ Engine::Engine()
     init_frames_data();
     init_default_data();
     init_mesh_data();
+
+    // Create tetrahedron data buffer for point light shadows
+    {
+        TetrahedronData tetraData = compute_tetrahedron_data();
+        m_tetrahedronBuffer = create_buffer(
+            sizeof(TetrahedronData), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+            VMA_MEMORY_USAGE_CPU_TO_GPU);
+        std::memcpy(m_tetrahedronBuffer.allocationInfo.pMappedData, &tetraData, sizeof(tetraData));
+        m_mainDeletionQueue.push_function([this] { destroy_buffer(m_tetrahedronBuffer); });
+    }
 
     m_camera.velocity = glm::vec3(0.0f);
     m_camera.position = glm::vec3(0.0f, 0.0f, 5.0f);
@@ -143,7 +316,6 @@ void Engine::run()
         // ImGui UI
         if (ImGui::Begin("Other"))
         {
-            ImGui::DragFloat("Render scale", &m_renderScale, 0.01f, 0.01f, 1.0f);
             ImGui::DragFloat("Camera speed", &m_camera.cameraSpeed, 0.01f, 0.01f, 100.0f);
             // TODO: Add debug light visualization
 #if 0
@@ -253,9 +425,7 @@ void Engine::update_scene()
 
     copy_frame_buffers();
 
-    constexpr float cameraNear = 0.1f;
-    constexpr float cameraFar = 100.0f;
-    const glm::mat4 proj = glm::perspective(
+    const glm::mat4 proj = glm::perspectiveRH_ZO(
         glm::radians(90.0f), static_cast<float>(m_drawExtent.width) / m_drawExtent.height, cameraNear, cameraFar);
 
     m_sceneData.view = m_camera.get_view_matrix();
@@ -280,7 +450,7 @@ void Engine::update_scene()
 
         const glm::vec3 sceneCenter = (m_mainDrawContext.max + m_mainDrawContext.min) * 0.5f;
         const auto lightPos = sceneCenter - lightDir * sceneMaxDistance;
-        light.cascadeVPs[0] = m_DirLightViewMatrix =  glm::lookAt(lightPos, sceneCenter, up);
+        m_DirLightViewMatrix = glm::lookAtRH(lightPos, sceneCenter, up);
 
         glm::vec3 lsMin(FLT_MAX);
         glm::vec3 lsMax(-FLT_MAX);
@@ -296,7 +466,8 @@ void Engine::update_scene()
                     lsMax = glm::max(lsMax, ls);
                 }
 
-        m_DirLightCullMatrix = glm::ortho(lsMin.x, lsMax.x, lsMin.y, lsMax.y, -lsMax.z, -lsMin.z) * light.cascadeVPs[0];
+        m_DirLightCullMatrix =
+            glm::orthoRH_ZO(lsMin.x, lsMax.x, lsMin.y, lsMax.y, -lsMax.z, -lsMin.z) * light.cascadeVPs[0];
     }
 
     auto &frame = get_current_frame();
@@ -308,15 +479,21 @@ void Engine::update_scene()
         std::memcpy(frame.dirLightBuffer.allocationInfo.pMappedData, &m_mainDrawContext.dirLight.value(),
                     sizeof(DirectionalLightData));
     }
+    for (std::uint32_t i = 0; i < m_mainDrawContext.pointLights.size(); ++i)
+    {
+        compute_tetrahedron_shadow_matrices(m_mainDrawContext.pointLights[i], i);
+    }
     std::memcpy(frame.pointLightBuffer.allocationInfo.pMappedData, m_mainDrawContext.pointLights.data(),
                 m_mainDrawContext.pointLights.size() * sizeof(PointLightData));
 
     m_LightPassConstants = {
-        .sceneDataBufferDeviceAddr = frame.sceneDataBufferAddr,
-        .dirLightBufferDeviceAddr = frame.dirLightBufferAddr,
-        .dirLightCount = m_mainDrawContext.dirLight.has_value() ? 1u : 0u,
-        .pointLightBufferDeviceAddr = frame.pointLightBufferAddr,
-        .pointLightCount = static_cast<std::uint32_t>(m_mainDrawContext.pointLights.size()),
+        .sceneData = frame.sceneDataBufferAddr,
+        .directionalLight = frame.dirLightBufferAddr,
+        .visiblePointLights = frame.visiblePointLightsBufferAddr,
+        .visiblePointLightsCount = frame.visiblePointLightsCountBufferAddr,
+        .tetrahedronDataAddr = m_tetrahedronBuffer.get_buffer_device_address(m_device),
+        .cameraNear = cameraNear,
+        .cameraFar = cameraFar,
         .inverseCameraViewProj = inverseViewProj,
     };
 
@@ -326,15 +503,12 @@ void Engine::update_scene()
         .sceneDataBufferDeviceAddr = frame.sceneDataBufferAddr,
     };
 
-    m_WBOITForwardPassPushConstants = {
-        .globalVertexBufferAddr = m_globalVertexBufferAddress,
-        .instanceBufferDeviceAddr = frame.instanceBufferAddr,
-        .sceneDataBufferDeviceAddr = frame.sceneDataBufferAddr,
-        .dirLightBufferDeviceAddr = frame.dirLightBufferAddr,
-        .dirLightCount = m_mainDrawContext.dirLight.has_value() ? 1u : 0u,
-        .pointLightBufferDeviceAddr = frame.pointLightBufferAddr,
-        .pointLightCount = static_cast<std::uint32_t>(m_mainDrawContext.pointLights.size()),
-    };
+    m_WBOITForwardPassPushConstants = {.vertices = m_globalVertexBufferAddress,
+                                       .instances = frame.instanceBufferAddr,
+                                       .sceneData = frame.sceneDataBufferAddr,
+                                       .directionalLight = frame.dirLightBufferAddr,
+                                       .visiblePointLights = frame.visiblePointLightsBufferAddr,
+                                       .visiblePointLightsCount = frame.visiblePointLightsCountBufferAddr};
     const auto end = cn::steady_clock::now();
     const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
 

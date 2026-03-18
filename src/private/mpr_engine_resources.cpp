@@ -10,6 +10,7 @@
 #include "mpr_error_check.hpp"
 #include "mpr_image.hpp"
 #include "mpr_init_vk_stucts.hpp"
+#include "mpr_debug_utils.hpp"
 // clang-format on
 
 namespace mp {
@@ -92,7 +93,7 @@ AllocatedImage Engine::create_image(const VkExtent3D extent,
                  &image.image, &image.allocation, nullptr) >>
       chk;
 
-  const VkImageAspectFlags aspectFlags = format == VK_FORMAT_D32_SFLOAT
+  const VkImageAspectFlags aspectFlags = vkuFormatIsDepthOnly(format)
                                              ? VK_IMAGE_ASPECT_DEPTH_BIT
                                              : VK_IMAGE_ASPECT_COLOR_BIT;
   VkImageViewCreateInfo imageViewCreateInfo =
@@ -206,6 +207,8 @@ void Engine::ensure_vertex_capacity(std::size_t additionalCount) {
   }
 
   m_globalVertexBuffer = newBuffer;
+  mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_BUFFER,
+                             reinterpret_cast<uint64_t>(m_globalVertexBuffer.buffer), "Global Vertex Buffer");
   m_globalVertexCapacity = newCapacity;
 
   const VkBufferDeviceAddressInfo addrInfo{
@@ -250,6 +253,8 @@ void Engine::ensure_index_capacity(std::size_t additionalCount) {
   }
 
   m_globalIndexBuffer = newBuffer;
+  mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_BUFFER,
+                             reinterpret_cast<uint64_t>(m_globalIndexBuffer.buffer), "Global Index Buffer");
   m_globalIndexCapacity = newCapacity;
 }
 

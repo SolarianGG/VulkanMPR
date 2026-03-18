@@ -26,7 +26,6 @@ struct EngineStats
     float shadowPassDrawTime;
 };
 
-constexpr auto kNumberOfFrames = 2;
 
 struct FrameData
 {
@@ -44,8 +43,8 @@ struct FrameData
     AllocatedImage depthImage;
     AllocatedImage oitAccImage;
     AllocatedImage oitRevealImage;
-    AllocatedImage shadowPassDepthArray;            // array image view (for sampling)
-    VkImageView shadowPassLayerViews[MAX_CASCADES]; // per-layer views (for rendering)
+    AllocatedImage directionalShadowPassDepthArray;            // array image view (for sampling)
+    AllocatedImage pointLightsShadowTileMap;
 
     DescriptorBuffer lightPassDescriptorBuffer;
     DescriptorBuffer wboitCompositePassDescBuffer;
@@ -58,6 +57,16 @@ struct FrameData
     VkDeviceAddress dirLightBufferAddr;
     AllocatedBuffer pointLightBuffer;
     VkDeviceAddress pointLightBufferAddr;
+    AllocatedBuffer visiblePointLightsBuffer;
+    VkDeviceAddress visiblePointLightsBufferAddr;
+    AllocatedBuffer visiblePointLightsCountBuffer;
+    VkDeviceAddress visiblePointLightsCountBufferAddr;
+    AllocatedBuffer pointLightIndicesBuffer;
+    VkDeviceAddress pointLightIndicesBufferAddr;
+    AllocatedBuffer pointLightIndicesOffsetsBuffer;
+    VkDeviceAddress pointLightIndicesOffsetsBufferAddr;
+    AllocatedBuffer pointLightIndicesOffsetsCounterBuffer;
+    VkDeviceAddress pointLightIndicesOffsetsCounterBufferAddr;
     AllocatedBuffer minMaxBuffer;
     VkDeviceAddress minMaxBufferAddr;
     AllocatedBuffer splitsAABBBuffer;
@@ -106,7 +115,7 @@ class Engine final
     void destroy_swapchain();
     void resize_swapchain();
 
-    VkExtent2D m_windowExtent{1600, 900};
+    VkExtent2D m_windowExtent{1920, 1080};
     std::uint64_t m_frameNumber = 0;
     bool m_isInitialized = false;
     bool m_isRenderStopped = false;
@@ -143,7 +152,7 @@ class Engine final
 
     VkPipelineLayout m_LightPassPipelineLayout{};
     VkPipeline m_LightPassPipeline{};
-    LightPassConstantRange m_LightPassConstants{};
+    LightPassPushConstants m_LightPassConstants{};
 
     // Simple immediate submit structures
     // For future optimizations consider adding queue
@@ -156,7 +165,6 @@ class Engine final
     GBufferPassPushConstants m_MeshPassPushConstants{};
 
     bool m_bSwapchainResizeRequest = false;
-    float m_renderScale{1.0f};
 
     AllocatedImage m_whiteImage{};
     AllocatedImage m_blackImage{};
@@ -180,6 +188,8 @@ class Engine final
 
     VkExtent3D m_CommonImageExtent3D{};
     VkExtent2D m_CommonImageExtent2D{};
+
+    AllocatedBuffer m_tetrahedronBuffer{};
 
     AllocatedBuffer m_globalVertexBuffer{};
     VkDeviceAddress m_globalVertexBufferAddress{};
@@ -215,6 +225,9 @@ class Engine final
     VkPipeline m_CullPassPipeline{};
     VkPipelineLayout m_CullPassPipelineLayout{};
 
+    VkPipeline m_CullPointLightsPassPipeline{};
+    VkPipelineLayout m_CullPointLightsPassPipelineLayout{};
+
     std::uint32_t m_OpaqueSize = 0;
     std::uint32_t m_TransparentSize = 0;
 
@@ -223,6 +236,11 @@ class Engine final
 
     VkPipeline m_ShadowPassPipeline{};
     VkPipelineLayout m_ShadowPassPipelineLayout{};
+
+    VkPipeline m_PointLightShadowPassPipeline{};
+    VkPipelineLayout m_PointLightShadowPassPipelineLayout{};
+    VkPipeline m_GeneratePointLightCommandsPipeline{};
+    VkPipelineLayout m_GeneratePointLightCommandsPipelineLayout{};
 
     VkPipeline m_PrepassPipeline{};
     VkPipelineLayout m_PrepassPipelineLayout{};
@@ -237,9 +255,9 @@ class Engine final
     VkPipeline m_DirVpPipeline{};
     VkPipelineLayout m_DirVpPipelineLayout{};
 
-
     glm::mat4 m_DirLightCullMatrix{1.0f};
     glm::mat4 m_DirLightViewMatrix{1.0f};
+
   private:
     void init_window();
     void init_vulkan();
@@ -251,15 +269,18 @@ class Engine final
     void init_light_pass_pipeline();
     void init_wboit_composite_pass_pipeline();
     void init_depth_reduction_pass();
-    void init_shadow_pass();
+    void init_directional_shadow_pass();
+    void init_point_shadow_pass();
     void init_prepass();
     void init_post_pipeline();
-    void init_cull_pipeline();
+    void init_cull_meshes_pipeline();
+    void init_cull_point_lights_pipeline();
+    void init_generate_point_light_commands_pipeline();
     void init_imgui();
     void init_mesh_data();
     void init_default_data();
     void draw();
-    void draw_shadow_pass(VkCommandBuffer cmd);
+    void draw_directional_shadow_pass(VkCommandBuffer cmd);
     void draw_light_pass(VkCommandBuffer cmd);
     void draw_imgui(VkCommandBuffer cmd, VkImageView targetImageView);
     void draw_gBuffer_pass(VkCommandBuffer cmd);
@@ -271,13 +292,15 @@ class Engine final
     void compute_depth_reduction(VkCommandBuffer cmd);
     void compute_depth_partition(VkCommandBuffer cmd);
     void compute_dir_lights_vp(VkCommandBuffer cmd);
-    // TODO: Fix this bool isMetalRoughness
     void draw_meshes(VkCommandBuffer cmd, const VkPipelineLayout drawPassPipelineLayout, const VkPipeline drawPipeline,
                      const std::uint32_t objectCount, auto &pushConstants,
-                     const VkShaderStageFlags pushConstantsShaderStage, bool isMetalRoughness = true);
+                     const VkShaderStageFlags pushConstantsShaderStage);
 
     void cull_objects(VkCommandBuffer cmd, std::uint32_t objectCount, std::uint32_t objectOffset,
                       const glm::mat4 &viewProj);
+    void cull_point_lights(VkCommandBuffer cmd);
+    void compute_point_lights_commands(VkCommandBuffer cmd);
+    void draw_point_lights_shadows_pass(VkCommandBuffer cmd);
     void copy_frame_buffers();
 
     void init_frames_data();

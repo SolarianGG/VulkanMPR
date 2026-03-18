@@ -29,7 +29,7 @@ struct VSOutput
 };
 
 [shader("vertex")]
-VSOutput vertexMain(uint vertexID : SV_VulkanVertexID, uint instanceID : SV_VulkanInstanceID)
+VSOutput vertexMain(uint vertexID : SV_VulkanVertexID, uint instanceID : SV_VulkanInstanceID, uint offset : SVDraw)
 {
     Vertex vertex = pushConstants.vertices[vertexID];
     Instance instance = pushConstants.instances[instanceID];

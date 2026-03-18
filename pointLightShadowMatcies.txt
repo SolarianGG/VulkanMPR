@@ -1,0 +1,19 @@
+// m at r i x o f t e t r a h e d r o n f a c e v e c t o r s
+m a t 4 x 3 f a c e M a t r i x ;
+f a c e M a t r i x [ 0 ] = f a c e V e c t o r s [ 0 ] ;
+f a c e M a t r i x [ 1 ] = f a c e V e c t o r s [ 1 ] ;
+f a c e M a t r i x [ 2 ] = f a c e V e c t o r s [ 2 ] ;
+f a c e M a t r i x [ 3 ] = f a c e V e c t o r s [ 3 ] ;
+// d e t e r m i n e f a c e t h a t i s c l o s e s t t o s p e c i f i e d l i g h t v e c t o r
+v e c 4 d o t P r o d u c t s = −l i g h t V e c N  f a c e M a t r i x ;
+f l o a t m a x i m u m = m a x ( m a x ( d o t P r o d u c t s . x , d o t P r o d u c t s . y ) ,
+m a x ( d o t P r o d u c t s . z , d o t P r o d u c t s . w ) ) ;
+u i n t i n d e x ;
+i f ( m a x i m u m == d o t P r o d u c t s . x )
+i n d e x = 0 ;
+e l s e i f ( m a x i m u m == d o t P r o d u c t s . y )
+i n d e x = 1 ;
+e l s e i f ( m a x i m u m == d o t P r o d u c t s . z )
+i n d e x = 2 ;
+e l s e
+i n d e x = 3 ;

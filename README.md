@@ -26,6 +26,7 @@ It focuses on learning GPU resource management, descriptor systems, shader refle
 - python 3.x 
 - Git
 - Vulkan SDK
+- GPU that supports descriptor buffers, spirv 1.6 / shader model 6.5
 
 ### Building:
 - git clone --recursive https://github.com/SolarianGG/VulkanMPR.git
@@ -44,6 +45,15 @@ It focuses on learning GPU resource management, descriptor systems, shader refle
 - Vulkan deferred renderer
 
 ![Deferred](./screenshots/deferred.png)
+
+GBuffer pass structure is:
+
+Depth buffer from depth prepass, used for reconstructing world position.
+Normals (Texture format is RGBA32SF, will make RG16 in future)
+Albedo color
+Metal roughness color
+Directional light cascade shadow map array.
+
 - GLTF model loading
 - Bindless material model via descriptor buffers extension
 - Slang shader language integration
@@ -76,15 +86,19 @@ Also applied constant bias to remove shadow acne.
 This simple approach for sun's shadow will be removed in favor of CSM.
 
 ### Planned Features
-- Point light cube shadow mapping
-- CSM
-- HDR + tonemap + gamma correction
+- Tile-Based Omnidirectional Shadows [Hawar Doghramachi] [GPU Pro 6]
+- Moment shadow mapping [Peters and Klein] [https://momentsingraphics.de/I3D2015.html]
+- Screen space shadows [Graham Aldridge (Days Gone)] [https://www.bendstudio.com/blog/inside-bend-screen-space-shadows/]
+- HDR + tonemap 
 - PBR
 - IBL
+- Real-Time Lighting via Light Linked List [Abdul Bezrati] [GPU Pro 6]
+- Volumetric Fog and Lighting [Bartlomiej Wro´nski] [GPU Pro 6]
 - Render doc debug markers
 - Multithreaded cmd record
 - Bloom
 - SSAO
+- SSR
 - Blur
-- TAA / FXAA / MSAA on deferred renderer
+- MSAA on deferred renderer / SMAA
 

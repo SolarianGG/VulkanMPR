@@ -71,3 +71,46 @@ public void AtomicMaxFloat(uint *addr, float value)
             break;
     }
 }
+
+bool within(float lo, float x, float hi) {
+    return (lo <= x) && (x <= hi);
+}
+
+public bool IsInFrustum(float3 min, float3 max, float4x4 viewProj) {
+    float4 corners[8] = {
+        { min.x, min.y, min.z, 1.0 }, // x y z
+        { max.x, min.y, min.z, 1.0 }, // X y z
+        { min.x, max.y, min.z, 1.0 }, // x Y z
+        { max.x, max.y, min.z, 1.0 }, // X Y z
+
+        { min.x, min.y, max.z, 1.0 }, // x y Z
+        { max.x, min.y, max.z, 1.0 }, // X y Z
+        { min.x, max.y, max.z, 1.0 }, // x Y Z
+        { max.x, max.y, max.z, 1.0 }, // X Y Z
+    };
+
+    [[unroll]]
+    for (int i = 0; i < 8; ++i) {
+        corners[i] = mul(viewProj, corners[i]);
+    }
+    bool isInside;
+    // Checking against each plane, aabb in only outside the frustrum if all of it 8 corners
+    // is outside a plane
+#define ALL_OUTSIDE_X(check)                                                                                           \
+    isInside = false;                                                                                                  \
+    [[unroll]]                                                                                                         \
+    for (int i = 0; i < 8; ++i) {                                                                                                                  \
+        if (!(check)) { isInside = true; break; }                                                                                                              \
+    }                                                                                                                  \
+    if (!isInside) return false;
+
+    ALL_OUTSIDE_X(corners[i].x < -corners[i].w)
+    ALL_OUTSIDE_X(corners[i].x > corners[i].w)
+    ALL_OUTSIDE_X(corners[i].y < -corners[i].w)
+    ALL_OUTSIDE_X(corners[i].y > corners[i].w)
+    ALL_OUTSIDE_X(corners[i].z < 0)
+    ALL_OUTSIDE_X(corners[i].z > corners[i].w)
+#undef ALL_OUTSIDE_X
+
+    return true;
+}

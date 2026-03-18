@@ -22,7 +22,7 @@ struct GLTFMetallicRoughness {
     glm::vec4 colorFactors;
     glm::vec4 metalRoughFactors;
     float alphaCutoff;
-    float padding[3];
+    float padding[7]; // pad to 64 bytes to satisfy minUniformBufferOffsetAlignment
   };
 
   void build_pipelines(Engine& engine);

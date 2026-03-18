@@ -9,9 +9,11 @@ struct PushConstants {
     CascadesAABB *splitsAABB;
     DirectionalLight *dirLights;
     float3 sceneMin;
-    float _pad0;
+    float boundsModifier;
     float3 sceneMax;
     uint shadowMapSize;
+
+    float4x4 lightView;
 };
 
 [[vk::push_constant]]
@@ -32,6 +34,10 @@ float4x4 orthoRH_ZO(float left, float right, float bottom, float top, float zNea
     return res;
 }
 
+// This value is used to avoid shadow flickering on flat surfaces
+// Without it, surfaces with 90 degrees angle on the border of a cascade to the light with appear in light
+static const float BOUNDS_MODIFIER = 0.1f; 
+
 // Bad distribution with (1, 1, 1), meaning  we are guaranteed to have inactive invocations in every subgroup
 // Fix it later by using Wave Intrinsics
 [shader("compute")]
@@ -39,7 +45,7 @@ float4x4 orthoRH_ZO(float left, float right, float bottom, float top, float zNea
 void dirVpComputeMain(uint3 threadID : SV_DispatchThreadID)
 {
     uint cascadeCount = pushConstants.dirLights[threadID.x].cascadeCount.r;
-    float4x4 lightView = pushConstants.dirLights[threadID.x].cascadeVPs[0];
+    float4x4 lightView = pushConstants.lightView;
     CascadesAABB cascadesBounds = pushConstants.splitsAABB[threadID.x];
 
     // Extend near plane to cover off-camera occluders between the light and the camera frustum.
@@ -57,11 +63,11 @@ void dirVpComputeMain(uint3 threadID : SV_DispatchThreadID)
 
     for (uint i = 0; i < cascadeCount; ++i) {
         AABB bounds = cascadesBounds.bounds[i];
-        float minX = asfloat(bounds.minX);
-        float maxX = asfloat(bounds.maxX);
-        float minY = asfloat(bounds.minY);
-        float maxY = asfloat(bounds.maxY);
-        float minZ = asfloat(bounds.minZ);
+        float minX = asfloat(bounds.minX) - BOUNDS_MODIFIER;
+        float maxX = asfloat(bounds.maxX) + BOUNDS_MODIFIER;
+        float minY = asfloat(bounds.minY) - BOUNDS_MODIFIER;
+        float maxY = asfloat(bounds.maxY) + BOUNDS_MODIFIER;
+        float minZ = asfloat(bounds.minZ) - BOUNDS_MODIFIER;
         float maxZ = asfloat(bounds.maxZ);
         maxZ = max(sceneMaxZ, maxZ);
         float4x4 lightProj = orthoRH_ZO(minX, maxX, minY, maxY, -maxZ, -minZ);

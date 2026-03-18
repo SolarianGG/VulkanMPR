@@ -1,28 +1,5 @@
 import utils;
 import types;
-struct Mesh {
-    uint32_t indexCount;
-    uint32_t firstIndex;
-    int32_t vertexOffset;
-    uint32_t padding;
-    float3 min;
-    float padding1;
-    float3 max;
-    float padding2;
-};
-
-struct Command {
-    uint32_t indexCount;
-    uint32_t instanceCount;
-    uint32_t firstIndex;
-    int32_t vertexOffset;
-    uint32_t firstInstance;
-};
-
-struct Count {
-    uint32_t commandCount;
-};
-
 
 struct PushConstants {
     Mesh *meshes;
@@ -33,53 +10,6 @@ struct PushConstants {
     uint32_t objectCount;
     uint32_t objectOffset;
 };
-
-bool within(float lo, float x, float hi) {
-    return (lo <= x) && (x <= hi);
-}
-
-bool IsInFrustum(Instance object, Mesh mesh) {
-    float4 corners[8] = {
-        { mesh.min.x, mesh.min.y, mesh.min.z, 1.0 }, // x y z
-        { mesh.max.x, mesh.min.y, mesh.min.z, 1.0 }, // X y z
-        { mesh.min.x, mesh.max.y, mesh.min.z, 1.0 }, // x Y z
-        { mesh.max.x, mesh.max.y, mesh.min.z, 1.0 }, // X Y z
-
-        { mesh.min.x, mesh.min.y, mesh.max.z, 1.0 }, // x y Z
-        { mesh.max.x, mesh.min.y, mesh.max.z, 1.0 }, // X y Z
-        { mesh.min.x, mesh.max.y, mesh.max.z, 1.0 }, // x Y Z
-        { mesh.max.x, mesh.max.y, mesh.max.z, 1.0 }, // X Y Z
-    };
-
-    float4x4 MVP = mul(pushConstants.viewProj, object.worldTransform);
-    [[unroll]]
-    for (int i = 0; i < 8; ++i) {
-        corners[i] = mul(MVP, corners[i]);
-    }
-    bool isInside;
-    // Checking against each plane, aabb in only outside the frustrum if all of it 8 corners
-    // is outside a plane
-#define ALL_OUTSIDE_X(check)                                                                                           \
-    isInside = false;                                                                                                  \
-    [[unroll]] \
-    for (int i = 0; i < 8; ++i) {                                                                                                                  \
-        if (!(check)) { isInside = true; break; }                                                                                                     \
-    }                                                                                                                  \
-    if (!isInside) return false; \
-
-    
-    ALL_OUTSIDE_X(corners[i].x < -corners[i].w)
-    ALL_OUTSIDE_X(corners[i].x > corners[i].w)
-    ALL_OUTSIDE_X(corners[i].y < -corners[i].w)
-    ALL_OUTSIDE_X(corners[i].y > corners[i].w)
-    ALL_OUTSIDE_X(corners[i].z < 0)
-    ALL_OUTSIDE_X(corners[i].z > corners[i].w)
-#undef ALL_OUTSIDE_X
-
-
-    return true;
-
-}
 
 [[vk::push_constant]]
 PushConstants pushConstants;
@@ -96,8 +26,10 @@ void computeMain(uint3 threadID: SV_DispatchThreadID) {
 
     Mesh mesh = pushConstants.meshes[object.meshIndex];
 
-    // Now we're using subgroups in order to remove atomic increment memory pressure 
-    bool bNeedToAdd = IsInFrustum(object, mesh);
+    // Now we're using subgroups in order to remove atomic increment memory pressure
+    float3 worldMin = mul(object.worldTransform, float4(mesh.min, 1.0f)).xyz;
+    float3 worldMax = mul(object.worldTransform, float4(mesh.max, 1.0f)).xyz;
+    bool bNeedToAdd = IsInFrustum(worldMin, worldMax, pushConstants.viewProj);
     uint laneOffset = WavePrefixCountBits(bNeedToAdd);
     uint amountToAdd = WaveActiveCountBits(bNeedToAdd);
 
@@ -109,6 +41,10 @@ void computeMain(uint3 threadID: SV_DispatchThreadID) {
     commandIndexOffset = WaveReadLaneFirst(commandIndexOffset);
     commandIndexOffset += laneOffset;
 
+
+    // TODO: Right now we generate only one command per instance,
+    // later I'll try one command per visible mesh with N instance count
+    // For that I will probably need second pass
     if (bNeedToAdd) {
       Command command;
       command.firstIndex = mesh.firstIndex;
