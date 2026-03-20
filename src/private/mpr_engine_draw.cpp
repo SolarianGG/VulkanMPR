@@ -93,25 +93,41 @@ void Engine::draw()
     {
         barrierBuilder.add_buffer_barrier({
             .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
-            .srcStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
-            .srcAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
-            .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-            .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+            .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+            .srcAccessMask = 0,
+            .dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+            .dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
             .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
             .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .buffer = currentFrame.drawCommandsBuffer.buffer,
+            .buffer = currentFrame.countBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+        barrierBuilder.barrier(cmd);
+
+        vkCmdFillBuffer(cmd, currentFrame.countBuffer.buffer, 0, VK_WHOLE_SIZE, 0);
+
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+            .srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.countBuffer.buffer,
             .offset = 0,
             .size = VK_WHOLE_SIZE,
         });
         barrierBuilder.add_buffer_barrier({
             .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
-            .srcStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
-            .srcAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+            .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+            .srcAccessMask = 0,
             .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-            .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
+            .dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
             .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
             .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .buffer = currentFrame.countBuffer.buffer,
+            .buffer = currentFrame.drawCommandsBuffer.buffer,
             .offset = 0,
             .size = VK_WHOLE_SIZE,
         });
@@ -135,6 +151,18 @@ void Engine::draw()
             .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
             .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
             .buffer = currentFrame.drawCommandsBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+            .dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.countBuffer.buffer,
             .offset = 0,
             .size = VK_WHOLE_SIZE,
         });
@@ -165,7 +193,6 @@ void Engine::draw()
         barrierBuilder.barrier(cmd);
     }
     draw_point_lights_shadows_pass(cmd);
-
 
     // Compute minZ/maxZ from prepass depth
     {
@@ -454,8 +481,8 @@ void Engine::draw_directional_shadow_pass(VkCommandBuffer cmd)
 
     cull_objects(cmd, m_OpaqueSize, 0, m_DirLightCullMatrix);
 
-    const auto depthAttachment =
-        utils::depth_attachment(currentFrame.directionalShadowPassDepthArray.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+    const auto depthAttachment = utils::depth_attachment(currentFrame.directionalShadowPassDepthArray.imageView,
+                                                         VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
     const VkRenderingInfo renderInfo{
         .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
         .pNext = nullptr,
@@ -972,8 +999,8 @@ void Engine::draw_point_lights_shadows_pass(VkCommandBuffer cmd)
 
     const VkExtent2D shadowExtent{kPointLightsShadowMapSize, kPointLightsShadowMapSize};
 
-    const auto depthAttachment =
-        utils::depth_attachment(currentFrame.pointLightsShadowTileMap.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+    const auto depthAttachment = utils::depth_attachment(currentFrame.pointLightsShadowTileMap.imageView,
+                                                         VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
     const VkRenderingInfo renderInfo{
         .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
         .pNext = nullptr,

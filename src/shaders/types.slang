@@ -1,7 +1,7 @@
 module types;
 
 public static const int MAX_CASCADE_COUNT = 4;
-public static const int MAX_POINT_LIGHTS = 256;
+public static const int MAX_POINT_LIGHTS = 64;
 
 public struct Vertex
 {

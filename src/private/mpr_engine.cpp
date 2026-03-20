@@ -22,6 +22,7 @@
 #include <cmath>
 #include <chrono>
 #include <print>
+#include <random>
 #include <ranges>
 #include <thread>
 
@@ -41,46 +42,21 @@ namespace
 {
 mp::Engine *gLoadedEngine = nullptr;
 
-std::array<glm::mat4, 4> get_view_rotation_matrices_for_tetrahedron()
-{
-    std::array<glm::mat4, 4> res;
-    constexpr std::array<glm::vec3, 4> yawPitchRolls{
-        glm::vec3{27.36780516f, 180.0f, 0.0f},
-        glm::vec3{27.36780516f, 0.0f, 90.0f},
-        glm::vec3{-27.36780516f, 270.0f, 0.0f},
-        glm::vec3{-27.36780516f, 90.0f, 90.0f},
-    };
-
-    for (int i = 0; const auto &yawPitchRoll : yawPitchRolls)
-    {
-        const glm::quat yawRotation = glm::angleAxis(glm::radians(yawPitchRoll.x), glm::vec3{0.f, -1.f, 0.f});
-        const glm::quat pitchRotation = glm::angleAxis(glm::radians(yawPitchRoll.y), glm::vec3{1.f, 0.f, 0.f});
-        const glm::quat rollRotation = glm::angleAxis(glm::radians(yawPitchRoll.z), glm::vec3{0.0f, 0.0f, 1.0f});
-
-        res.at(i) = glm::toMat4(yawRotation) * glm::toMat4(pitchRotation) * glm::toMat4(rollRotation);
-        i++;
-    }
-
-    return res;
-}
-
 std::pair<float, float> compute_alpha_beta()
 {
     constexpr float hFOV_orig = 143.98570868f;
     constexpr float vFOV_orig = 125.26438968f;
     constexpr float r = 0.0625f;
 
-    const float aspect = glm::tan(glm::radians(hFOV_orig / 2.0f))
-                       / glm::tan(glm::radians(vFOV_orig / 2.0f));
-    const glm::mat4 projA = glm::perspectiveRH_ZO(glm::radians(vFOV_orig), aspect,
-                                              mp::kPointLightNear, 1.0f);
+    const float aspect = glm::tan(glm::radians(hFOV_orig / 2.0f)) / glm::tan(glm::radians(vFOV_orig / 2.0f));
+    const glm::mat4 projA = glm::perspectiveRH_ZO(glm::radians(vFOV_orig), aspect, mp::kPointLightNear, 1.0f);
     const glm::mat4 invProjA = glm::inverse(projA);
 
     glm::vec3 centers[4] = {
-        {-1.0f,  0.0f, -1.0f},
-        { 1.0f,  0.0f, -1.0f},
-        { 0.0f, -1.0f, -1.0f},
-        { 0.0f,  1.0f, -1.0f},
+        {-1.0f, 0.0f, -1.0f},
+        {1.0f, 0.0f, -1.0f},
+        {0.0f, -1.0f, -1.0f},
+        {0.0f, 1.0f, -1.0f},
     };
     const glm::vec3 offsets[4] = {{-r, 0, 0}, {r, 0, 0}, {0, -r, 0}, {0, r, 0}};
     glm::vec3 v[4];
@@ -101,14 +77,12 @@ mp::TetrahedronData compute_tetrahedron_data()
     const auto [alpha, beta] = compute_alpha_beta();
 
     const glm::vec3 faceVecs[4] = {
-        { 0.0f,        -0.57735026f,  0.81649661f },
-        { 0.0f,        -0.57735026f, -0.81649661f },
-        {-0.81649661f,  0.57735026f,  0.0f        },
-        { 0.81649661f,  0.57735026f,  0.0f        },
+        {0.0f, -0.57735026f, 0.81649661f},
+        {0.0f, -0.57735026f, -0.81649661f},
+        {-0.81649661f, 0.57735026f, 0.0f},
+        {0.81649661f, 0.57735026f, 0.0f},
     };
-    const glm::vec3 corners[4] = {
-        -faceVecs[0], -faceVecs[1], -faceVecs[2], -faceVecs[3]
-    };
+    const glm::vec3 corners[4] = {-faceVecs[0], -faceVecs[1], -faceVecs[2], -faceVecs[3]};
 
     mp::TetrahedronData data{};
     for (int i = 0; i < 4; ++i)
@@ -120,7 +94,8 @@ mp::TetrahedronData compute_tetrahedron_data()
         int neighbors[3];
         int ni = 0;
         for (int j = 0; j < 4; ++j)
-            if (j != i) neighbors[ni++] = j;
+            if (j != i)
+                neighbors[ni++] = j;
 
         for (int s = 0; s < 3; ++s)
         {
@@ -128,10 +103,12 @@ mp::TetrahedronData compute_tetrahedron_data()
             glm::vec3 edgeCorners[2];
             int ec = 0;
             for (int k = 0; k < 4; ++k)
-                if (k != i && k != j) edgeCorners[ec++] = corners[k];
+                if (k != i && k != j)
+                    edgeCorners[ec++] = corners[k];
 
             glm::vec3 n = glm::normalize(glm::cross(edgeCorners[0], edgeCorners[1]));
-            if (glm::dot(n, faceVecs[i]) < 0.0f) n = -n;
+            if (glm::dot(n, faceVecs[i]) < 0.0f)
+                n = -n;
             const glm::vec3 rotAxis = glm::normalize(glm::cross(faceVecs[i], faceVecs[j]));
             n = glm::rotate(glm::angleAxis(glm::radians(alpha), rotAxis), n);
 
@@ -144,58 +121,89 @@ mp::TetrahedronData compute_tetrahedron_data()
 
 void compute_tetrahedron_shadow_matrices(mp::PointLightData &pointLight, const std::uint32_t lightIndex)
 {
-    static const auto pointLightRotations = get_view_rotation_matrices_for_tetrahedron();
+    static constexpr std::array<glm::vec3, 4> kFaceVecs{
+        glm::vec3{0.0f, -0.57735026f, 0.81649661f},
+        glm::vec3{0.0f, -0.57735026f, -0.81649661f},
+        glm::vec3{-0.81649661f, 0.57735026f, 0.0f},
+        glm::vec3{0.81649661f, 0.57735026f, 0.0f},
+    };
+    // Up vectors perpendicular to each face direction
+    static std::array<glm::vec3, 4> kFaceUps{
+        glm::vec3{0.0f, 1.0f, 0.0f},
+        glm::vec3{1.0f, 0.0f, 0.0f},
+        glm::normalize(glm::vec3{-1.0f, 0.0f, -1.0f}),
+        glm::vec3{0.0f, 0.0f, 1.0f},
+    };
     static const auto [alpha, beta] = compute_alpha_beta();
 
     const float hFOV_AC = 143.98570868f + alpha;
     const float vFOV_AC = 125.26438968f + beta;
-    const float aspect_AC = glm::tan(glm::radians(hFOV_AC / 2.0f))
-                          / glm::tan(glm::radians(vFOV_AC / 2.0f));
-    const glm::mat4 projAC = glm::perspectiveRH_ZO(glm::radians(vFOV_AC),
-                                                    aspect_AC, mp::kPointLightNear, pointLight.range);
+    const float aspect_AC = glm::tan(glm::radians(hFOV_AC / 2.0f)) / glm::tan(glm::radians(vFOV_AC / 2.0f));
+    const glm::mat4 projAC =
+        glm::perspectiveRH_ZO(glm::radians(vFOV_AC), aspect_AC, mp::kPointLightNear, pointLight.range);
 
     const float hFOV_BD = 125.26438968f + beta;
     const float vFOV_BD = 143.98570868f + alpha;
-    const float aspect_BD = glm::tan(glm::radians(hFOV_BD / 2.0f))
-                          / glm::tan(glm::radians(vFOV_BD / 2.0f));
-    const glm::mat4 projBD = glm::perspectiveRH_ZO(glm::radians(vFOV_BD),
-                                                    aspect_BD, mp::kPointLightNear, pointLight.range);
+    const float aspect_BD = glm::tan(glm::radians(hFOV_BD / 2.0f)) / glm::tan(glm::radians(vFOV_BD / 2.0f));
+    const glm::mat4 projBD =
+        glm::perspectiveRH_ZO(glm::radians(vFOV_BD), aspect_BD, mp::kPointLightNear, pointLight.range);
 
     const glm::mat4 projMatrices[4] = {projAC, projBD, projAC, projBD};
 
-    const float tileUV = static_cast<float>(mp::kPointLightTileSize)
-                       / static_cast<float>(mp::kPointLightsShadowMapSize);
-    const float s  = tileUV * 0.5f;
-    const float px = (static_cast<float>(lightIndex % mp::kPointLightTilesPerRow) + 0.5f) * tileUV;
-    const float py = (static_cast<float>(lightIndex / mp::kPointLightTilesPerRow) + 0.5f) * tileUV;
+    constexpr float s = static_cast<float>(mp::kPointLightTileSize) / static_cast<float>(mp::kPointLightsShadowMapSize);
+    const float px = (lightIndex % mp::kPointLightTilesPerRow) * (s);
+    const float py = (lightIndex / mp::kPointLightTilesPerRow) * s;
 
-    // Builds a matrix that maps face NDC [-1,1] to tile clip-space NDC.
-    // Rasterizer then maps clip-NDC to screen pixels that correspond to the tile's UV region.
-    // Parameters (sx, sy, tx, ty) are the same UV-space parameters used for sampling,
-    // so the two transforms stay in sync without storing two separate matrices.
-    auto make_gen_matrix = [](float sx, float sy, float tx, float ty) -> glm::mat4 {
-        glm::mat4 m(0.0f);
-        m[0][0] = 2.0f * sx;           // x: NDC_x = 2*UV_x - 1  → scale doubles
-        m[1][1] = -2.0f * sy;          // y: NDC_y = 1 - 2*UV_y   → sign flips for Vulkan
-        m[2][2] = 1.0f;
-        m[3][3] = 1.0f;
-        m[3][0] = 2.0f * tx - 1.0f;   // x translation
-        m[3][1] = 1.0f - 2.0f * ty;   // y translation
-        return m;
-    };
+    // Tile center in NDC [-1,1] (viewport uses negative height for Y-flip)
+    const float cx = 2.0f * px + s - 1.0f;
+    const float cy = 1.0f - 2.0f * py - s;
 
-    const glm::mat4 genMatrices[4] = {
-        make_gen_matrix( s,       -s / 2.f, px,           py - s / 2.f),
-        make_gen_matrix( s / 2.f, -s,       px + s / 2.f, py          ),
-        make_gen_matrix( s,       -s / 2.f, px,           py + s / 2.f),
-        make_gen_matrix( s / 2.f, -s,       px - s / 2.f, py          ),
-    };
+    // 4 faces arranged in a cross pattern within the tile:
+    // A,C span full width (scale_x=s) and half height (scale_y=s/2)
+    // B,D span half width (scale_x=s/2) and full height (scale_y=s)
+    constexpr float firstModifier = 1.07f;
+    constexpr float secondModifier = 2.93f;
+    glm::mat4 genMatrices[4]{};
+    {
+        glm::mat4 matrix(1.0f);
+        matrix[0][0] = s / firstModifier;
+        matrix[1][1] = s / secondModifier;
+        matrix[3][0] = cx;
+        matrix[3][1] = cy - s / 2.0f;
 
-    const glm::mat4 pointLightTranslation = glm::translate(glm::mat4(1.0f), pointLight.position);
+        genMatrices[0] = matrix;
+    }
+    {
+        glm::mat4 matrix(1.0f);
+        matrix[0][0] = s / secondModifier;
+        matrix[1][1] = s / firstModifier;
+        matrix[3][0] = cx + s / 2.0f;
+        matrix[3][1] = cy;
 
+        genMatrices[1] = matrix;
+    }
+    {
+        glm::mat4 matrix(1.0f);
+        matrix[0][0] = s / firstModifier;
+        matrix[1][1] = s / secondModifier;
+        matrix[3][0] = cx;
+        matrix[3][1] = cy + s / 2.0f;
+
+        genMatrices[2] = matrix;
+    }
+    {
+        glm::mat4 matrix(1.0f);
+        matrix[0][0] = s / secondModifier;
+        matrix[1][1] = s / firstModifier;
+        matrix[3][0] = cx - s / 2.0f;
+        matrix[3][1] = cy;
+
+        genMatrices[3] = matrix;
+    }
     for (int i = 0; i < 4; ++i)
     {
-        const glm::mat4 viewMatrix = glm::inverse(pointLightTranslation * pointLightRotations[i]);
+        const glm::mat4 viewMatrix =
+            glm::lookAtRH(pointLight.position, pointLight.position + kFaceVecs[i], kFaceUps[i]);
         pointLight.tetrahedronFacesMatrices[i] = genMatrices[i] * projMatrices[i] * viewMatrix;
     }
 }

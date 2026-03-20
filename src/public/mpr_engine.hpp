@@ -26,7 +26,6 @@ struct EngineStats
     float shadowPassDrawTime;
 };
 
-
 struct FrameData
 {
     VkCommandBuffer commandBuffer;
@@ -43,7 +42,7 @@ struct FrameData
     AllocatedImage depthImage;
     AllocatedImage oitAccImage;
     AllocatedImage oitRevealImage;
-    AllocatedImage directionalShadowPassDepthArray;            // array image view (for sampling)
+    AllocatedImage directionalShadowPassDepthArray; // array image view (for sampling)
     AllocatedImage pointLightsShadowTileMap;
 
     DescriptorBuffer lightPassDescriptorBuffer;

@@ -26,15 +26,12 @@ groupshared uint startLightIndex;
 [numthreads(WORKGROUP_THREAD_COUNT, 1, 1)]
 void computeMain(uint3 threadID: SV_DispatchThreadID, uint workgroupID : SV_GroupID, uint localID : SV_GroupIndex)
 {
-    if (workgroupID >= pushConstants.meshDrawCommandsCount.commandCount) return;
     if (localID == 0) {
         groupCounter = 0;
     }
     GroupMemoryBarrierWithGroupSync();
 
-    Command cmd = pushConstants.meshDrawCommands[workgroupID];
-
-    Instance instance = pushConstants.instances[cmd.firstInstance];
+    Instance instance = pushConstants.instances[workgroupID];
     Mesh mesh = pushConstants.meshes[instance.meshIndex];
 
     float3 minAABB = mul(instance.worldTransform, float4(mesh.min, 1.0f)).xyz;
@@ -68,11 +65,22 @@ void computeMain(uint3 threadID: SV_DispatchThreadID, uint workgroupID : SV_Grou
     }
     GroupMemoryBarrierWithGroupSync();
 
-    if (localID == 0 && groupCounter > 0)
+    if (localID == 0)
     {
-        pushConstants.meshDrawCommands[workgroupID].instanceCount = groupCounter;
-        startLightIndex = __atomic_add(*pushConstants.pointLightOffsetsCounter, groupCounter);
-        pushConstants.pointLightOffsets[workgroupID] = startLightIndex;
+        if (groupCounter > 0)
+        {
+            uint index = __atomic_add(pushConstants.meshDrawCommandsCount.commandCount, 1, MemoryOrder::Relaxed);
+            Command command;
+            command.firstIndex = mesh.firstIndex;
+            command.indexCount = mesh.indexCount;
+            command.vertexOffset = mesh.vertexOffset;
+            command.firstInstance = workgroupID;
+            command.instanceCount = groupCounter;
+            pushConstants.meshDrawCommands[index] = command;
+
+            startLightIndex = __atomic_add(*pushConstants.pointLightOffsetsCounter, groupCounter);
+            pushConstants.pointLightOffsets[workgroupID] = startLightIndex;
+        }
     }
 
     GroupMemoryBarrierWithGroupSync();

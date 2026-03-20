@@ -33,7 +33,7 @@ constexpr int MAX_CASCADES = kMaxCascadeCount;
 constexpr std::uint32_t kDirectionalShadowMapSize = 2048u;
 
 constexpr std::uint32_t kPointLightsShadowMapSize = 8192u;
-constexpr std::uint32_t kPointLightTileSize = 512u;
+constexpr std::uint32_t kPointLightTileSize = 1024u;
 constexpr std::uint32_t kMaxPointLights =
     (kPointLightsShadowMapSize * kPointLightsShadowMapSize) / (kPointLightTileSize * kPointLightTileSize);
 constexpr float kPointLightNear = 0.1f;

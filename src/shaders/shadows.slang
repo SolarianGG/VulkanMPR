@@ -55,7 +55,7 @@ public float CalculatePointShadow(
     uint index = 0;
     for (uint i = 0; i < 4; i++)
     {
-        float d = dot(-lightVecN, tetraData.faceVectors[i].xyz);
+        float d = dot(lightVecN, tetraData.faceVectors[i].xyz);
         if (d > maxDot) { maxDot = d; index = i; }
     }
 
