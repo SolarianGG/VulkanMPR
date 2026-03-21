@@ -59,7 +59,7 @@ void main(
         input[0].worldPos.xyz - input[1].worldPos.xyz);
 
     float3 view = lightPosition - input[0].worldPos.xyz;
-    if (dot(normal, view) > 0.0f)
+    if (dot(normal, view) < 0.0f)
         return;
 
     // Iterate over tetrahedron faces

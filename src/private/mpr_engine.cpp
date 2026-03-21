@@ -271,8 +271,8 @@ Engine::Engine()
 
     m_LightPassConstants.dirNormalBias = 0.001f;
     m_LightPassConstants.dirConstantBias = 0.001f;
-    m_LightPassConstants.pointNormalBias = 0.005f;
-    m_LightPassConstants.pointConstantBias = 0.001f;
+    m_LightPassConstants.pointNormalBias = 0.03f;
+    m_LightPassConstants.pointConstantBias = 0.002f;
 }
 
 Engine &Engine::get()
