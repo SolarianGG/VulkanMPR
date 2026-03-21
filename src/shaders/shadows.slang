@@ -3,9 +3,9 @@ module shadows;
 import types;
 
 public float CalculateDirectionalShadow(
-    DirectionalLight light, float3 worldPos, float depth,
+    DirectionalLight light, float3 worldPos, float3 normalWS, float depth,
     Texture2DArray<float> shadowMaps, SamplerComparisonState shadowSampler,
-    )
+    float normalBias, float constantBias)
 {
 
     uint cascadeIndex = 0;
@@ -14,7 +14,10 @@ public float CalculateDirectionalShadow(
         cascadeIndex = j;
     }
 
-    float4 lsPos = mul(light.cascadeVPs[cascadeIndex], float4(worldPos, 1.0));
+    float NdotL = dot(normalWS, normalize(-light.direction.xyz));
+    float3 offsetPos = worldPos + normalWS * normalBias * (1.0 - saturate(NdotL));
+
+    float4 lsPos = mul(light.cascadeVPs[cascadeIndex], float4(offsetPos, 1.0));
     float3 proj = lsPos.xyz / lsPos.w;
     float2 uv = proj.xy * 0.5 + 0.5;
     uv.y = 1.0 - uv.y;
@@ -25,9 +28,8 @@ public float CalculateDirectionalShadow(
     // If depth is outside [0,1] the fragment is outside the light frustum depth range.
     // Treat as fully in shadow (conservative) rather than passing a garbage value to SampleCmp.
     if (currentDepth < 0.0 || currentDepth > 1.0) return 0.0;
-    // TODO: Make it specialized constant
-    // TODO: Add normal + plane offset bias
-    float bias = 0.005;
+
+    float bias = constantBias;
 
     uint w, h, layers;
     shadowMaps.GetDimensions(w, h, layers);
@@ -45,12 +47,17 @@ public float CalculateDirectionalShadow(
 }
 
 public float CalculatePointShadow(
-    PointLight light, float3 worldPos,
+    PointLight light, float3 worldPos, float3 normalWS,
     TetrahedronData *tetraData,
-    Texture2D<float> tiledShadowMap, SamplerComparisonState shadowSampler)
+    Texture2D<float> tiledShadowMap, SamplerComparisonState shadowSampler,
+    float normalBias, float constantBias)
 {
+    float3 lightDir = normalize(light.position - worldPos);
+    float NdotL = dot(normalWS, lightDir);
+    float3 offsetPos = worldPos + normalWS * normalBias * (1.0 - saturate(NdotL));
+
     // Face selection via dot product with face vectors
-    float3 lightVecN = normalize(worldPos - light.position);
+    float3 lightVecN = normalize(offsetPos - light.position);
     float maxDot = -1e30;
     uint index = 0;
     for (uint i = 0; i < 4; i++)
@@ -60,7 +67,7 @@ public float CalculatePointShadow(
     }
 
     // Shadow matrix already includes bias + tile transform
-    float4 lsPos = mul(light.lightMatrices[index], float4(worldPos, 1.0));
+    float4 lsPos = mul(light.lightMatrices[index], float4(offsetPos, 1.0));
     float3 proj = lsPos.xyz / lsPos.w;
     // lightMatrices map world → tile clip-NDC (not UV space).
     // Convert clip-NDC to tile UV: x = (NDC+1)/2, y = (1-NDC)/2 (Vulkan y-flip).
@@ -72,7 +79,7 @@ public float CalculatePointShadow(
     if (any(uv < 0.0) || any(uv > 1.0)) return 0.0;
     if (currentDepth < 0.0 || currentDepth > 1.0) return 0.0;
 
-    float bias = 0.005;
+    float bias = constantBias;
 
     // PCF 3x3
     uint w, h;

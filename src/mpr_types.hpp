@@ -143,9 +143,14 @@ struct LightPassPushConstants
     VkDeviceAddress tetrahedronDataAddr;
     float cameraNear;
     float cameraFar;
+    float dirNormalBias;
+    float dirConstantBias;
+    float pointNormalBias;
+    float pointConstantBias;
 
     glm::mat4 inverseCameraViewProj;
 };
+static_assert(sizeof(LightPassPushConstants) == 128);
 
 struct PointLightsShadowPassPushConstants
 {

@@ -151,7 +151,7 @@ void compute_tetrahedron_shadow_matrices(mp::PointLightData &pointLight, const s
     const glm::mat4 projMatrices[4] = {projAC, projBD, projAC, projBD};
 
     constexpr float s = static_cast<float>(mp::kPointLightTileSize) / static_cast<float>(mp::kPointLightsShadowMapSize);
-    const float px = (lightIndex % mp::kPointLightTilesPerRow) * (s);
+    const float px = (lightIndex % mp::kPointLightTilesPerRow) * s;
     const float py = (lightIndex / mp::kPointLightTilesPerRow) * s;
 
     // Tile center in NDC [-1,1] (viewport uses negative height for Y-flip)
@@ -268,6 +268,11 @@ Engine::Engine()
     m_camera.pitch = 0;
     m_camera.yaw = 0;
     m_isInitialized = true;
+
+    m_LightPassConstants.dirNormalBias = 0.001f;
+    m_LightPassConstants.dirConstantBias = 0.001f;
+    m_LightPassConstants.pointNormalBias = 0.005f;
+    m_LightPassConstants.pointConstantBias = 0.001f;
 }
 
 Engine &Engine::get()
@@ -325,6 +330,10 @@ void Engine::run()
         if (ImGui::Begin("Other"))
         {
             ImGui::DragFloat("Camera speed", &m_camera.cameraSpeed, 0.01f, 0.01f, 100.0f);
+            ImGui::DragFloat("Dir normal bias", &m_LightPassConstants.dirNormalBias, 0.001f, 0.001f, 1.0f);
+            ImGui::DragFloat("Dir constant bias", &m_LightPassConstants.dirConstantBias, 0.001f, 0.001f, 1.0f);
+            ImGui::DragFloat("Point normal bias", &m_LightPassConstants.pointNormalBias, 0.001f, 0.001f, 1.0f);
+            ImGui::DragFloat("Point constant bias", &m_LightPassConstants.pointConstantBias, 0.001f, 0.001f, 1.0f);
             // TODO: Add debug light visualization
 #if 0
       ImGui::Checkbox("Draw debug light positions", &m_IsLightsRendered);
@@ -494,16 +503,13 @@ void Engine::update_scene()
     std::memcpy(frame.pointLightBuffer.allocationInfo.pMappedData, m_mainDrawContext.pointLights.data(),
                 m_mainDrawContext.pointLights.size() * sizeof(PointLightData));
 
-    m_LightPassConstants = {
-        .sceneData = frame.sceneDataBufferAddr,
-        .directionalLight = frame.dirLightBufferAddr,
-        .visiblePointLights = frame.visiblePointLightsBufferAddr,
-        .visiblePointLightsCount = frame.visiblePointLightsCountBufferAddr,
-        .tetrahedronDataAddr = m_tetrahedronBuffer.get_buffer_device_address(m_device),
-        .cameraNear = cameraNear,
-        .cameraFar = cameraFar,
-        .inverseCameraViewProj = inverseViewProj,
-    };
+    m_LightPassConstants.sceneData = frame.sceneDataBufferAddr;
+    m_LightPassConstants.directionalLight = frame.dirLightBufferAddr;
+    m_LightPassConstants.visiblePointLights = frame.visiblePointLightsBufferAddr;
+    m_LightPassConstants.visiblePointLightsCount = frame.visiblePointLightsCountBufferAddr;
+    m_LightPassConstants.tetrahedronDataAddr = m_tetrahedronBuffer.get_buffer_device_address(m_device);
+    m_LightPassConstants.cameraNear = cameraNear, m_LightPassConstants.cameraFar = cameraFar;
+    m_LightPassConstants.inverseCameraViewProj = inverseViewProj;
 
     m_GBufferMeshPushConstants = {
         .globalVertexBufferAddr = m_globalVertexBufferAddress,
