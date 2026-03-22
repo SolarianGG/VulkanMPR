@@ -78,7 +78,7 @@ void depthPartitionCS(uint3 threadID : SV_DispatchThreadID)
         AtomicMaxFloat(&pushConstants.splitsAABB.bounds[cascadeIndex].maxY, groupMax.y);
         AtomicMaxFloat(&pushConstants.splitsAABB.bounds[cascadeIndex].maxZ, groupMax.z);
     }
-    if (WaveIsFirstLane()) 
+    if (threadID.x == 0 && threadID.y == 0)
     {
         pushConstants.dirLight.splitDistances = splitDistances;
     }

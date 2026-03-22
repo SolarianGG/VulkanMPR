@@ -22,12 +22,10 @@ public float CalculateDirectionalShadow(
     float2 uv = proj.xy * 0.5 + 0.5;
     uv.y = 1.0 - uv.y;
 
-    if (any(uv < 0.0) || any(uv > 1.0)) return 0.0;
+    if (any(uv < 0.0) || any(uv > 1.0)) return 1.0;
 
     float currentDepth = proj.z;
-    // If depth is outside [0,1] the fragment is outside the light frustum depth range.
-    // Treat as fully in shadow (conservative) rather than passing a garbage value to SampleCmp.
-    if (currentDepth < 0.0 || currentDepth > 1.0) return 0.0;
+    if (currentDepth < 0.0 || currentDepth > 1.0) return 1.0;
 
     float bias = constantBias;
 
@@ -76,8 +74,8 @@ public float CalculatePointShadow(
     uv.y = 1.0 - (proj.y * 0.5 + 0.5);
     float currentDepth = proj.z;
 
-    if (any(uv < 0.0) || any(uv > 1.0)) return 0.0;
-    if (currentDepth < 0.0 || currentDepth > 1.0) return 0.0;
+    if (any(uv < 0.0) || any(uv > 1.0)) return 1.0;
+    if (currentDepth < 0.0 || currentDepth > 1.0) return 1.0;
 
     float bias = constantBias;
 
