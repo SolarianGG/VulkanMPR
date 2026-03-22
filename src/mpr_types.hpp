@@ -17,6 +17,8 @@
 #include <volk.h>
 #include <vk_mem_alloc.h>
 
+#include <glm/ext/matrix_clip_space.hpp>
+#include <glm/ext/matrix_transform.hpp>
 #include <glm/glm.hpp>
 
 // clang-format on
@@ -58,6 +60,37 @@ struct DeletionQueue
         deletors.clear();
     }
 };
+
+
+inline std::pair<float, float> compute_alpha_beta()
+{
+    constexpr float hFOV_orig = 143.98570868f;
+    constexpr float vFOV_orig = 125.26438968f;
+    constexpr float r = 0.0625f;
+
+    const float aspect = glm::tan(glm::radians(hFOV_orig / 2.0f)) / glm::tan(glm::radians(vFOV_orig / 2.0f));
+    const glm::mat4 projA = glm::perspectiveRH_ZO(glm::radians(vFOV_orig), aspect, mp::kPointLightNear, 1.0f);
+    const glm::mat4 invProjA = glm::inverse(projA);
+
+    glm::vec3 centers[4] = {
+        {-1.0f, 0.0f, -1.0f},
+        {1.0f, 0.0f, -1.0f},
+        {0.0f, -1.0f, -1.0f},
+        {0.0f, 1.0f, -1.0f},
+    };
+    const glm::vec3 offsets[4] = {{-r, 0, 0}, {r, 0, 0}, {0, -r, 0}, {0, r, 0}};
+    glm::vec3 v[4];
+    for (int i = 0; i < 4; ++i)
+    {
+        centers[i] += offsets[i];
+        const glm::vec4 vs = invProjA * glm::vec4(centers[i], 1.0f);
+        v[i] = glm::normalize(glm::vec3(vs));
+    }
+
+    const float dilatedFovX = glm::degrees(glm::acos(glm::dot(v[0], v[1])));
+    const float dilatedFovY = glm::degrees(glm::acos(glm::dot(v[2], v[3])));
+    return {dilatedFovX - hFOV_orig, dilatedFovY - vFOV_orig};
+}
 
 inline bool is_nearly_zero(const float value)
 {

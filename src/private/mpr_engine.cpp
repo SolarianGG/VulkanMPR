@@ -42,39 +42,10 @@ namespace
 {
 mp::Engine *gLoadedEngine = nullptr;
 
-std::pair<float, float> compute_alpha_beta()
-{
-    constexpr float hFOV_orig = 143.98570868f;
-    constexpr float vFOV_orig = 125.26438968f;
-    constexpr float r = 0.0625f;
-
-    const float aspect = glm::tan(glm::radians(hFOV_orig / 2.0f)) / glm::tan(glm::radians(vFOV_orig / 2.0f));
-    const glm::mat4 projA = glm::perspectiveRH_ZO(glm::radians(vFOV_orig), aspect, mp::kPointLightNear, 1.0f);
-    const glm::mat4 invProjA = glm::inverse(projA);
-
-    glm::vec3 centers[4] = {
-        {-1.0f, 0.0f, -1.0f},
-        {1.0f, 0.0f, -1.0f},
-        {0.0f, -1.0f, -1.0f},
-        {0.0f, 1.0f, -1.0f},
-    };
-    const glm::vec3 offsets[4] = {{-r, 0, 0}, {r, 0, 0}, {0, -r, 0}, {0, r, 0}};
-    glm::vec3 v[4];
-    for (int i = 0; i < 4; ++i)
-    {
-        centers[i] += offsets[i];
-        const glm::vec4 vs = invProjA * glm::vec4(centers[i], 1.0f);
-        v[i] = glm::normalize(glm::vec3(vs));
-    }
-
-    const float dilatedFovX = glm::degrees(glm::acos(glm::dot(v[0], v[1])));
-    const float dilatedFovY = glm::degrees(glm::acos(glm::dot(v[2], v[3])));
-    return {dilatedFovX - hFOV_orig, dilatedFovY - vFOV_orig};
-}
 
 mp::TetrahedronData compute_tetrahedron_data()
 {
-    const auto [alpha, beta] = compute_alpha_beta();
+    const auto [alpha, beta] = mp::compute_alpha_beta();
 
     const glm::vec3 faceVecs[4] = {
         {0.0f, -0.57735026f, 0.81649661f},
@@ -119,94 +90,6 @@ mp::TetrahedronData compute_tetrahedron_data()
     return data;
 }
 
-void compute_tetrahedron_shadow_matrices(mp::PointLightData &pointLight, const std::uint32_t lightIndex)
-{
-    static constexpr std::array<glm::vec3, 4> kFaceVecs{
-        glm::vec3{0.0f, -0.57735026f, 0.81649661f},
-        glm::vec3{0.0f, -0.57735026f, -0.81649661f},
-        glm::vec3{-0.81649661f, 0.57735026f, 0.0f},
-        glm::vec3{0.81649661f, 0.57735026f, 0.0f},
-    };
-    // Up vectors perpendicular to each face direction
-    static std::array<glm::vec3, 4> kFaceUps{
-        glm::vec3{0.0f, 1.0f, 0.0f},
-        glm::vec3{1.0f, 0.0f, 0.0f},
-        glm::normalize(glm::vec3{-1.0f, 0.0f, -1.0f}),
-        glm::vec3{0.0f, 0.0f, 1.0f},
-    };
-    static const auto [alpha, beta] = compute_alpha_beta();
-
-    const float hFOV_AC = 143.98570868f + alpha;
-    const float vFOV_AC = 125.26438968f + beta;
-    const float aspect_AC = glm::tan(glm::radians(hFOV_AC / 2.0f)) / glm::tan(glm::radians(vFOV_AC / 2.0f));
-    const glm::mat4 projAC =
-        glm::perspectiveRH_ZO(glm::radians(vFOV_AC), aspect_AC, mp::kPointLightNear, pointLight.range);
-
-    const float hFOV_BD = 125.26438968f + beta;
-    const float vFOV_BD = 143.98570868f + alpha;
-    const float aspect_BD = glm::tan(glm::radians(hFOV_BD / 2.0f)) / glm::tan(glm::radians(vFOV_BD / 2.0f));
-    const glm::mat4 projBD =
-        glm::perspectiveRH_ZO(glm::radians(vFOV_BD), aspect_BD, mp::kPointLightNear, pointLight.range);
-
-    const glm::mat4 projMatrices[4] = {projAC, projBD, projAC, projBD};
-
-    constexpr float s = static_cast<float>(mp::kPointLightTileSize) / static_cast<float>(mp::kPointLightsShadowMapSize);
-    const float px = (lightIndex % mp::kPointLightTilesPerRow) * s;
-    const float py = (lightIndex / mp::kPointLightTilesPerRow) * s;
-
-    // Tile center in NDC [-1,1] (viewport uses negative height for Y-flip)
-    const float cx = 2.0f * px + s - 1.0f;
-    const float cy = 1.0f - 2.0f * py - s;
-
-    // 4 faces arranged in a cross pattern within the tile:
-    // A,C span full width (scale_x=s) and half height (scale_y=s/2)
-    // B,D span half width (scale_x=s/2) and full height (scale_y=s)
-    constexpr float firstModifier = 1.07f;
-    constexpr float secondModifier = 2.93f;
-    glm::mat4 genMatrices[4]{};
-    {
-        glm::mat4 matrix(1.0f);
-        matrix[0][0] = s / firstModifier;
-        matrix[1][1] = s / secondModifier;
-        matrix[3][0] = cx;
-        matrix[3][1] = cy - s / 2.0f;
-
-        genMatrices[0] = matrix;
-    }
-    {
-        glm::mat4 matrix(1.0f);
-        matrix[0][0] = s / secondModifier;
-        matrix[1][1] = s / firstModifier;
-        matrix[3][0] = cx + s / 2.0f;
-        matrix[3][1] = cy;
-
-        genMatrices[1] = matrix;
-    }
-    {
-        glm::mat4 matrix(1.0f);
-        matrix[0][0] = s / firstModifier;
-        matrix[1][1] = s / secondModifier;
-        matrix[3][0] = cx;
-        matrix[3][1] = cy + s / 2.0f;
-
-        genMatrices[2] = matrix;
-    }
-    {
-        glm::mat4 matrix(1.0f);
-        matrix[0][0] = s / secondModifier;
-        matrix[1][1] = s / firstModifier;
-        matrix[3][0] = cx - s / 2.0f;
-        matrix[3][1] = cy;
-
-        genMatrices[3] = matrix;
-    }
-    for (int i = 0; i < 4; ++i)
-    {
-        const glm::mat4 viewMatrix =
-            glm::lookAtRH(pointLight.position, pointLight.position + kFaceVecs[i], kFaceUps[i]);
-        pointLight.tetrahedronFacesMatrices[i] = genMatrices[i] * projMatrices[i] * viewMatrix;
-    }
-}
 } // namespace
 
 namespace mp
@@ -272,7 +155,7 @@ Engine::Engine()
     m_LightPassConstants.dirNormalBias = 0.001f;
     m_LightPassConstants.dirConstantBias = 0.001f;
     m_LightPassConstants.pointNormalBias = 0.03f;
-    m_LightPassConstants.pointConstantBias = 0.002f;
+    m_LightPassConstants.pointConstantBias = 0.001f;
 }
 
 Engine &Engine::get()
@@ -495,10 +378,6 @@ void Engine::update_scene()
     {
         std::memcpy(frame.dirLightBuffer.allocationInfo.pMappedData, &m_mainDrawContext.dirLight.value(),
                     sizeof(DirectionalLightData));
-    }
-    for (std::uint32_t i = 0; i < m_mainDrawContext.pointLights.size(); ++i)
-    {
-        compute_tetrahedron_shadow_matrices(m_mainDrawContext.pointLights[i], i);
     }
     std::memcpy(frame.pointLightBuffer.allocationInfo.pMappedData, m_mainDrawContext.pointLights.data(),
                 m_mainDrawContext.pointLights.size() * sizeof(PointLightData));

@@ -1,11 +1,63 @@
 // clang-format off
+#define GLM_ENABLE_EXPERIMENTAL
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include "mpr_scene.hpp"
 
+#include <glm/ext/matrix_clip_space.hpp>
+#include <glm/ext/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include <glm/gtx/euler_angles.hpp>
+#include <glm/gtx/quaternion.hpp>
+#include <glm/gtx/transform.hpp>
 #include <imgui.h>
 
 #include "mpr_engine.hpp"
 
 // clang-format on
+
+namespace
+{
+
+void compute_tetrahedron_shadow_matrices(mp::PointLightData &pointLight)
+{
+    static constexpr std::array<glm::vec3, 4> kFaceVecs{
+        glm::vec3{0.0f, -0.57735026f, 0.81649661f},
+        glm::vec3{0.0f, -0.57735026f, -0.81649661f},
+        glm::vec3{-0.81649661f, 0.57735026f, 0.0f},
+        glm::vec3{0.81649661f, 0.57735026f, 0.0f},
+    };
+    // Up vectors perpendicular to each face direction
+    static std::array<glm::vec3, 4> kFaceUps{
+        glm::vec3{0.0f, 1.0f, 0.0f},
+        glm::vec3{1.0f, 0.0f, 0.0f},
+        glm::normalize(glm::vec3{-1.0f, 0.0f, -1.0f}),
+        glm::vec3{0.0f, 0.0f, 1.0f},
+    };
+    static const auto [alpha, beta] = mp::compute_alpha_beta();
+
+    const float hFOV_AC = 143.98570868f + alpha;
+    const float vFOV_AC = 125.26438968f + beta;
+    const float aspect_AC = glm::tan(glm::radians(hFOV_AC / 2.0f)) / glm::tan(glm::radians(vFOV_AC / 2.0f));
+    const glm::mat4 projAC =
+        glm::perspectiveRH_ZO(glm::radians(vFOV_AC), aspect_AC, mp::kPointLightNear, pointLight.range);
+
+    const float hFOV_BD = 125.26438968f + beta;
+    const float vFOV_BD = 143.98570868f + alpha;
+    const float aspect_BD = glm::tan(glm::radians(hFOV_BD / 2.0f)) / glm::tan(glm::radians(vFOV_BD / 2.0f));
+    const glm::mat4 projBD =
+        glm::perspectiveRH_ZO(glm::radians(vFOV_BD), aspect_BD, mp::kPointLightNear, pointLight.range);
+
+    const glm::mat4 projMatrices[4] = {projAC, projBD, projAC, projBD};
+
+    for (int i = 0; i < 4; ++i)
+    {
+        const glm::mat4 viewMatrix =
+            glm::lookAtRH(pointLight.position, pointLight.position + kFaceVecs[i], kFaceUps[i]);
+        pointLight.tetrahedronFacesMatrices[i] = projMatrices[i] * viewMatrix;
+    }
+}
+
+} // namespace
 
 namespace mp
 {
@@ -85,7 +137,12 @@ void DirectionalLightNode::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
 
 void PointLightNode::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
 {
-    m_Data.position = glm::vec3{worldTransform[3].x, worldTransform[3].y, worldTransform[3].z};
+    const auto newPos = glm::vec3{worldTransform[3].x, worldTransform[3].y, worldTransform[3].z};
+    if (newPos != m_Data.position)
+    {
+        m_Data.position = newPos;
+        compute_tetrahedron_shadow_matrices(m_Data);
+    }
     ctx.pointLights.push_back(m_Data);
 
     Node::draw(topMatrix, ctx);

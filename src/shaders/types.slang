@@ -1,7 +1,11 @@
 module types;
 
 public static const int MAX_CASCADE_COUNT = 4;
-public static const int MAX_POINT_LIGHTS = 64;
+public static const int POINT_LIGHT_SHADOW_MAP_SIZE = 8192u;
+public static const int POINT_LIGHT_TILE_SIZE = 1024u;
+public static const int MAX_POINT_LIGHTS =
+    (POINT_LIGHT_SHADOW_MAP_SIZE * POINT_LIGHT_SHADOW_MAP_SIZE) / (POINT_LIGHT_TILE_SIZE * POINT_LIGHT_TILE_SIZE);
+public static const int POINT_LIGHT_TILES_PER_ROW = POINT_LIGHT_SHADOW_MAP_SIZE / POINT_LIGHT_TILE_SIZE;
 
 public struct Vertex
 {

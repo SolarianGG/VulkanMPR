@@ -37,6 +37,63 @@ void computeMain(uint3 threadID: SV_DispatchThreadID) {
     commandIndexOffset += laneOffset;
 
     if (bNeedToAdd) {
+        const float s = float(POINT_LIGHT_TILE_SIZE) / float(POINT_LIGHT_SHADOW_MAP_SIZE);
+        const float px = (commandIndexOffset % POINT_LIGHT_TILES_PER_ROW) * s;
+        const float py = (commandIndexOffset / POINT_LIGHT_TILES_PER_ROW) * s;
+
+        // Tile center in NDC [-1,1] (viewport uses negative height for Y-flip)
+        const float cx = 2.0f * px + s - 1.0f;
+        const float cy = 1.0f - 2.0f * py - s;
+
+        // 4 faces arranged in a cross pattern within the tile:
+        // A,C span full width (scale_x=s) and half height (scale_y=s/2)
+        // B,D span half width (scale_x=s/2) and full height (scale_y=s)
+        const float firstModifier = 1.07f;
+        const float secondModifier = 2.93f;
+        {
+            float4x4 m = 0.0f;
+            m[0][0] = s / firstModifier;
+            m[1][1] = s / secondModifier;
+            m[2][2] = 1.0f;
+            m[3][3] = 1.0f;
+            m[0][3] = cx;
+            m[1][3] = cy - s / 2.0f;
+
+           light.lightMatrices[0] = mul(m, light.lightMatrices[0]);
+        }
+        {
+            float4x4 m = 0.0f;
+            m[0][0] = s / secondModifier;
+            m[1][1] = s / firstModifier;
+            m[2][2] = 1.0f;
+            m[3][3] = 1.0f;
+            m[0][3] = cx + s / 2.0f;
+            m[1][3] = cy;
+
+            light.lightMatrices[1] = mul(m, light.lightMatrices[1]);
+        }
+        {
+            float4x4 m = 0.0f;
+            m[0][0] = s / firstModifier;
+            m[1][1] = s / secondModifier;
+            m[2][2] = 1.0f;
+            m[3][3] = 1.0f;
+            m[0][3] = cx;
+            m[1][3] = cy + s / 2.0f;
+
+            light.lightMatrices[2] = mul(m, light.lightMatrices[2]);
+        }
+        {
+            float4x4 m = 0.0f;
+            m[0][0] = s / secondModifier;
+            m[1][1] = s / firstModifier;
+            m[2][2] = 1.0f;
+            m[3][3] = 1.0f;
+            m[0][3] = cx - s / 2.0f;
+            m[1][3] = cy;
+
+            light.lightMatrices[3] = mul(m, light.lightMatrices[3]);
+        }
         pushConstants.visiblePointLights[commandIndexOffset] = light;
     }
 }
