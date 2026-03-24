@@ -45,15 +45,10 @@ void computeMain(uint3 threadID: SV_DispatchThreadID) {
         const float cx = 2.0f * px + s - 1.0f;
         const float cy = 1.0f - 2.0f * py - s;
 
-        // 4 faces arranged in a cross pattern within the tile:
-        // A,C span full width (scale_x=s) and half height (scale_y=s/2)
-        // B,D span half width (scale_x=s/2) and full height (scale_y=s)
-        const float firstModifier = 1.07f;
-        const float secondModifier = 2.93f;
         {
             float4x4 m = 0.0f;
-            m[0][0] = s / firstModifier;
-            m[1][1] = s / secondModifier;
+            m[0][0] = s;
+            m[1][1] = s / 2.0f;
             m[2][2] = 1.0f;
             m[3][3] = 1.0f;
             m[0][3] = cx;
@@ -63,8 +58,8 @@ void computeMain(uint3 threadID: SV_DispatchThreadID) {
         }
         {
             float4x4 m = 0.0f;
-            m[0][0] = s / secondModifier;
-            m[1][1] = s / firstModifier;
+            m[0][0] = s / 2.0f;
+            m[1][1] = s;
             m[2][2] = 1.0f;
             m[3][3] = 1.0f;
             m[0][3] = cx + s / 2.0f;
@@ -74,8 +69,8 @@ void computeMain(uint3 threadID: SV_DispatchThreadID) {
         }
         {
             float4x4 m = 0.0f;
-            m[0][0] = s / firstModifier;
-            m[1][1] = s / secondModifier;
+            m[0][0] = s;
+            m[1][1] = s / 2.0f;
             m[2][2] = 1.0f;
             m[3][3] = 1.0f;
             m[0][3] = cx;
@@ -85,8 +80,8 @@ void computeMain(uint3 threadID: SV_DispatchThreadID) {
         }
         {
             float4x4 m = 0.0f;
-            m[0][0] = s / secondModifier;
-            m[1][1] = s / firstModifier;
+            m[0][0] = s / 2.0f;
+            m[1][1] = s;
             m[2][2] = 1.0f;
             m[3][3] = 1.0f;
             m[0][3] = cx - s / 2.0f;

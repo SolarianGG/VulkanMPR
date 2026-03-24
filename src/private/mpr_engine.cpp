@@ -47,13 +47,13 @@ mp::TetrahedronData compute_tetrahedron_data()
 {
     const auto [alpha, beta] = mp::compute_alpha_beta();
 
-    const glm::vec3 faceVecs[4] = {
+    constexpr glm::vec3 faceVecs[4] {
         {0.0f, -0.57735026f, 0.81649661f},
         {0.0f, -0.57735026f, -0.81649661f},
         {-0.81649661f, 0.57735026f, 0.0f},
         {0.81649661f, 0.57735026f, 0.0f},
     };
-    const glm::vec3 corners[4] = {-faceVecs[0], -faceVecs[1], -faceVecs[2], -faceVecs[3]};
+    constexpr glm::vec3 corners[4] = {-faceVecs[0], -faceVecs[1], -faceVecs[2], -faceVecs[3]};
 
     mp::TetrahedronData data{};
     for (int i = 0; i < 4; ++i)

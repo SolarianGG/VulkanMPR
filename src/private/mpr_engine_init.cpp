@@ -890,7 +890,7 @@ void Engine::init_point_shadow_pass()
     builder.add_shader(geom, VK_SHADER_STAGE_GEOMETRY_BIT);
     builder.add_shader(frag, VK_SHADER_STAGE_FRAGMENT_BIT);
     builder.set_depth_format(m_frameData.at(0).pointLightsShadowTileMap.imageFormat);
-    builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+    builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
     builder.set_multisampling_none();
 
     m_PointLightShadowPassPipeline = builder.build_pipeline(m_device);

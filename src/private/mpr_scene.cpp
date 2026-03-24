@@ -20,17 +20,18 @@ namespace
 
 void compute_tetrahedron_shadow_matrices(mp::PointLightData &pointLight)
 {
-    static constexpr std::array<glm::vec3, 4> kFaceVecs{
-        glm::vec3{0.0f, -0.57735026f, 0.81649661f},
-        glm::vec3{0.0f, -0.57735026f, -0.81649661f},
-        glm::vec3{-0.81649661f, 0.57735026f, 0.0f},
-        glm::vec3{0.81649661f, 0.57735026f, 0.0f},
+    static constexpr float s = 0.45954602f; // sin(27.3678)
+    static constexpr float c = 0.88815527f; // cos(27.3678)
+    static constexpr std::array<glm::vec3, 4> kLookDirs{
+        glm::vec3{0.0f, -s, c},
+        glm::vec3{0.0f, -s, -c},
+        glm::vec3{-c, s, 0.0f},
+        glm::vec3{c, s, 0.0f},
     };
-    // Up vectors perpendicular to each face direction
     static std::array<glm::vec3, 4> kFaceUps{
         glm::vec3{0.0f, 1.0f, 0.0f},
         glm::vec3{1.0f, 0.0f, 0.0f},
-        glm::normalize(glm::vec3{-1.0f, 0.0f, -1.0f}),
+        glm::normalize(glm::vec3{s, c, 0.0f}),
         glm::vec3{0.0f, 0.0f, 1.0f},
     };
     static const auto [alpha, beta] = mp::compute_alpha_beta();
@@ -52,7 +53,7 @@ void compute_tetrahedron_shadow_matrices(mp::PointLightData &pointLight)
     for (int i = 0; i < 4; ++i)
     {
         const glm::mat4 viewMatrix =
-            glm::lookAtRH(pointLight.position, pointLight.position + kFaceVecs[i], kFaceUps[i]);
+            glm::lookAtRH(pointLight.position, pointLight.position + kLookDirs[i], kFaceUps[i]);
         pointLight.tetrahedronFacesMatrices[i] = projMatrices[i] * viewMatrix;
     }
 }
