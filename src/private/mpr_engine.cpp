@@ -214,9 +214,9 @@ void Engine::run()
         {
             ImGui::DragFloat("Camera speed", &m_camera.cameraSpeed, 0.01f, 0.01f, 100.0f);
             ImGui::DragFloat("Dir normal bias", &m_LightPassConstants.dirNormalBias, 0.0001f, 0.0001f, 1.0f, "%.4f");
-            ImGui::DragFloat("Dir constant bias", &m_LightPassConstants.dirConstantBias, 0.001f, 0.001f, 1.0f);
+            ImGui::DragFloat("Dir constant bias", &m_LightPassConstants.dirConstantBias, 0.001f, 0.001f, 1.0f, "%.4f");
             ImGui::DragFloat("Point normal bias", &m_LightPassConstants.pointNormalBias, 0.0001f, 0.0001f, 1.0f, "%.4f");
-            ImGui::DragFloat("Point constant bias", &m_LightPassConstants.pointConstantBias, 0.001f, 0.001f, 1.0f);
+            ImGui::DragFloat("Point constant bias", &m_LightPassConstants.pointConstantBias, 0.001f, 0.001f, 1.0f, "%.4f");
             // TODO: Add debug light visualization
 #if 0
       ImGui::Checkbox("Draw debug light positions", &m_IsLightsRendered);
