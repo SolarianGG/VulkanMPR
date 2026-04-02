@@ -58,7 +58,7 @@ def compile_shaders(input_dir="src/shaders", output_dir="src/compiled_shaders", 
                 if release:
                     command.extend(["-O2"])
                 else:
-                    command.extend(["-g1"])
+                    command.extend(["-g2"])
 
                 try:
                     subprocess.run(command, check=True)

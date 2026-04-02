@@ -69,6 +69,8 @@ void Engine::draw()
 
     vkBeginCommandBuffer(cmd, &beginInfo) >> chk;
 
+    copy_staging_buffers(cmd);
+
     utils::BarrierBuilder barrierBuilder;
     m_stats.drawCallCount = 0;
     m_stats.triangleCount = 0;
@@ -1304,6 +1306,60 @@ void Engine::compute_dir_lights_vp(VkCommandBuffer cmd)
 
     vkCmdDispatch(cmd, 1, 1, 1);
     mp::debug::cmd_end_label(cmd);
+}
+
+void Engine::copy_staging_buffers(VkCommandBuffer cmd)
+{
+    auto &frame = get_current_frame();
+    utils::BarrierBuilder barrierBuilder;
+
+    const std::uint32_t totalInstances = m_OpaqueSize + m_TransparentSize;
+    if (totalInstances > 0)
+    {
+        const VkBufferCopy instanceCopy{
+            .srcOffset = 0,
+            .dstOffset = 0,
+            .size = totalInstances * sizeof(Instance),
+        };
+        vkCmdCopyBuffer(cmd, frame.instanceStagingBuffer.buffer, frame.instanceBuffer.buffer, 1, &instanceCopy);
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+            .srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT |
+                            VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT,
+            .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = frame.instanceBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+    }
+
+    if (m_mainDrawContext.dirLight.has_value())
+    {
+        const VkBufferCopy dirLightCopy{
+            .srcOffset = 0,
+            .dstOffset = 0,
+            .size = sizeof(DirectionalLightData),
+        };
+        vkCmdCopyBuffer(cmd, frame.dirLightStagingBuffer.buffer, frame.dirLightBuffer.buffer, 1, &dirLightCopy);
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+            .srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = frame.dirLightBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+    }
+
+    barrierBuilder.barrier(cmd);
 }
 
 void Engine::copy_frame_buffers()

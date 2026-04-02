@@ -54,6 +54,7 @@ struct FrameData
     VkDeviceAddress sceneDataBufferAddr;
     AllocatedBuffer dirLightBuffer;
     VkDeviceAddress dirLightBufferAddr;
+    AllocatedBuffer dirLightStagingBuffer;
     AllocatedBuffer pointLightBuffer;
     VkDeviceAddress pointLightBufferAddr;
     AllocatedBuffer visiblePointLightsBuffer;
@@ -73,6 +74,7 @@ struct FrameData
     DescriptorBuffer cascadeDepthDescBuffer;
     AllocatedBuffer instanceBuffer;
     VkDeviceAddress instanceBufferAddr;
+    AllocatedBuffer instanceStagingBuffer;
     AllocatedBuffer meshesBuffer;
     VkDeviceAddress meshBufferAddr;
     AllocatedBuffer drawCommandsBuffer;
@@ -301,6 +303,7 @@ class Engine final
     void compute_point_lights_commands(VkCommandBuffer cmd);
     void draw_point_lights_shadows_pass(VkCommandBuffer cmd);
     void copy_frame_buffers();
+    void copy_staging_buffers(VkCommandBuffer cmd);
 
     void init_frames_data();
 

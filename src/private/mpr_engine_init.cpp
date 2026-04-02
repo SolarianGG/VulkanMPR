@@ -1248,8 +1248,11 @@ void Engine::init_frames_data()
 
         frame.dirLightBuffer =
             create_buffer(sizeof(DirectionalLightData),
-                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-                          VMA_MEMORY_USAGE_CPU_TO_GPU);
+                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+                              VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                          VMA_MEMORY_USAGE_GPU_ONLY);
+        frame.dirLightStagingBuffer =
+            create_buffer(sizeof(DirectionalLightData), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
         frame.dirLightBufferAddr = frame.dirLightBuffer.get_buffer_device_address(m_device);
         mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_BUFFER,
                                    reinterpret_cast<uint64_t>(frame.dirLightBuffer.buffer),
@@ -1331,7 +1334,11 @@ void Engine::init_frames_data()
 
         frame.instanceBuffer =
             create_buffer(sizeof(Instance) * kMaxInstances,
-                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+                              VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                          VMA_MEMORY_USAGE_GPU_ONLY);
+        frame.instanceStagingBuffer =
+            create_buffer(sizeof(Instance) * kMaxInstances, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                           VMA_MEMORY_USAGE_CPU_TO_GPU);
         frame.instanceBufferAddr = frame.instanceBuffer.get_buffer_device_address(m_device);
         mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_BUFFER,
@@ -1371,11 +1378,13 @@ void Engine::init_frames_data()
         for (auto &frame : m_frameData)
         {
             destroy_buffer(frame.instanceBuffer);
+            destroy_buffer(frame.instanceStagingBuffer);
             destroy_buffer(frame.drawCommandsBuffer);
             destroy_buffer(frame.meshesBuffer);
             destroy_buffer(frame.countBuffer);
             destroy_buffer(frame.sceneDataBuffer);
             destroy_buffer(frame.dirLightBuffer);
+            destroy_buffer(frame.dirLightStagingBuffer);
             destroy_buffer(frame.pointLightIndicesBuffer);
             destroy_buffer(frame.pointLightIndicesOffsetsBuffer);
             destroy_buffer(frame.pointLightIndicesOffsetsCounterBuffer);

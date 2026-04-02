@@ -318,7 +318,7 @@ void Engine::update_scene()
     m_camera.update(m_stats.frameTime);
     m_mainDrawContext.clear();
     m_CurrentFrameInstanceBuffer =
-        static_cast<Instance *>(get_current_frame().instanceBuffer.allocationInfo.pMappedData);
+        static_cast<Instance *>(get_current_frame().instanceStagingBuffer.allocationInfo.pMappedData);
     m_CurrentMeshBuffer = static_cast<RenderObject *>(get_current_frame().meshesBuffer.allocationInfo.pMappedData);
 
     m_scene.draw(glm::mat4(1.0f), m_mainDrawContext);
@@ -376,7 +376,7 @@ void Engine::update_scene()
 
     if (m_mainDrawContext.dirLight.has_value())
     {
-        std::memcpy(frame.dirLightBuffer.allocationInfo.pMappedData, &m_mainDrawContext.dirLight.value(),
+        std::memcpy(frame.dirLightStagingBuffer.allocationInfo.pMappedData, &m_mainDrawContext.dirLight.value(),
                     sizeof(DirectionalLightData));
     }
     std::memcpy(frame.pointLightBuffer.allocationInfo.pMappedData, m_mainDrawContext.pointLights.data(),

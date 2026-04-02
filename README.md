@@ -1,7 +1,7 @@
-### VulkanMPR
+## VulkanMPR
 A high-performance, modern graphics engine built in C++ and Vulkan, designed for real-time rendering and experimentation with advanced rendering techniques.
 
-### Dependencies:
+## Dependencies:
 - SDL3
 - Vulkan
 - GLM
@@ -13,7 +13,7 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
 - Vulkan-bootstrap
 - Stb
 
-### Requirements:
+## Requirements:
 - CMake 3.28 or higher
 - Vcpkg
 - A CMake compatible builder (Ninja or Visual Studio)
@@ -22,21 +22,21 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
 - Vulkan SDK
 - GPU that supports descriptor buffers, spirv 1.6 / shader model 6.5
 
-### Building:
+## Building:
 - git clone --recursive https://github.com/SolarianGG/VulkanMPR.git
 - python ./vcpkg_init_project.py
 - cmake --preset=default
 
-#### Debug (default):
+### Debug (default):
 - python ./shader_cmp.py
 - cmake --build build
 
-#### Release:
+### Release:
 - python ./shader_cmp.py --release
 - cmake --build build --config Release
 
 
-### Core
+## Core
 
 - Fully **GPU-Driven** architecture.
 - **Bindless rendering** for large numbers of textures and buffers via **descriptor buffers** extension.
@@ -44,13 +44,163 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
 - **glTF** model loading
 - **Scene graph**
 - **Metal-roughness** PBR materials
+- **Debug labels** for more convenient RenderDoc + Nvidia nsights pipeline inspection
 
-### Rendering features
+## Rendering features
 
-- 
+- **Deferred shading**
+- **SDSM** (Sample distribution shadow maps) **CSM** (Cascaded Shadow Maps) for directional light shadows.
+- **Omnidirectional tetrahedron shadow mapping** for point light shadows
+- GPU Visible point lights culling
+- GPU Meshes **frustum culling**
+- **Gamma correction**
+- **WBOIT** (Weight blended order independent transparency)
+- **Normal mapping**
 
-### Rendering features overview
+## Demo
 
-### Perfomance Overview
+### Pipeline overview
+
+<table>
+  <tr>
+    <td><img src="screenshots/pipeline_overview.png" width="600"/></td>
+    <td><img src="screenshots/pipelines_frame_time.png" width="600"/></td>
+  </tr>
+</table>
+
+### Sponza
+
+<table>
+  <tr>
+    <td><img src="screenshots/Sponza_1.png" width="600"/></td>
+    <td><img src="screenshots/Sponza_2.png" width="600"/></td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/Sponza_3.png" width="600"/></td>
+    <td><img src="screenshots/Sponza_4.png" width="600"/></td>
+  </tr>
+</table>
+
+<table>
+    <tr>
+    <td><img src="screenshots/Full_Scene.png" width="1100"/></td>
+  </tr>
+</table>
+
+### Shadows
+
+#### SDSM CSM
+
+<table>
+  <tr>
+    <td><img src="screenshots/CSM_1_cascade.png" width="600"/></td>
+    <td><img src="screenshots/CSM_1_cascade_final.png" width="600"/></td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/CSM_2_cascades.png" width="600"/></td>
+    <td><img src="screenshots/CSM_2_cascades_final.png" width="600"/></td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/CSM_3_cascades.png" width="600"/></td>
+    <td><img src="screenshots/CSM_3_cascades_final.png" width="600"/></td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/CSM_4_cascades.png" width="600"/></td>
+    <td><img src="screenshots/CSM_4_cascades_final.png" width="600"/></td>
+  </tr>
+</table>
+
+#### Difference between SDSM CSM and Simple Directional shadow mapping
+
+<table>
+  <tr>
+    <td><img src="screenshots/dsm.png" width="600"/></td>
+    <td><img src="screenshots/csm.png" width="600"/></td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/dsm_screen.png" width="600"/></td>
+    <td><img src="screenshots/csm_cascades.png" width="600"/></td>
+  </tr>
+</table>
+
+#### Omnidirectional tetrahedron shadow mapping
+
+<table>
+  <tr>
+    <td><img src="screenshots/tetrahedron_shadow_map.png" width="600"/></td>
+    <td><img src="screenshots/Sponza_1.png" width="600"/></td>
+  </tr>
+</table>
+
+#### Avoiding Shadow acne and Peter panning by using normal offset bias + constant bias
+
+<table>
+  <tr>
+    <td><img src="screenshots/peter_panning.png" width="600"/></td>
+    <td><img src="screenshots/PCF_Bias.png" width="600"/></td>
+  </tr>
+</table>
+
+
+### Normal mapping
+
+<table>
+  <tr>
+    <td><img src="screenshots/nonp.png" width="600"/></td>
+    <td><img src="screenshots/np.png" width="600"/></td>
+  </tr>
+</table>
+
+
+### Gamma correction 
+
+<table>
+  <tr>
+    <td><img src="screenshots/no_gamma.png" width="600"/></td>
+    <td><img src="screenshots/gamma.png" width="600"/></td>
+  </tr>
+</table>
+
+### WBOIT
+
+<table>
+  <tr>
+    <td><img src="screenshots/wboit.png" width="600"/></td>
+  </tr>
+</table>
+
+
+### Scene manipulation
+
+<table>
+  <tr>
+    <td><img src="screenshots/scene-manip-tr.png" width="400"/></td>
+    <td><img src="screenshots/scene-manip-rt.png" width="400"/></td>
+    <td><img src="screenshots/scene-manip-sc.png" width="400"/></td>
+  </tr>
+</table>
+
+## Planned rendering feautres
+
+- GT7 Tone mapping
+- Auto exposure
+- BRDF (Burley + GGX)
+- IBL
+- Bloom
+- Bend studio contact shadows
+- SSAO
+- SSR
+- TAA / FXAA / SMAA
+- Occlusion culling
+- Depth of field
+- Motion blur
+- Lens flare
+- Chromatic abberation
+- SSGI
+- Clustered deferred
+- Descriptor heaps
+- Frame graph
+- BC texture compression
+- Async compute
 
 
