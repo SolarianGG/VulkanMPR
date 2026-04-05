@@ -10,11 +10,10 @@ public static const int POINT_LIGHT_TILES_PER_ROW = POINT_LIGHT_SHADOW_MAP_SIZE 
 public struct Vertex
 {
     public float3 pos;
-    public float u;
-    public float3 norm;
-    public float v;
-    public float4 tangent;
-    public float4 col;
+    public float16_t u;
+    public float16_t v;
+    public vector<float16_t, 2> norm;
+    public vector<float16_t, 2> tangent;
 };
 
 public struct Mesh {

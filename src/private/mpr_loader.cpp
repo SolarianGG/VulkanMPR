@@ -12,12 +12,46 @@
 #include <fastgltf/tools.hpp>
 #include <fastgltf/types.hpp>
 #include <fastgltf/util.hpp>
+#include <meshoptimizer.h>
 #include <glm/glm.hpp>
 #include <glm/gtx/quaternion.hpp>
+#include <glm/gtc/packing.hpp>
 #include <print>
 #include <ranges>
 
 namespace {
+
+glm::vec2 OctahedronWrap(glm::vec2 v)
+{
+    glm::vec2 w = 1.0f - glm::abs(glm::vec2(v.y, v.x));
+    if (v.x < 0.0f)
+        w.x = -w.x;
+    if (v.y < 0.0f)
+        w.y = -w.y;
+    return w;
+}
+
+
+glm::u16vec2 QuantizeNormal(glm::vec3 n)
+{
+    n /= (glm::abs(n.x) + glm::abs(n.y) + glm::abs(n.z));
+    n = glm::vec3(n.z > 0.0f ? glm::vec2(n.x, n.y) : OctahedronWrap(glm::vec2(n.x, n.y)), n.z);
+    n = glm::vec3(glm::vec2(n.x, n.y) * 0.5f + 0.5f, n.z);
+
+    return glm::packHalf(glm::vec2(n.x, n.y));
+}
+
+glm::u16vec2 QuantizeTangent(glm::vec4 t)
+{
+    glm::u16vec2 q = QuantizeNormal(glm::vec3(t.x, t.y, t.z));
+
+    // If bitangent sign is positive, we set first bit of Y component to 1, otherwise (if it is negative) we set 0
+    q.y = t.w == 1.0f ? q.y | 1u : q.y & ~1u;
+
+    return q;
+}
+
+
 VkFilter extract_filter(const fastgltf::Filter filter) {
   switch (filter) {
     // nearest samplers
@@ -299,43 +333,41 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
     dataIndex++;
   }
 
-  std::vector<Vertex> vertices;
-  std::vector<std::uint32_t> indices;
+  // Accumulate all mesh data on the CPU before a single GPU upload
+  std::vector<Vertex> allVertices;
+  std::vector<std::uint32_t> allIndices;
+  const std::size_t globalVertexBase = engine.m_globalVertexCount;
+  const std::size_t globalIndexBase = engine.m_globalIndexCount;
+
   for (auto& mesh : asset.meshes) {
     MeshAsset newMesh;
-
-    vertices.clear();
-    indices.clear();
-
     newMesh.name = mesh.name;
+
     for (auto& p : mesh.primitives) {
       GeoSurface newSurface;
-      newSurface.startIndex = static_cast<uint32_t>(indices.size());
-      newSurface.count = static_cast<uint32_t>(
+      newSurface.count = static_cast<std::uint32_t>(
           asset.accessors[p.indicesAccessor.value()].count);
-      newSurface.vertexOffset = 0;  // Relative to mesh-local vertices for now
-
       newSurface.min = glm::vec3(0.0f);
       newSurface.max = glm::vec3(0.0f);
-      size_t initialVtx = vertices.size();
 
-      // load indexes
+      std::vector<Vertex> primVertices;
+      std::vector<std::uint32_t> primIndices;
+
+      // load indexes (0-based, relative to primVertices)
       {
         fastgltf::Accessor& indexAccessor =
             asset.accessors[p.indicesAccessor.value()];
-        indices.reserve(indices.size() + indexAccessor.count);
-
+        primIndices.reserve(indexAccessor.count);
         fastgltf::iterateAccessor<std::uint32_t>(
-            asset, indexAccessor, [&](const std::uint32_t idx) {
-              indices.push_back(idx + initialVtx);
-            });
+            asset, indexAccessor,
+            [&](const std::uint32_t idx) { primIndices.push_back(idx); });
       }
 
       // load vertex positions
       {
         fastgltf::Accessor& posAccessor =
             asset.accessors[p.findAttribute("POSITION")->accessorIndex];
-        vertices.resize(vertices.size() + posAccessor.count);
+        primVertices.resize(posAccessor.count);
 
         newSurface.min = std::visit(
             fastgltf::visitor{
@@ -354,13 +386,9 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
 
         fastgltf::iterateAccessorWithIndex<glm::vec3>(
             asset, posAccessor, [&](const glm::vec3 v, const size_t index) {
-              Vertex newVtx;
-              newVtx.pos = v;
-              newVtx.normal = {1, 0, 0};
-              newVtx.color = glm::vec4{1.f};
-              newVtx.u = 0;
-              newVtx.v = 0;
-              vertices[initialVtx + index] = newVtx;
+              primVertices[index].pos = v;
+              primVertices[index].normal = QuantizeNormal({1, 0, 0});
+              primVertices[index].uv = glm::packHalf(glm::vec2(0.0f,0.0f));
             });
       }
 
@@ -370,7 +398,7 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
         fastgltf::iterateAccessorWithIndex<glm::vec3>(
             asset, asset.accessors[normals->accessorIndex],
             [&](const glm::vec3 v, const size_t index) {
-              vertices[initialVtx + index].normal = v;
+              primVertices[index].normal = QuantizeNormal(v);
             });
       }
 
@@ -380,29 +408,69 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
         fastgltf::iterateAccessorWithIndex<glm::vec2>(
             asset, asset.accessors[uv->accessorIndex],
             [&](const glm::vec2 v, const size_t index) {
-              vertices[initialVtx + index].u = v.x;
-              vertices[initialVtx + index].v = v.y;
+              primVertices[index].uv = glm::packHalf(v);
             });
       }
+
+      // load tangents
       auto tangent = p.findAttribute("TANGENT");
       if (tangent != p.attributes.end()) {
         assert(uv != p.attributes.end());
         fastgltf::iterateAccessorWithIndex<glm::vec4>(
             asset, asset.accessors[tangent->accessorIndex],
             [&](const glm::vec4 v, const std::size_t index) {
-              vertices[initialVtx + index].tangent = v;
+              primVertices[index].tangent = QuantizeTangent(v);
             });
+      } else {
+        for (auto& vtx : primVertices) {
+          vtx.tangent = QuantizeTangent(glm::vec4(1.0f, 0.0f, 0.0f, 1.0f));
+        }
       }
 
-      // load vertex colors
-      auto colors = p.findAttribute("COLOR_0");
-      if (colors != p.attributes.end()) {
-        fastgltf::iterateAccessorWithIndex<glm::vec4>(
-            asset, asset.accessors[colors->accessorIndex],
-            [&](const glm::vec4 v, const size_t index) {
-              vertices[initialVtx + index].color = v;
-            });
+      {
+        std::vector<std::uint32_t> remap(primVertices.size());
+        const std::size_t uniqueVertexCount = meshopt_generateVertexRemap(
+            remap.data(), primIndices.data(), primIndices.size(),
+            primVertices.data(), primVertices.size(), sizeof(Vertex));
+
+        std::vector<std::uint32_t> remappedIndices(primIndices.size());
+        std::vector<Vertex> remappedVertices(uniqueVertexCount);
+        meshopt_remapIndexBuffer(remappedIndices.data(), primIndices.data(),
+                                 primIndices.size(), remap.data());
+        meshopt_remapVertexBuffer(remappedVertices.data(), primVertices.data(),
+                                  primVertices.size(), sizeof(Vertex),
+                                  remap.data());
+
+        primIndices = std::move(remappedIndices);
+        primVertices = std::move(remappedVertices);
       }
+
+      meshopt_optimizeVertexCache(primIndices.data(), primIndices.data(),
+                                  primIndices.size(), primVertices.size());
+
+      {
+        std::vector<float> positions(primVertices.size() * 3);
+        for (std::size_t i = 0; i < primVertices.size(); ++i) {
+          positions[i * 3 + 0] = primVertices[i].pos.x;
+          positions[i * 3 + 1] = primVertices[i].pos.y;
+          positions[i * 3 + 2] = primVertices[i].pos.z;
+        }
+        meshopt_optimizeOverdraw(primIndices.data(), primIndices.data(),
+                                 primIndices.size(), positions.data(),
+                                 primVertices.size(), 3 * sizeof(float), 1.05f);
+      }
+
+      meshopt_optimizeVertexFetch(primVertices.data(), primIndices.data(),
+                                  primIndices.size(), primVertices.data(),
+                                  primVertices.size(), sizeof(Vertex));
+
+      newSurface.startIndex = static_cast<std::uint32_t>(allIndices.size());
+      newSurface.vertexOffset = static_cast<std::int32_t>(allVertices.size());
+
+      allVertices.insert(allVertices.end(), primVertices.begin(),
+                         primVertices.end());
+      allIndices.insert(allIndices.end(), primIndices.begin(),
+                        primIndices.end());
 
       if (p.materialIndex.has_value()) {
         newSurface.material = materials[p.materialIndex.value()];
@@ -414,55 +482,52 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
       newMesh.geoSurfaces.push_back(newSurface);
     }
 
-    // Reallocate vertex/index buffers if necessary
-    engine.ensure_vertex_capacity(vertices.size());
-    engine.ensure_index_capacity(indices.size());
-
-    const std::uint32_t baseVertex =
-        static_cast<std::uint32_t>(engine.m_globalVertexCount);
-    const std::uint32_t firstIndex =
-        static_cast<std::uint32_t>(engine.m_globalIndexCount);
-
-    // Copy new vertices to vb/ib
-    AllocatedBuffer staging{};
-    engine.immediate_submit([&](VkCommandBuffer cmd) {
-      const std::size_t vSize = vertices.size() * sizeof(Vertex);
-      const std::size_t iSize = indices.size() * sizeof(std::uint32_t);
-
-      staging =
-          engine.create_buffer(vSize + iSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                               VMA_MEMORY_USAGE_CPU_ONLY);
-      std::memcpy(staging.allocationInfo.pMappedData, vertices.data(), vSize);
-      std::memcpy(
-          static_cast<char*>(staging.allocationInfo.pMappedData) + vSize,
-          indices.data(), iSize);
-
-      const VkBufferCopy vCopy{
-          .srcOffset = 0,
-          .dstOffset = engine.m_globalVertexCount * sizeof(Vertex),
-          .size = vSize};
-      vkCmdCopyBuffer(cmd, staging.buffer, engine.m_globalVertexBuffer.buffer,
-                      1, &vCopy);
-
-      const VkBufferCopy iCopy{
-          .srcOffset = vSize,
-          .dstOffset = engine.m_globalIndexCount * sizeof(std::uint32_t),
-          .size = iSize};
-      vkCmdCopyBuffer(cmd, staging.buffer, engine.m_globalIndexBuffer.buffer, 1,
-                      &iCopy);
-    });
-    engine.destroy_buffer(staging);
-
-    for (auto& surf : newMesh.geoSurfaces) {
-      surf.startIndex += firstIndex;
-      surf.vertexOffset += static_cast<std::int32_t>(baseVertex);
-    }
-
-    engine.m_globalVertexCount += vertices.size();
-    engine.m_globalIndexCount += indices.size();
-
     meshes.emplace_back(std::make_shared<MeshAsset>(std::move(newMesh)));
     file.add_mesh(meshes.back());
+  }
+
+  engine.ensure_vertex_capacity(allVertices.size());
+  engine.ensure_index_capacity(allIndices.size());
+
+  AllocatedBuffer staging{};
+  engine.immediate_submit([&](VkCommandBuffer cmd) {
+    const std::size_t vSize = allVertices.size() * sizeof(Vertex);
+    const std::size_t iSize = allIndices.size() * sizeof(std::uint32_t);
+
+    staging =
+        engine.create_buffer(vSize + iSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                             VMA_MEMORY_USAGE_CPU_ONLY);
+    std::memcpy(staging.allocationInfo.pMappedData, allVertices.data(), vSize);
+    std::memcpy(static_cast<char*>(staging.allocationInfo.pMappedData) + vSize,
+                allIndices.data(), iSize);
+
+    const VkBufferCopy vCopy{
+        .srcOffset = 0,
+        .dstOffset = globalVertexBase * sizeof(Vertex),
+        .size = vSize,
+    };
+    vkCmdCopyBuffer(cmd, staging.buffer, engine.m_globalVertexBuffer.buffer, 1,
+                    &vCopy);
+
+    const VkBufferCopy iCopy{
+        .srcOffset = vSize,
+        .dstOffset = globalIndexBase * sizeof(std::uint32_t),
+        .size = iSize,
+    };
+    vkCmdCopyBuffer(cmd, staging.buffer, engine.m_globalIndexBuffer.buffer, 1,
+                    &iCopy);
+  });
+  engine.destroy_buffer(staging);
+
+  engine.m_globalVertexCount += allVertices.size();
+  engine.m_globalIndexCount += allIndices.size();
+
+  // Adjust all surface offsets from accumulated-array-local to global GPU offsets
+  for (auto& mesh : meshes) {
+    for (auto& surf : mesh->geoSurfaces) {
+      surf.startIndex += static_cast<std::uint32_t>(globalIndexBase);
+      surf.vertexOffset += static_cast<std::int32_t>(globalVertexBase);
+    }
   }
 
 

@@ -10,7 +10,7 @@ RWTexture2D<float4> outputTexture;
 [[vk::binding(0, 1)]]
 Texture2D<float> depthTexture;
 [[vk::binding(1, 1)]]
-Texture2D<float4> normalTexture;
+Texture2D<float2> normalTexture;
 [[vk::binding(2, 1)]]
 Texture2D<float4> albedoTexture;
 [[vk::binding(3, 1)]]
@@ -58,7 +58,7 @@ void computeMain(uint3 threadID : SV_DispatchThreadID)
         outputTexture[uv] = float4(0.33f, 0.66f, 0.99f, 1.0f);
         return;
     }
-    float4 normal = normalTexture[uv];
+    float3 normal = DecodeGBufferNormal(normalTexture[uv]);
     float4 albedo = albedoTexture[uv];
     float4 mr = metalRoughTexture[uv];
 

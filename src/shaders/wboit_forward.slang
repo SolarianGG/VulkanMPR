@@ -23,7 +23,6 @@ struct VSOutput
 {
     float4 pos : SV_Position;
     float4 worldPos;
-    float4 col;
     float2 uv;
     float3x3 TBN;
     nointerpolation uint materialID;
@@ -45,12 +44,12 @@ VSOutput vertexMain(uint vertexID : SV_VulkanVertexID, uint instanceID : SV_Vulk
     float4 vertexPos = float4(vertex.pos, 1.0);
     output.pos = mul(scene.projView, mul(instance.worldTransform, vertexPos));
     output.worldPos = mul(instance.worldTransform, vertexPos);
-    output.col = vertex.col;
     // Normal mapping TBN
-    float3 T = normalize(mul((float3x3)instance.worldTransform, vertex.tangent.xyz));
-    float3 N = normalize(mul((float3x3)instance.worldTransform, vertex.norm));
+    vector<float16_t, 4> tangent = DecodeTangent(vertex.tangent);
+    float3 T = normalize(mul((float3x3)instance.worldTransform, tangent.xyz));
+    float3 N = normalize(mul((float3x3)instance.worldTransform, DecodeNormal(vertex.norm)));
     T = normalize(T - dot(T, N) * N);
-    float3 B = cross(N, T);
+    float3 B = cross(N, T) * tangent.w;
     float3x3 TBN = float3x3(T, B, N);
     output.TBN = TBN;
 
@@ -84,13 +83,12 @@ PSOutput fragmentMain(VSOutput input, float4 fragCoord : SV_Position)
   float3 bumpMapNormal = textures[NonUniformResourceIndex(input.normalTextureID)] .Sample(samplers[NonUniformResourceIndex(input.normalSamplerID)], input.uv) .rgb;
   bumpMapNormal = normalize(bumpMapNormal * 2.0f - float3(1.0f, 1.0f, 1.0f));
   
-  float4 mr = materialData.metalRoughnessFactors * metalRoughness;
-
   float3 worldPos = input.worldPos.xyz;
   float3 normal = normalize(mul(bumpMapNormal, input.TBN));
-  float4 diffuse = materialData.colorFactors * input.col * baseColor;
-  float metallic = mr.r;
-  float roughness = mr.g;
+  float4 diffuse = materialData.colorFactors * baseColor;
+  // G = roughness, B = metalness
+  float metallic = materialData.metalRoughnessFactors.r * metalRoughness.b;
+  float roughness = materialData.metalRoughnessFactors.g * metalRoughness.g;
   roughness = max(roughness, 0.04f); 
 
   float4 color = 0.0f;

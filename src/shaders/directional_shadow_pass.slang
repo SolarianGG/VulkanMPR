@@ -8,44 +8,24 @@ struct PushConstants {
     uint cascadeCount;
 };
 
-[[vk_push_constant]]
+[[vk::push_constant]]
 PushConstants pushConstants;
 
 struct VSOutput {
-    float4 worldPos;
-}
-
-struct GSOutput {
     float4 pos : SV_Position;
     uint layer : SV_RenderTargetArrayIndex;
 }
 
 [shader("vertex")]
-VSOutput vertexMain(uint vertexID: SV_VulkanVertexID, uint instanceID: SV_VulkanInstanceID) {
+VSOutput vertexMain(uint vertexID: SV_VulkanVertexID, uint instanceID: SV_StartInstanceLocation, uint cascadeIndex: SV_InstanceID) {
     Vertex vertex = pushConstants.vertices[vertexID];
     Instance instance = pushConstants.instances[instanceID];
     VSOutput output;
-    output.worldPos = mul(instance.worldTransform, float4(vertex.pos, 1.0f));
+    output.pos = mul(pushConstants.dirLight.cascadeVPs[cascadeIndex], mul(instance.worldTransform, float4(vertex.pos, 1.0f)));
+    output.layer = cascadeIndex;
     return output;
 }
 
-[shader("geometry")]
-[maxvertexcount(12)]
-void geometryMain(triangle VSOutput input[3], inout TriangleStream<GSOutput> output) {
-    for (uint c = 0; c < pushConstants.cascadeCount; ++c)
-    {
-        float4x4 cascadeViewProj = pushConstants.dirLight.cascadeVPs[c];
-        for (uint v = 0; v < 3; ++v)
-        {
-            GSOutput o;
-            o.pos = mul(cascadeViewProj, input[v].worldPos);
-            o.layer = c;
-            output.Append(o);
-        }
-        output.RestartStrip();
-    }
-}
-
 [shader("pixel")]
-void pixelMain(GSOutput input) {
+void pixelMain(VSOutput input) {
 }

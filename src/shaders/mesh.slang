@@ -16,7 +16,6 @@ PushConstants pushConstants;
 struct VSOutput
 {
     float4 pos : SV_Position;
-    float4 col;
     float2 uv;
     float3x3 TBN;
     nointerpolation uint materialID;
@@ -37,12 +36,12 @@ VSOutput vertexMain(uint vertexID : SV_VulkanVertexID, uint instanceID : SV_Vulk
     VSOutput output;
     float4 vertexPos = float4(vertex.pos, 1.0);
     output.pos = mul(scene.projView, mul(instance.worldTransform, vertexPos));
-    output.col = vertex.col;
     // Normal mapping TBN
-    float3 T = normalize(mul((float3x3)instance.worldTransform, vertex.tangent.xyz));
-    float3 N = normalize(mul((float3x3)instance.worldTransform, vertex.norm));
+    vector<float16_t, 4> tangent = DecodeTangent(vertex.tangent);
+    float3 T = normalize(mul((float3x3)instance.worldTransform, tangent.xyz));
+    float3 N = normalize(mul((float3x3)instance.worldTransform, DecodeNormal(vertex.norm)));
     T = normalize(T - dot(T, N) * N);
-    float3 B = cross(N, T);
+    float3 B = cross(N, T) * tangent.w;
     float3x3 TBN = float3x3(T, B, N);
     output.TBN = TBN;
 
@@ -59,7 +58,7 @@ VSOutput vertexMain(uint vertexID : SV_VulkanVertexID, uint instanceID : SV_Vulk
 };
 
 struct PSOutput {
-    float4 normal : SV_Target0;
+    float2 normal : SV_Target0;
     float4 albedo : SV_Target1;
     float4 metalRoughness : SV_Target2;
 }
@@ -78,10 +77,14 @@ PSOutput fragmentMain(VSOutput input)
   bumpMapNormal = normalize(bumpMapNormal * 2.0f - float3(1.0f, 1.0f, 1.0f));
   
   PSOutput output;
-  output.normal = float4(mul(bumpMapNormal, input.TBN), 1.0f);
-  output.albedo = materialData.colorFactors * input.col * baseColor;
+  output.normal = QuantizeNormal(mul(bumpMapNormal, input.TBN));
+  output.albedo = materialData.colorFactors * baseColor;
   if (output.albedo.a < materialData.alphaCutoff.r)
       discard;
-  output.metalRoughness = materialData.metalRoughnessFactors * metalRoughness;
+  // G = roughness, B = metalness
+  output.metalRoughness = float4(
+      materialData.metalRoughnessFactors.r * metalRoughness.b,
+      materialData.metalRoughnessFactors.g * metalRoughness.g,
+      0.0f, 0.0f);
   return output;
 };

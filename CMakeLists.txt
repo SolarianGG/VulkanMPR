@@ -26,6 +26,7 @@ find_package(Stb REQUIRED)
 find_package(SDL3 CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
 find_package(fastgltf CONFIG REQUIRED)
+find_package(meshoptimizer CONFIG REQUIRED)
 
 # Have to build ImGui from source since vcpkg's imgui package are prebuild without Volk support
 add_library(ImGui STATIC 
@@ -95,6 +96,7 @@ target_link_libraries(VulkanMPR PRIVATE
   glm::glm
   fastgltf::fastgltf
   volk::volk volk::volk_headers
+  meshoptimizer::meshoptimizer
   ImGui
   ImGuizmo
 )

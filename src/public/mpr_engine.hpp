@@ -256,6 +256,9 @@ class Engine final
     VkPipeline m_DirVpPipeline{};
     VkPipelineLayout m_DirVpPipelineLayout{};
 
+    VkPipeline m_PopulateCommandsWithCascadeCountPipeline{};
+    VkPipelineLayout m_PopulateCommandsWithCascadeCountPipelineLayout{};
+
     glm::mat4 m_DirLightCullMatrix{1.0f};
     glm::mat4 m_DirLightViewMatrix{1.0f};
 
@@ -276,6 +279,7 @@ class Engine final
     void init_post_pipeline();
     void init_cull_meshes_pipeline();
     void init_cull_point_lights_pipeline();
+    void init_populate_commands_with_cascade_count();
     void init_generate_point_light_commands_pipeline();
     void init_imgui();
     void init_mesh_data();
@@ -299,6 +303,7 @@ class Engine final
 
     void cull_objects(VkCommandBuffer cmd, std::uint32_t objectCount, std::uint32_t objectOffset,
                       const glm::mat4 &viewProj);
+    void populate_commands_with_cascade_count(VkCommandBuffer cmd, std::uint32_t objectCount);
     void cull_point_lights(VkCommandBuffer cmd);
     void compute_point_lights_commands(VkCommandBuffer cmd);
     void draw_point_lights_shadows_pass(VkCommandBuffer cmd);

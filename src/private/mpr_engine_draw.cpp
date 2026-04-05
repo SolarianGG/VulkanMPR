@@ -483,6 +483,68 @@ void Engine::draw_directional_shadow_pass(VkCommandBuffer cmd)
 
     cull_objects(cmd, m_OpaqueSize, 0, m_DirLightCullMatrix);
 
+    {
+        utils::BarrierBuilder barrierBuilder;
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.countBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.drawCommandsBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+
+        barrierBuilder.barrier(cmd);
+    }
+
+    populate_commands_with_cascade_count(cmd, m_OpaqueSize);
+
+    {
+        utils::BarrierBuilder barrierBuilder;
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+            .dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.countBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+            .dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.drawCommandsBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+
+        barrierBuilder.barrier(cmd);
+    }
+
     const auto depthAttachment = utils::depth_attachment(currentFrame.directionalShadowPassDepthArray.imageView,
                                                          VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
     const VkRenderingInfo renderInfo{
@@ -518,7 +580,7 @@ void Engine::draw_directional_shadow_pass(VkCommandBuffer cmd)
         .cascadeCount = cascadeCount,
     };
     draw_meshes(cmd, m_ShadowPassPipelineLayout, m_ShadowPassPipeline, m_OpaqueSize, shadowPassPushConstants,
-                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT);
+                VK_SHADER_STAGE_VERTEX_BIT);
 
     vkCmdEndRendering(cmd);
 
@@ -532,8 +594,9 @@ void Engine::draw_gBuffer_pass(VkCommandBuffer cmd)
 {
     mp::debug::cmd_begin_label(cmd, "GBuffer Pass", {0.6f, 0.3f, 0.9f, 1.f});
     const auto start = cn::steady_clock::now();
-    auto &gBuffer = get_current_frame().gBuffer;
-    auto &depthImage = get_current_frame().depthImage;
+    auto &currentFrame = get_current_frame();
+    auto &gBuffer = currentFrame.gBuffer;
+    auto &depthImage = currentFrame.depthImage;
 
     // ---
     VkClearValue val{.color = {0.0f, 0.0f, 0.0f, 1.0f}};
@@ -551,6 +614,35 @@ void Engine::draw_gBuffer_pass(VkCommandBuffer cmd)
         utils::rendering_info(m_CommonImageExtent2D, std::size(attachments), attachments, &depthAttachment);
 
     cull_objects(cmd, m_OpaqueSize, 0, m_sceneData.projView);
+    {
+        utils::BarrierBuilder barrierBuilder;
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+            .dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.countBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+            .dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.drawCommandsBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+
+        barrierBuilder.barrier(cmd);
+    }
     vkCmdBeginRendering(cmd, &renderInfo);
     const VkViewport viewport{
         .x = 0,
@@ -645,6 +737,35 @@ void Engine::draw_wboit(VkCommandBuffer cmd)
         utils::rendering_info(m_CommonImageExtent2D, std::size(colorAttachments), colorAttachments, &depthAttachment);
 
     cull_objects(cmd, m_TransparentSize, m_OpaqueSize, m_sceneData.projView);
+    {
+        utils::BarrierBuilder barrierBuilder;
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+            .dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.countBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+            .dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.drawCommandsBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+
+        barrierBuilder.barrier(cmd);
+    }
     vkCmdBeginRendering(cmd, &renderInfo);
 
     const VkDescriptorBufferBindingInfoEXT wboitBindingInfo{
@@ -787,32 +908,6 @@ void Engine::cull_objects(VkCommandBuffer cmd, const std::uint32_t objectCount, 
 
     vkCmdDispatch(cmd, std::ceil(objectCount / 64.0f), 1, 1);
 
-    barrierBuilder.add_buffer_barrier({
-        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
-        .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-        .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
-        .dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
-        .dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
-        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .buffer = currentFrame.countBuffer.buffer,
-        .offset = 0,
-        .size = VK_WHOLE_SIZE,
-    });
-    barrierBuilder.add_buffer_barrier({
-        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
-        .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-        .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
-        .dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
-        .dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
-        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .buffer = currentFrame.drawCommandsBuffer.buffer,
-        .offset = 0,
-        .size = VK_WHOLE_SIZE,
-    });
-
-    barrierBuilder.barrier(cmd);
     mp::debug::cmd_end_label(cmd);
 }
 
@@ -1090,6 +1185,36 @@ void Engine::draw_prepass(VkCommandBuffer cmd)
 
     cull_objects(cmd, m_OpaqueSize, 0, m_sceneData.projView);
 
+    {
+        utils::BarrierBuilder barrierBuilder;
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+            .dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.countBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+            .dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.drawCommandsBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+
+        barrierBuilder.barrier(cmd);
+    }
+
     const auto depthAttachment =
         utils::depth_attachment(currentFrame.depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
     const auto renderInfo = utils::rendering_info(m_CommonImageExtent2D, 0, nullptr, &depthAttachment);
@@ -1125,6 +1250,23 @@ void Engine::draw_prepass(VkCommandBuffer cmd)
                 VK_SHADER_STAGE_VERTEX_BIT);
 
     vkCmdEndRendering(cmd);
+    mp::debug::cmd_end_label(cmd);
+}
+
+void Engine::populate_commands_with_cascade_count(VkCommandBuffer cmd, std::uint32_t objectCount)
+{
+    mp::debug::cmd_begin_label(cmd, "Populate commands with cascade count", {0.33f, 0.66f, 0.99f, 1.f});
+
+    auto &currentFrame = get_current_frame();
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_PopulateCommandsWithCascadeCountPipeline);
+    const auto cascadeCount = m_mainDrawContext.dirLight.value().cascadeCount.r;
+    const PopulateCommandsWithCascadeCountPushConstants pushConstants{.commands = currentFrame.drawCommandsBufferAddr,
+                                                                      .count = currentFrame.countBufferAddr,
+                                                                      .cascadesCount = cascadeCount};
+    vkCmdPushConstants(cmd, m_PopulateCommandsWithCascadeCountPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                       sizeof(PopulateCommandsWithCascadeCountPushConstants), &pushConstants);
+
+    vkCmdDispatch(cmd, std::ceil(objectCount / 64.0f), 1, 1);
     mp::debug::cmd_end_label(cmd);
 }
 

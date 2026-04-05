@@ -124,6 +124,7 @@ void Engine::init_vulkan()
     const VkPhysicalDeviceVulkan12Features features12{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
         .drawIndirectCount = true,
+        .shaderFloat16 = true,
         .descriptorIndexing = true,
         .shaderSampledImageArrayNonUniformIndexing = true,
         .descriptorBindingPartiallyBound = true,
@@ -136,7 +137,9 @@ void Engine::init_vulkan()
 
     const VkPhysicalDeviceVulkan11Features features11{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
-        .shaderDrawParameters = true, 
+        .storageBuffer16BitAccess = true,
+        .storagePushConstant16 = true,
+        .shaderDrawParameters = true,
     };
     VkPhysicalDeviceFeatures features10{
         .independentBlend = true,
@@ -144,6 +147,7 @@ void Engine::init_vulkan()
         .samplerAnisotropy = true,
         .shaderClipDistance = true,
         .shaderInt64 = true,
+        .shaderInt16 = true,
     };
 
     vkb::PhysicalDeviceSelector selector{result.value()};
@@ -264,15 +268,13 @@ void Engine::init_swapchain()
     {
         auto &frame = m_frameData[i];
         create_draw_image(frame.drawImage, m_CommonImageExtent3D);
-        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
-                                   reinterpret_cast<uint64_t>(frame.drawImage.image),
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(frame.drawImage.image),
                                    std::format("Draw Image [{}]", i).c_str());
         create_depth_image(frame.depthImage, m_CommonImageExtent3D);
-        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
-                                   reinterpret_cast<uint64_t>(frame.depthImage.image),
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(frame.depthImage.image),
                                    std::format("Depth Image [{}]", i).c_str());
 
-        frame.gBuffer.normal = create_image(m_CommonImageExtent3D, VK_FORMAT_R32G32B32A32_SFLOAT,
+        frame.gBuffer.normal = create_image(m_CommonImageExtent3D, VK_FORMAT_R32G32_SFLOAT,
                                             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
                                                 VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
         mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
@@ -293,8 +295,7 @@ void Engine::init_swapchain()
 
         frame.oitAccImage = create_image(m_CommonImageExtent3D, VK_FORMAT_R16G16B16A16_SFLOAT,
                                          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
-                                   reinterpret_cast<uint64_t>(frame.oitAccImage.image),
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(frame.oitAccImage.image),
                                    std::format("OIT Accumulation [{}]", i).c_str());
         frame.oitRevealImage = create_image(m_CommonImageExtent3D, VK_FORMAT_R16_SFLOAT,
                                             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
@@ -322,7 +323,8 @@ void Engine::init_swapchain()
                            &frame.directionalShadowPassDepthArray.allocation, nullptr) >>
                 chk;
             frame.directionalShadowPassDepthArray.imageFormat = VK_FORMAT_D32_SFLOAT;
-            frame.directionalShadowPassDepthArray.imageExtent = {kDirectionalShadowMapSize, kDirectionalShadowMapSize, 1};
+            frame.directionalShadowPassDepthArray.imageExtent = {kDirectionalShadowMapSize, kDirectionalShadowMapSize,
+                                                                 1};
 
             // Array image view for sampling in light pass
             const VkImageViewCreateInfo arrayViewInfo{
@@ -339,7 +341,8 @@ void Engine::init_swapchain()
                         .layerCount = static_cast<std::uint32_t>(MAX_CASCADES),
                     },
             };
-            vkCreateImageView(m_device, &arrayViewInfo, nullptr, &frame.directionalShadowPassDepthArray.imageView) >> chk;
+            vkCreateImageView(m_device, &arrayViewInfo, nullptr, &frame.directionalShadowPassDepthArray.imageView) >>
+                chk;
             mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
                                        reinterpret_cast<uint64_t>(frame.directionalShadowPassDepthArray.image),
                                        std::format("Directional Shadow Array [{}]", i).c_str());
@@ -364,7 +367,8 @@ void Engine::init_swapchain()
             destroy_image(frame.pointLightsShadowTileMap);
 
             vkDestroyImageView(m_device, frame.directionalShadowPassDepthArray.imageView, nullptr);
-            vmaDestroyImage(m_allocator, frame.directionalShadowPassDepthArray.image, frame.directionalShadowPassDepthArray.allocation);
+            vmaDestroyImage(m_allocator, frame.directionalShadowPassDepthArray.image,
+                            frame.directionalShadowPassDepthArray.allocation);
         }
     });
 }
@@ -436,8 +440,8 @@ void Engine::init_descriptors()
             .borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
         };
         vkCreateSampler(m_device, &shadowSamplerInfo, nullptr, &m_shadowSampler);
-        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_SAMPLER,
-                                   reinterpret_cast<uint64_t>(m_shadowSampler), "Shadow Sampler");
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_SAMPLER, reinterpret_cast<uint64_t>(m_shadowSampler),
+                                   "Shadow Sampler");
         m_mainDeletionQueue.push_function([&] { vkDestroySampler(m_device, m_shadowSampler, nullptr); });
     }
     {
@@ -450,8 +454,8 @@ void Engine::init_descriptors()
             .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
         };
         vkCreateSampler(m_device, &debugSamplerInfo, nullptr, &m_debugSampler);
-        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_SAMPLER,
-                                   reinterpret_cast<uint64_t>(m_debugSampler), "Debug Sampler");
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_SAMPLER, reinterpret_cast<uint64_t>(m_debugSampler),
+                                   "Debug Sampler");
         m_mainDeletionQueue.push_function([&] { vkDestroySampler(m_device, m_debugSampler, nullptr); });
     }
     {
@@ -520,6 +524,7 @@ void Engine::init_pipelines()
     init_light_pass_pipeline();
     init_cull_meshes_pipeline();
     init_cull_point_lights_pipeline();
+    init_populate_commands_with_cascade_count();
     init_wboit_composite_pass_pipeline();
     init_post_pipeline();
     init_generate_point_light_commands_pipeline();
@@ -573,8 +578,8 @@ void Engine::init_light_pass_pipeline()
     };
 
     vkCreateComputePipelines(m_device, nullptr, 1, &createInfo, nullptr, &m_LightPassPipeline) >> chk;
-    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
-                               reinterpret_cast<uint64_t>(m_LightPassPipeline), "Light Pass Pipeline");
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE, reinterpret_cast<uint64_t>(m_LightPassPipeline),
+                               "Light Pass Pipeline");
 
     vkDestroyShaderModule(m_device, lightPassShader, nullptr);
     m_mainDeletionQueue.push_function([this] {
@@ -652,7 +657,8 @@ void Engine::init_wboit_composite_pass_pipeline()
         m_WBOITCompositePassPipeline =
             pipelineBuilder.build_pipeline(m_device, VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT);
         mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
-                                   reinterpret_cast<uint64_t>(m_WBOITCompositePassPipeline), "WBOIT Composite Pipeline");
+                                   reinterpret_cast<uint64_t>(m_WBOITCompositePassPipeline),
+                                   "WBOIT Composite Pipeline");
     }
 
     vkDestroyShaderModule(m_device, compositeVertexShader, nullptr);
@@ -771,8 +777,8 @@ void Engine::init_depth_reduction_pass()
             .layout = m_DirVpPipelineLayout,
         };
         vkCreateComputePipelines(m_device, nullptr, 1, &createInfo, nullptr, &m_DirVpPipeline) >> chk;
-        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
-                                   reinterpret_cast<uint64_t>(m_DirVpPipeline), "Directional VP Pipeline");
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE, reinterpret_cast<uint64_t>(m_DirVpPipeline),
+                                   "Directional VP Pipeline");
         vkDestroyShaderModule(m_device, shaderModule, nullptr);
     }
 
@@ -789,7 +795,7 @@ void Engine::init_depth_reduction_pass()
 
 void Engine::init_directional_shadow_pass()
 {
-    const VkPushConstantRange pushConstantRange{.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT,
+    const VkPushConstantRange pushConstantRange{.stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
                                                 .offset = 0,
                                                 .size = sizeof(DirectionalShadowPassPushConstants)};
 
@@ -802,19 +808,15 @@ void Engine::init_directional_shadow_pass()
     vkCreatePipelineLayout(m_device, &pipelineLayoutCreateInfo, nullptr, &m_ShadowPassPipelineLayout) >> chk;
 
     VkShaderModule shadowPassVert;
-    if (!mp::load_shader_module("../../src/compiled_shaders/directional_shadow_pass.vertex.spv", m_device, &shadowPassVert))
+    if (!mp::load_shader_module("../../src/compiled_shaders/directional_shadow_pass.vertex.spv", m_device,
+                                &shadowPassVert))
     {
         throw std::runtime_error("Failed to load shadow pass vertex shader");
     }
 
-    VkShaderModule shadowPassGeom;
-    if (!mp::load_shader_module("../../src/compiled_shaders/directional_shadow_pass.geometry.spv", m_device, &shadowPassGeom))
-    {
-        throw std::runtime_error("Failed to load shadow pass geometry shader");
-    }
-
     VkShaderModule shadowPassFrag;
-    if (!mp::load_shader_module("../../src/compiled_shaders/directional_shadow_pass.pixel.spv", m_device, &shadowPassFrag))
+    if (!mp::load_shader_module("../../src/compiled_shaders/directional_shadow_pass.pixel.spv", m_device,
+                                &shadowPassFrag))
     {
         throw std::runtime_error("Failed to load shadow pass fragment shader");
     }
@@ -825,18 +827,16 @@ void Engine::init_directional_shadow_pass()
     builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
     builder.set_polygon_mode(VK_POLYGON_MODE_FILL);
     builder.add_shader(shadowPassVert, VK_SHADER_STAGE_VERTEX_BIT);
-    builder.add_shader(shadowPassGeom, VK_SHADER_STAGE_GEOMETRY_BIT);
     builder.add_shader(shadowPassFrag, VK_SHADER_STAGE_FRAGMENT_BIT);
     builder.set_depth_format(m_frameData.at(0).directionalShadowPassDepthArray.imageFormat);
     builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
     builder.set_multisampling_none();
 
     m_ShadowPassPipeline = builder.build_pipeline(m_device);
-    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
-                               reinterpret_cast<uint64_t>(m_ShadowPassPipeline), "Directional Shadow Pass Pipeline");
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE, reinterpret_cast<uint64_t>(m_ShadowPassPipeline),
+                               "Directional Shadow Pass Pipeline");
 
     vkDestroyShaderModule(m_device, shadowPassVert, nullptr);
-    vkDestroyShaderModule(m_device, shadowPassGeom, nullptr);
     vkDestroyShaderModule(m_device, shadowPassFrag, nullptr);
 
     m_mainDeletionQueue.push_function([this]() {
@@ -950,8 +950,8 @@ void Engine::init_prepass()
     builder.set_multisampling_none();
 
     m_PrepassPipeline = builder.build_pipeline(m_device, VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT);
-    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
-                               reinterpret_cast<uint64_t>(m_PrepassPipeline), "Prepass Pipeline");
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE, reinterpret_cast<uint64_t>(m_PrepassPipeline),
+                               "Prepass Pipeline");
 
     vkDestroyShaderModule(m_device, prepassVert, nullptr);
     vkDestroyShaderModule(m_device, prepassFrag, nullptr);
@@ -995,8 +995,8 @@ void Engine::init_post_pipeline()
         .layout = m_PostProcessPassPipelineLayout,
     };
     vkCreateComputePipelines(m_device, nullptr, 1, &pipelineCreateInfo, nullptr, &m_PostProcessPassPipeline);
-    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
-                               reinterpret_cast<uint64_t>(m_PostProcessPassPipeline), "Postprocess Pipeline");
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE, reinterpret_cast<uint64_t>(m_PostProcessPassPipeline),
+                               "Postprocess Pipeline");
 
     vkDestroyShaderModule(m_device, postprocessShader, nullptr);
 
@@ -1058,6 +1058,63 @@ void Engine::init_cull_point_lights_pipeline()
     });
 }
 
+void Engine::init_populate_commands_with_cascade_count()
+{
+    const VkPushConstantRange constantRange{
+        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+        .offset = 0,
+        .size = sizeof(PopulateCommandsWithCascadeCountPushConstants),
+    };
+
+    const VkPipelineLayoutCreateInfo layoutCreateInfo{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .pNext = nullptr,
+        .setLayoutCount = 0,
+        .pSetLayouts = nullptr,
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &constantRange,
+    };
+
+    vkCreatePipelineLayout(m_device, &layoutCreateInfo, nullptr, &m_PopulateCommandsWithCascadeCountPipelineLayout) >>
+        chk;
+
+    VkShaderModule populateShader;
+    if (!load_shader_module("../../src/compiled_shaders/populate_commands_with_cascade_count.compute.spv", m_device,
+                            &populateShader))
+    {
+        throw std::runtime_error("Failed to load populate shader");
+    }
+
+    const VkPipelineShaderStageCreateInfo shaderStage{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .pNext = nullptr,
+        .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+        .module = populateShader,
+        .pName = "main",
+    };
+
+    const VkComputePipelineCreateInfo pipelineCreateInfo{
+        .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        .pNext = nullptr,
+        .stage = shaderStage,
+        .layout = m_PopulateCommandsWithCascadeCountPipelineLayout,
+    };
+
+    vkCreateComputePipelines(m_device, nullptr, 1, &pipelineCreateInfo, nullptr,
+                             &m_PopulateCommandsWithCascadeCountPipeline) >>
+        chk;
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
+                               reinterpret_cast<uint64_t>(m_PopulateCommandsWithCascadeCountPipeline),
+                               "Cull Point Lights Pipeline");
+
+    vkDestroyShaderModule(m_device, populateShader, nullptr);
+
+    m_mainDeletionQueue.push_function([this] {
+        vkDestroyPipeline(m_device, m_PopulateCommandsWithCascadeCountPipeline, nullptr);
+        vkDestroyPipelineLayout(m_device, m_PopulateCommandsWithCascadeCountPipelineLayout, nullptr);
+    });
+}
+
 void Engine::init_generate_point_light_commands_pipeline()
 {
     const VkPushConstantRange constantRange{
@@ -1099,7 +1156,8 @@ void Engine::init_generate_point_light_commands_pipeline()
         .layout = m_GeneratePointLightCommandsPipelineLayout,
     };
 
-    vkCreateComputePipelines(m_device, nullptr, 1, &pipelineCreateInfo, nullptr, &m_GeneratePointLightCommandsPipeline) >>
+    vkCreateComputePipelines(m_device, nullptr, 1, &pipelineCreateInfo, nullptr,
+                             &m_GeneratePointLightCommandsPipeline) >>
         chk;
     mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
                                reinterpret_cast<uint64_t>(m_GeneratePointLightCommandsPipeline),
@@ -1161,8 +1219,8 @@ void Engine::init_cull_meshes_pipeline()
     };
 
     vkCreateComputePipelines(m_device, nullptr, 1, &pipelineCreateInfo, nullptr, &m_CullPassPipeline) >> chk;
-    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
-                               reinterpret_cast<uint64_t>(m_CullPassPipeline), "Cull Meshes Pipeline");
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE, reinterpret_cast<uint64_t>(m_CullPassPipeline),
+                               "Cull Meshes Pipeline");
 
     vkDestroyShaderModule(m_device, cullShader, nullptr);
 
@@ -1211,8 +1269,8 @@ void Engine::init_imgui()
     initInfo.Device = m_device;
     initInfo.Queue = m_queue;
     initInfo.DescriptorPool = imguiPool;
-    initInfo.MinImageCount = m_swapchainImages.size();
-    initInfo.ImageCount = m_swapchainImages.size();
+    initInfo.MinImageCount = static_cast<std::uint32_t>(m_swapchainImages.size());
+    initInfo.ImageCount = static_cast<std::uint32_t>(m_swapchainImages.size());
     initInfo.UseDynamicRendering = true;
     initInfo.ApiVersion = VK_API_VERSION_1_4;
     initInfo.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
@@ -1267,10 +1325,9 @@ void Engine::init_frames_data()
                                    reinterpret_cast<uint64_t>(frame.pointLightBuffer.buffer),
                                    std::format("Point Light Buffer [{}]", i).c_str());
 
-        frame.visiblePointLightsBuffer =
-            create_buffer(sizeof(PointLightData) * kMaxPointLights,
-                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-                          VMA_MEMORY_USAGE_GPU_ONLY);
+        frame.visiblePointLightsBuffer = create_buffer(
+            sizeof(PointLightData) * kMaxPointLights,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
         frame.visiblePointLightsBufferAddr = frame.visiblePointLightsBuffer.get_buffer_device_address(m_device);
         mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_BUFFER,
                                    reinterpret_cast<uint64_t>(frame.visiblePointLightsBuffer.buffer),
@@ -1337,9 +1394,8 @@ void Engine::init_frames_data()
                           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
                               VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                           VMA_MEMORY_USAGE_GPU_ONLY);
-        frame.instanceStagingBuffer =
-            create_buffer(sizeof(Instance) * kMaxInstances, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                          VMA_MEMORY_USAGE_CPU_TO_GPU);
+        frame.instanceStagingBuffer = create_buffer(sizeof(Instance) * kMaxInstances, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                                    VMA_MEMORY_USAGE_CPU_TO_GPU);
         frame.instanceBufferAddr = frame.instanceBuffer.get_buffer_device_address(m_device);
         mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_BUFFER,
                                    reinterpret_cast<uint64_t>(frame.instanceBuffer.buffer),
@@ -1402,21 +1458,21 @@ void Engine::init_default_data()
 {
     std::uint32_t whiteColor = glm::packUnorm4x8(glm::vec4(1.0f, 1.0f, 1.0f, 1.0f));
     m_whiteImage = create_image(&whiteColor, VkExtent3D{1, 1, 1}, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
-    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
-                               reinterpret_cast<uint64_t>(m_whiteImage.image), "Default White Image");
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(m_whiteImage.image),
+                               "Default White Image");
     std::uint32_t blackColor = glm::packUnorm4x8(glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
     m_blackImage = create_image(&blackColor, VkExtent3D{1, 1, 1}, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
-    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
-                               reinterpret_cast<uint64_t>(m_blackImage.image), "Default Black Image");
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(m_blackImage.image),
+                               "Default Black Image");
     std::uint32_t greyColor = glm::packUnorm4x8(glm::vec4(0.5f, 0.5f, 0.5f, 1.0f));
     m_greyImage = create_image(&greyColor, VkExtent3D{1, 1, 1}, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
-    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
-                               reinterpret_cast<uint64_t>(m_greyImage.image), "Default Grey Image");
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(m_greyImage.image),
+                               "Default Grey Image");
     std::uint32_t normalFallback = glm::packUnorm4x8(glm::vec4(0.5f, 0.5f, 1.0f, 1.0f));
     m_normalFallback =
         create_image(&normalFallback, VkExtent3D{1, 1, 1}, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
-    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
-                               reinterpret_cast<uint64_t>(m_normalFallback.image), "Default Normal Fallback Image");
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(m_normalFallback.image),
+                               "Default Normal Fallback Image");
 
     const std::uint32_t magentaColor = glm::packUnorm4x8(glm::vec4(1.0f, 0.0f, 1.0f, 1.0f));
     std::array<std::uint32_t, 16 * 16> errorPixels;
@@ -1429,8 +1485,8 @@ void Engine::init_default_data()
     }
     m_errorImage =
         create_image(errorPixels.data(), VkExtent3D{16, 16, 1}, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
-    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
-                               reinterpret_cast<uint64_t>(m_errorImage.image), "Default Error Image");
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(m_errorImage.image),
+                               "Default Error Image");
 
     VkSamplerCreateInfo samplerCreateInfo{
         .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
@@ -1438,13 +1494,13 @@ void Engine::init_default_data()
         .minFilter = VK_FILTER_LINEAR,
     };
     vkCreateSampler(m_device, &samplerCreateInfo, nullptr, &m_defaultSamplerLinear);
-    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_SAMPLER,
-                               reinterpret_cast<uint64_t>(m_defaultSamplerLinear), "Default Linear Sampler");
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_SAMPLER, reinterpret_cast<uint64_t>(m_defaultSamplerLinear),
+                               "Default Linear Sampler");
     samplerCreateInfo.minFilter = VK_FILTER_NEAREST;
     samplerCreateInfo.magFilter = VK_FILTER_NEAREST;
     vkCreateSampler(m_device, &samplerCreateInfo, nullptr, &m_defaultSamplerNearest);
-    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_SAMPLER,
-                               reinterpret_cast<uint64_t>(m_defaultSamplerNearest), "Default Nearest Sampler");
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_SAMPLER, reinterpret_cast<uint64_t>(m_defaultSamplerNearest),
+                               "Default Nearest Sampler");
 
     [[maybe_unused]] auto samplerIdx = m_metalRoughness.write_sampler(m_defaultSamplerLinear);
     assert(0 == samplerIdx);
@@ -1473,7 +1529,7 @@ void Engine::init_mesh_data()
     ensure_vertex_capacity(1024); // Initial capacity
     ensure_index_capacity(1024);
 
-#if 0
+#if 1
     const std::string sponzaPath = "../../assets/gltf-samples/Models/Sponza/glTF/sponza.gltf";
     if (!load_gltf(*this, sponzaPath))
     {
@@ -1481,7 +1537,7 @@ void Engine::init_mesh_data()
     }
 #endif
 
-#if 1
+#if 0
     const std::string bistroPath = "../../assets/bistro_exterior.glb";
     if (!load_gltf(*this, bistroPath))
     {
@@ -1546,8 +1602,7 @@ void Engine::create_swapchain(const std::uint32_t width, const std::uint32_t hei
     m_swapchainImages = vkbSwapchainResult.value().get_images().value();
     m_swapchainImageViews = vkbSwapchainResult.value().get_image_views().value();
     for (std::size_t i = 0; i < m_swapchainImages.size(); ++i)
-        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
-                                   reinterpret_cast<uint64_t>(m_swapchainImages[i]),
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(m_swapchainImages[i]),
                                    std::format("Swapchain Image [{}]", i).c_str());
 }
 

@@ -114,3 +114,54 @@ public bool IsInFrustum(float3 min, float3 max, float4x4 viewProj) {
 
     return true;
 }
+
+float2 OctahedronWrap(float2 v)
+{
+    float2 w = 1.0f - abs(float2(v.y, v.x));
+    if (v.x < 0.0f)
+        w.x = -w.x;
+    if (v.y < 0.0f)
+        w.y = -w.y;
+    return w;
+}
+
+public float2 QuantizeNormal(float3 n)
+{
+    n /= (abs(n.x) + abs(n.y) + abs(n.z));
+    n = float3(n.z > 0.0f ? float2(n.x, n.y) : OctahedronWrap(float2(n.x, n.y)), n.z);
+
+    return float2(n.x, n.y);
+}
+
+public float3 DecodeGBufferNormal(float2 f)
+{
+    float3 n = float3(f.x, f.y, 1.0f - abs(f.x) - abs(f.y));
+    float t = max(-n.z, 0.0f);
+    n.x += n.x >= 0.0f ? -t : t;
+    n.y += n.y >= 0.0f ? -t : t;
+
+    return normalize(n);
+}
+
+public vector<float16_t, 3> DecodeNormal(vector<float16_t, 2> f)
+{
+    f = f * 2.0hf - 1.0hf;
+
+    vector<float16_t, 3> n = vector<float16_t, 3>(f.x, f.y, 1.0hf - abs(f.x) - abs(f.y));
+    float16_t t = max(-n.z, 0.0hf);
+    n.x += n.x >= 0.0hf ? -t : t;
+    n.y += n.y >= 0.0hf ? -t : t;
+
+    return normalize(n);
+}
+
+public vector<float16_t, 4> DecodeTangent(vector<float16_t, 2> f)
+{
+    vector<float16_t, 4> t;
+    t.xyz = DecodeNormal(f);
+
+    // Check if lowest bit of Y's mantissa is set. If so, bitangent sign is positive, otherwise negative.
+    t.w = bool(bit_cast<uint16_t>(f.y) & 1u) ? 1.0hf : -1.0hf;
+
+    return t;
+}

@@ -26,7 +26,7 @@ struct GSOutput {
 };
 
 [shader("vertex")]
-VSOut vertexMain(uint vertexID: SV_VulkanVertexID, uint drawID: SV_DrawIndex, uint meshInstance: SV_StartInstanceLocation, uint lightIndex: SV_InstanceID) {
+VSOut vertexMain(uint vertexID: SV_VulkanVertexID, uint meshInstance: SV_StartInstanceLocation, uint lightIndex: SV_InstanceID) {
     uint32_t offset = pushConstants.pointLightOffsets[meshInstance];
     Vertex vertex = pushConstants.vertices[vertexID];
     Instance instance = pushConstants.instances[meshInstance];

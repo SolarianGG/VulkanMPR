@@ -6,11 +6,9 @@
 #include <memory>
 #include <optional>
 #include <ranges>
-#include <span>
 #include <string>
 #include <utility>
 #include <vector>
-#include <cstddef>
 #include <functional>
 #include <cinttypes>
 
@@ -60,7 +58,6 @@ struct DeletionQueue
         deletors.clear();
     }
 };
-
 
 inline std::pair<float, float> compute_alpha_beta()
 {
@@ -125,11 +122,9 @@ struct AllocatedBuffer
 struct Vertex
 {
     glm::vec3 pos;
-    float u;
-    glm::vec3 normal;
-    float v;
-    glm::vec4 tangent;
-    glm::vec4 color;
+    glm::u16vec2 uv;
+    glm::u16vec2 normal;
+    glm::u16vec2 tangent;
 };
 
 struct MaterialInstanceIndices
@@ -285,7 +280,7 @@ struct PointLightData
 #endif
 };
 
-// GPU structures for SDSM, values are in uint32_t because nvidia gpu's do not support atomic float min/max
+// GPU structures for SDSM, values are in uint32_t because nvidia gpus do not support atomic float min/max
 struct MinMax
 {
     std::uint32_t min;
@@ -302,7 +297,6 @@ struct CascadesAABB
 {
     std::array<AABB, kMaxCascadeCount> bounds;
 };
-
 
 struct DepthReductionPushConstants
 {
@@ -329,6 +323,13 @@ struct DirVpPushConstants
     glm::vec3 sceneMax;
     std::uint32_t shadowMapSize{};
     glm::mat4 lightView;
+};
+
+struct PopulateCommandsWithCascadeCountPushConstants
+{
+    VkDeviceAddress commands;
+    VkDeviceAddress count;
+    int cascadesCount;
 };
 
 struct GeneratePointLightCommandsPushConstants

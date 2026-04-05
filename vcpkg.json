@@ -11,6 +11,7 @@
     "stb",
     "vk-bootstrap",
     "volk",
-    "vulkan-memory-allocator"
+    "vulkan-memory-allocator",
+    "meshoptimizer"
   ]
 }

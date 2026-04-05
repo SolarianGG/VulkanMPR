@@ -7,6 +7,7 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
 - GLM
 - fastgltf 
 - Volk
+- meshoptimizer
 - Imgui
 - Imguizmo
 - Vulkan Memory Allocator
@@ -50,7 +51,7 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
 
 - **Deferred shading**
 - **SDSM** (Sample distribution shadow maps) **CSM** (Cascaded Shadow Maps) for directional light shadows.
-- **Omnidirectional tetrahedron shadow mapping** for point light shadows
+- **Omnidirectional tiled tetrahedron shadow mapping** for point light shadows
 - GPU Visible point lights culling
 - GPU Meshes **frustum culling**
 - **Gamma correction**
@@ -123,7 +124,7 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
   </tr>
 </table>
 
-#### Omnidirectional tetrahedron shadow mapping
+#### Omnidirectional tiled tetrahedron shadow mapping
 
 <table>
   <tr>
@@ -179,6 +180,15 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
     <td><img src="screenshots/scene-manip-sc.png" width="400"/></td>
   </tr>
 </table>
+
+
+## Reference papers
+
+[SDSM](https://www.researchgate.net/publication/220791941_Sample_distribution_Shadow_Maps)
+
+Omdirectional tiled tetrahedron shadow mapping (GPU Pro 6)
+
+
 
 ## Planned rendering feautres
 
