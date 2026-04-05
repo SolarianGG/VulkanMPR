@@ -16,6 +16,19 @@ public struct Vertex
     public vector<float16_t, 2> tangent;
 };
 
+public struct VertexPosition
+{
+    public float3 pos;
+};
+
+public struct VertexAttributes
+{
+    public float16_t u;
+    public float16_t v;
+    public vector<float16_t, 2> norm;
+    public vector<float16_t, 2> tangent;
+};
+
 public struct Mesh {
     public uint32_t indexCount;
     public uint32_t firstIndex;

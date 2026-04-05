@@ -391,12 +391,14 @@ void Engine::update_scene()
     m_LightPassConstants.inverseCameraViewProj = inverseViewProj;
 
     m_GBufferMeshPushConstants = {
-        .globalVertexBufferAddr = m_globalVertexBufferAddress,
+        .positionBufferAddr = m_globalPositionBufferAddress,
+        .attributesBufferAddr = m_globalAttributesBufferAddress,
         .instanceBufferDeviceAddr = frame.instanceBufferAddr,
         .sceneDataBufferDeviceAddr = frame.sceneDataBufferAddr,
     };
 
-    m_WBOITForwardPassPushConstants = {.vertices = m_globalVertexBufferAddress,
+    m_WBOITForwardPassPushConstants = {.positionBufferAddr = m_globalPositionBufferAddress,
+                                       .attributesBufferAddr = m_globalAttributesBufferAddress,
                                        .instances = frame.instanceBufferAddr,
                                        .sceneData = frame.sceneDataBufferAddr,
                                        .directionalLight = frame.dirLightBufferAddr,

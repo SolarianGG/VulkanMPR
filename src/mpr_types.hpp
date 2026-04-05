@@ -127,6 +127,18 @@ struct Vertex
     glm::u16vec2 tangent;
 };
 
+struct VertexPosition
+{
+    glm::vec3 pos;
+};
+
+struct VertexAttributes
+{
+    glm::u16vec2 uv;
+    glm::u16vec2 normal;
+    glm::u16vec2 tangent;
+};
+
 struct MaterialInstanceIndices
 {
     std::uint32_t materialID;
@@ -147,14 +159,16 @@ struct Instance
 
 struct GBufferPassPushConstants
 {
-    VkDeviceAddress globalVertexBufferAddr;
+    VkDeviceAddress positionBufferAddr;
+    VkDeviceAddress attributesBufferAddr;
     VkDeviceAddress instanceBufferDeviceAddr;
     VkDeviceAddress sceneDataBufferDeviceAddr;
 };
 
 struct OITForwardPassPushConstants
 {
-    VkDeviceAddress vertices;
+    VkDeviceAddress positionBufferAddr;
+    VkDeviceAddress attributesBufferAddr;
     VkDeviceAddress instances;
     VkDeviceAddress sceneData;
     VkDeviceAddress directionalLight;
@@ -182,7 +196,7 @@ static_assert(sizeof(LightPassPushConstants) == 128);
 
 struct PointLightsShadowPassPushConstants
 {
-    VkDeviceAddress vertices;
+    VkDeviceAddress positionBufferAddr;
     VkDeviceAddress instances;
     VkDeviceAddress visiblePointLights;
     VkDeviceAddress pointLightIndices;
@@ -222,7 +236,7 @@ struct GpuSceneData
 
 struct DirectionalShadowPassPushConstants
 {
-    VkDeviceAddress globalVertexBufferAddr;
+    VkDeviceAddress positionBufferAddr;
     VkDeviceAddress instanceBufferDeviceAddr;
     VkDeviceAddress dirLightsBufferAddr;
     std::uint32_t cascadeCount;

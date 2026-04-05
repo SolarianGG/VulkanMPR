@@ -1526,7 +1526,8 @@ void Engine::init_default_data()
 
 void Engine::init_mesh_data()
 {
-    ensure_vertex_capacity(1024); // Initial capacity
+    ensure_position_capacity(1024); // Initial capacity
+    ensure_attributes_capacity(1024);
     ensure_index_capacity(1024);
 
 #if 1
@@ -1554,7 +1555,8 @@ void Engine::init_mesh_data()
 #endif
 
     m_mainDeletionQueue.push_function([this] {
-        destroy_buffer(m_globalVertexBuffer);
+        destroy_buffer(m_globalPositionBuffer);
+        destroy_buffer(m_globalAttributesBuffer);
         destroy_buffer(m_globalIndexBuffer);
     });
 }

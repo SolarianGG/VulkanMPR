@@ -2,7 +2,7 @@ import utils;
 import types;
 
 struct PushConstants {
-    Vertex *vertices;
+    VertexPosition *positions;
     Instance *instances;
     DirectionalLight *dirLight;
     uint cascadeCount;
@@ -18,10 +18,10 @@ struct VSOutput {
 
 [shader("vertex")]
 VSOutput vertexMain(uint vertexID: SV_VulkanVertexID, uint instanceID: SV_StartInstanceLocation, uint cascadeIndex: SV_InstanceID) {
-    Vertex vertex = pushConstants.vertices[vertexID];
+    float3 pos = pushConstants.positions[vertexID].pos;
     Instance instance = pushConstants.instances[instanceID];
     VSOutput output;
-    output.pos = mul(pushConstants.dirLight.cascadeVPs[cascadeIndex], mul(instance.worldTransform, float4(vertex.pos, 1.0f)));
+    output.pos = mul(pushConstants.dirLight.cascadeVPs[cascadeIndex], mul(instance.worldTransform, float4(pos, 1.0f)));
     output.layer = cascadeIndex;
     return output;
 }

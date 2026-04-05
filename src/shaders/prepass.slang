@@ -2,7 +2,8 @@ import utils;
 import types;
 
 struct PushConstants {
-    Vertex *vertices;
+    VertexPosition *positions;
+    VertexAttributes *attributes;
     Instance *instances;
     SceneData *sceneData;
 };
@@ -24,12 +25,13 @@ struct VSOutput {
 
 [shader("vertex")]
 VSOutput vertexMain(uint vertexID : SV_VulkanVertexID, uint instanceID : SV_VulkanInstanceID) {
-    Vertex vertex = pushConstants.vertices[vertexID];
+    float3 pos = pushConstants.positions[vertexID].pos;
+    VertexAttributes attr = pushConstants.attributes[vertexID];
     Instance instance = pushConstants.instances[instanceID];
     SceneData scene = *pushConstants.sceneData;
     VSOutput output;
-    output.pos = mul(scene.projView, mul(instance.worldTransform, float4(vertex.pos, 1.0)));
-    output.uv = float2(vertex.u, vertex.v);
+    output.pos = mul(scene.projView, mul(instance.worldTransform, float4(pos, 1.0)));
+    output.uv = float2(attr.u, attr.v);
     output.materialID = instance.materialID;
     output.colorTextureID = instance.colorTextureID;
     output.colorSamplerID = instance.colorSamplerID;

@@ -2,7 +2,7 @@ import utils;
 import types;
 
 struct PushConstants {
-    Vertex *vertices;
+    VertexPosition *positions;
     Instance *instances;
     PointLight *visiblePointLights;
     uint32_t *pointLightIndices;
@@ -28,11 +28,11 @@ struct GSOutput {
 [shader("vertex")]
 VSOut vertexMain(uint vertexID: SV_VulkanVertexID, uint meshInstance: SV_StartInstanceLocation, uint lightIndex: SV_InstanceID) {
     uint32_t offset = pushConstants.pointLightOffsets[meshInstance];
-    Vertex vertex = pushConstants.vertices[vertexID];
+    float3 pos = pushConstants.positions[vertexID].pos;
     Instance instance = pushConstants.instances[meshInstance];
 
     VSOut res;
-    res.worldPos = mul(instance.worldTransform, float4(vertex.pos, 1.0f));
+    res.worldPos = mul(instance.worldTransform, float4(pos, 1.0f));
     res.lightIndex = pushConstants.pointLightIndices[offset + lightIndex];
     return res;
 }

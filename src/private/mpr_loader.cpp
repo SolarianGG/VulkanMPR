@@ -335,8 +335,10 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
 
   // Accumulate all mesh data on the CPU before a single GPU upload
   std::vector<Vertex> allVertices;
+  std::vector<mp::VertexPosition> allPositions;
+  std::vector<mp::VertexAttributes> allAttributes;
   std::vector<std::uint32_t> allIndices;
-  const std::size_t globalVertexBase = engine.m_globalVertexCount;
+  const std::size_t globalVertexBase = engine.m_globalPositionCount;
   const std::size_t globalIndexBase = engine.m_globalIndexCount;
 
   for (auto& mesh : asset.meshes) {
@@ -472,6 +474,11 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
       allIndices.insert(allIndices.end(), primIndices.begin(),
                         primIndices.end());
 
+      for (const auto& v : primVertices) {
+        allPositions.push_back({v.pos});
+        allAttributes.push_back({v.uv, v.normal, v.tangent});
+      }
+
       if (p.materialIndex.has_value()) {
         newSurface.material = materials[p.materialIndex.value()];
       } else {
@@ -486,31 +493,42 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
     file.add_mesh(meshes.back());
   }
 
-  engine.ensure_vertex_capacity(allVertices.size());
+  engine.ensure_position_capacity(allPositions.size());
+  engine.ensure_attributes_capacity(allAttributes.size());
   engine.ensure_index_capacity(allIndices.size());
 
   AllocatedBuffer staging{};
   engine.immediate_submit([&](VkCommandBuffer cmd) {
-    const std::size_t vSize = allVertices.size() * sizeof(Vertex);
+    const std::size_t pSize = allPositions.size() * sizeof(mp::VertexPosition);
+    const std::size_t aSize = allAttributes.size() * sizeof(mp::VertexAttributes);
     const std::size_t iSize = allIndices.size() * sizeof(std::uint32_t);
 
     staging =
-        engine.create_buffer(vSize + iSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        engine.create_buffer(pSize + aSize + iSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                              VMA_MEMORY_USAGE_CPU_ONLY);
-    std::memcpy(staging.allocationInfo.pMappedData, allVertices.data(), vSize);
-    std::memcpy(static_cast<char*>(staging.allocationInfo.pMappedData) + vSize,
-                allIndices.data(), iSize);
+    char* dst = static_cast<char*>(staging.allocationInfo.pMappedData);
+    std::memcpy(dst, allPositions.data(), pSize);
+    std::memcpy(dst + pSize, allAttributes.data(), aSize);
+    std::memcpy(dst + pSize + aSize, allIndices.data(), iSize);
 
-    const VkBufferCopy vCopy{
+    const VkBufferCopy pCopy{
         .srcOffset = 0,
-        .dstOffset = globalVertexBase * sizeof(Vertex),
-        .size = vSize,
+        .dstOffset = globalVertexBase * sizeof(mp::VertexPosition),
+        .size = pSize,
     };
-    vkCmdCopyBuffer(cmd, staging.buffer, engine.m_globalVertexBuffer.buffer, 1,
-                    &vCopy);
+    vkCmdCopyBuffer(cmd, staging.buffer, engine.m_globalPositionBuffer.buffer, 1,
+                    &pCopy);
+
+    const VkBufferCopy aCopy{
+        .srcOffset = pSize,
+        .dstOffset = globalVertexBase * sizeof(mp::VertexAttributes),
+        .size = aSize,
+    };
+    vkCmdCopyBuffer(cmd, staging.buffer, engine.m_globalAttributesBuffer.buffer, 1,
+                    &aCopy);
 
     const VkBufferCopy iCopy{
-        .srcOffset = vSize,
+        .srcOffset = pSize + aSize,
         .dstOffset = globalIndexBase * sizeof(std::uint32_t),
         .size = iSize,
     };
@@ -519,7 +537,8 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
   });
   engine.destroy_buffer(staging);
 
-  engine.m_globalVertexCount += allVertices.size();
+  engine.m_globalPositionCount += allPositions.size();
+  engine.m_globalAttributesCount += allAttributes.size();
   engine.m_globalIndexCount += allIndices.size();
 
   // Adjust all surface offsets from accumulated-array-local to global GPU offsets

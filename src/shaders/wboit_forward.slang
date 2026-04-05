@@ -4,7 +4,8 @@ import lights;
 import shadows;
 
 struct PushConstants {
-    Vertex *vertices;
+    VertexPosition *positions;
+    VertexAttributes *attributes;
     Instance *instances;
     SceneData *sceneData;
     DirectionalLight *directionalLight;
@@ -37,23 +38,24 @@ struct VSOutput
 [shader("vertex")]
 VSOutput vertexMain(uint vertexID : SV_VulkanVertexID, uint instanceID : SV_VulkanInstanceID)
 {
-    Vertex vertex = pushConstants.vertices[vertexID];
+    float3 pos = pushConstants.positions[vertexID].pos;
+    VertexAttributes attr = pushConstants.attributes[vertexID];
     Instance instance = pushConstants.instances[instanceID];
     SceneData scene = *pushConstants.sceneData;
     VSOutput output;
-    float4 vertexPos = float4(vertex.pos, 1.0);
+    float4 vertexPos = float4(pos, 1.0);
     output.pos = mul(scene.projView, mul(instance.worldTransform, vertexPos));
     output.worldPos = mul(instance.worldTransform, vertexPos);
     // Normal mapping TBN
-    vector<float16_t, 4> tangent = DecodeTangent(vertex.tangent);
+    vector<float16_t, 4> tangent = DecodeTangent(attr.tangent);
     float3 T = normalize(mul((float3x3)instance.worldTransform, tangent.xyz));
-    float3 N = normalize(mul((float3x3)instance.worldTransform, DecodeNormal(vertex.norm)));
+    float3 N = normalize(mul((float3x3)instance.worldTransform, DecodeNormal(attr.norm)));
     T = normalize(T - dot(T, N) * N);
     float3 B = cross(N, T) * tangent.w;
     float3x3 TBN = float3x3(T, B, N);
     output.TBN = TBN;
 
-    output.uv = float2(vertex.u, vertex.v);
+    output.uv = float2(attr.u, attr.v);
 
     output.materialID = instance.materialID;
     output.colorTextureID = instance.colorTextureID;

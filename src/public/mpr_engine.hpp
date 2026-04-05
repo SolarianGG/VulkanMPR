@@ -192,16 +192,22 @@ class Engine final
 
     AllocatedBuffer m_tetrahedronBuffer{};
 
-    AllocatedBuffer m_globalVertexBuffer{};
-    VkDeviceAddress m_globalVertexBufferAddress{};
-    std::size_t m_globalVertexCount = 0;
-    std::size_t m_globalVertexCapacity = 0;
+    AllocatedBuffer m_globalPositionBuffer{};
+    VkDeviceAddress m_globalPositionBufferAddress{};
+    std::size_t m_globalPositionCount = 0;
+    std::size_t m_globalPositionCapacity = 0;
+
+    AllocatedBuffer m_globalAttributesBuffer{};
+    VkDeviceAddress m_globalAttributesBufferAddress{};
+    std::size_t m_globalAttributesCount = 0;
+    std::size_t m_globalAttributesCapacity = 0;
 
     AllocatedBuffer m_globalIndexBuffer{};
     std::size_t m_globalIndexCount = 0;
     std::size_t m_globalIndexCapacity = 0;
 
-    void ensure_vertex_capacity(std::size_t additionalCount);
+    void ensure_position_capacity(std::size_t additionalCount);
+    void ensure_attributes_capacity(std::size_t additionalCount);
     void ensure_index_capacity(std::size_t additionalCount);
 
     GpuSceneData m_sceneData{};

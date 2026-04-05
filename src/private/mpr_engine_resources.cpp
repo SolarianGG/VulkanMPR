@@ -172,18 +172,18 @@ void Engine::destroy_image(const AllocatedImage& image) {
   vmaDestroyImage(m_allocator, image.image, image.allocation);
 }
 
-void Engine::ensure_vertex_capacity(std::size_t additionalCount) {
-  if (m_globalVertexCount + additionalCount <= m_globalVertexCapacity) {
+void Engine::ensure_position_capacity(std::size_t additionalCount) {
+  if (m_globalPositionCount + additionalCount <= m_globalPositionCapacity) {
     return;
   }
 
   std::size_t newCapacity =
-      m_globalVertexCapacity == 0 ? 1024 : m_globalVertexCapacity * 2;
-  while (m_globalVertexCount + additionalCount > newCapacity) {
+      m_globalPositionCapacity == 0 ? 1024 : m_globalPositionCapacity * 2;
+  while (m_globalPositionCount + additionalCount > newCapacity) {
     newCapacity *= 2;
   }
 
-  const std::size_t newSize = newCapacity * sizeof(Vertex);
+  const std::size_t newSize = newCapacity * sizeof(VertexPosition);
   const AllocatedBuffer newBuffer = create_buffer(
       newSize,
       VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
@@ -191,31 +191,77 @@ void Engine::ensure_vertex_capacity(std::size_t additionalCount) {
           VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
       VMA_MEMORY_USAGE_GPU_ONLY);
 
-  if (m_globalVertexCount > 0) {
+  if (m_globalPositionCount > 0) {
     immediate_submit([&](VkCommandBuffer cmd) {
       const VkBufferCopy copyRegion{
           .srcOffset = 0,
           .dstOffset = 0,
-          .size = m_globalVertexCount * sizeof(Vertex),
+          .size = m_globalPositionCount * sizeof(VertexPosition),
       };
-      vkCmdCopyBuffer(cmd, m_globalVertexBuffer.buffer, newBuffer.buffer, 1,
+      vkCmdCopyBuffer(cmd, m_globalPositionBuffer.buffer, newBuffer.buffer, 1,
                       &copyRegion);
     });
-    destroy_buffer(m_globalVertexBuffer);
-  } else if (m_globalVertexCapacity > 0) {
-    destroy_buffer(m_globalVertexBuffer);
+    destroy_buffer(m_globalPositionBuffer);
+  } else if (m_globalPositionCapacity > 0) {
+    destroy_buffer(m_globalPositionBuffer);
   }
 
-  m_globalVertexBuffer = newBuffer;
+  m_globalPositionBuffer = newBuffer;
   mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_BUFFER,
-                             reinterpret_cast<uint64_t>(m_globalVertexBuffer.buffer), "Global Vertex Buffer");
-  m_globalVertexCapacity = newCapacity;
+                             reinterpret_cast<uint64_t>(m_globalPositionBuffer.buffer), "Global Position Buffer");
+  m_globalPositionCapacity = newCapacity;
 
   const VkBufferDeviceAddressInfo addrInfo{
       .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-      .buffer = m_globalVertexBuffer.buffer,
+      .buffer = m_globalPositionBuffer.buffer,
   };
-  m_globalVertexBufferAddress = vkGetBufferDeviceAddress(m_device, &addrInfo);
+  m_globalPositionBufferAddress = vkGetBufferDeviceAddress(m_device, &addrInfo);
+}
+
+void Engine::ensure_attributes_capacity(std::size_t additionalCount) {
+  if (m_globalAttributesCount + additionalCount <= m_globalAttributesCapacity) {
+    return;
+  }
+
+  std::size_t newCapacity =
+      m_globalAttributesCapacity == 0 ? 1024 : m_globalAttributesCapacity * 2;
+  while (m_globalAttributesCount + additionalCount > newCapacity) {
+    newCapacity *= 2;
+  }
+
+  const std::size_t newSize = newCapacity * sizeof(VertexAttributes);
+  const AllocatedBuffer newBuffer = create_buffer(
+      newSize,
+      VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+      VMA_MEMORY_USAGE_GPU_ONLY);
+
+  if (m_globalAttributesCount > 0) {
+    immediate_submit([&](VkCommandBuffer cmd) {
+      const VkBufferCopy copyRegion{
+          .srcOffset = 0,
+          .dstOffset = 0,
+          .size = m_globalAttributesCount * sizeof(VertexAttributes),
+      };
+      vkCmdCopyBuffer(cmd, m_globalAttributesBuffer.buffer, newBuffer.buffer, 1,
+                      &copyRegion);
+    });
+    destroy_buffer(m_globalAttributesBuffer);
+  } else if (m_globalAttributesCapacity > 0) {
+    destroy_buffer(m_globalAttributesBuffer);
+  }
+
+  m_globalAttributesBuffer = newBuffer;
+  mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_BUFFER,
+                             reinterpret_cast<uint64_t>(m_globalAttributesBuffer.buffer), "Global Attributes Buffer");
+  m_globalAttributesCapacity = newCapacity;
+
+  const VkBufferDeviceAddressInfo addrInfo{
+      .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+      .buffer = m_globalAttributesBuffer.buffer,
+  };
+  m_globalAttributesBufferAddress = vkGetBufferDeviceAddress(m_device, &addrInfo);
 }
 
 void Engine::ensure_index_capacity(std::size_t additionalCount) {

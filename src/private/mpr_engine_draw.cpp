@@ -574,7 +574,7 @@ void Engine::draw_directional_shadow_pass(VkCommandBuffer cmd)
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
     const DirectionalShadowPassPushConstants shadowPassPushConstants{
-        .globalVertexBufferAddr = m_globalVertexBufferAddress,
+        .positionBufferAddr = m_globalPositionBufferAddress,
         .instanceBufferDeviceAddr = currentFrame.instanceBufferAddr,
         .dirLightsBufferAddr = currentFrame.dirLightBufferAddr,
         .cascadeCount = cascadeCount,
@@ -1125,7 +1125,7 @@ void Engine::draw_point_lights_shadows_pass(VkCommandBuffer cmd)
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
     const PointLightsShadowPassPushConstants pc{
-        .vertices = m_globalVertexBufferAddress,
+        .positionBufferAddr = m_globalPositionBufferAddress,
         .instances = currentFrame.instanceBufferAddr,
         .visiblePointLights = currentFrame.visiblePointLightsBufferAddr,
         .pointLightIndices = currentFrame.pointLightIndicesBufferAddr,
