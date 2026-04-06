@@ -60,7 +60,7 @@ VSOutput vertexMain(uint vertexID : SV_VulkanVertexID, uint instanceID : SV_Vulk
 };
 
 struct PSOutput {
-    float2 normal : SV_Target0;
+    uint normal : SV_Target0;
     float4 albedo : SV_Target1;
     float4 metalRoughness : SV_Target2;
 }
@@ -79,7 +79,7 @@ PSOutput fragmentMain(VSOutput input)
   bumpMapNormal = normalize(bumpMapNormal * 2.0f - float3(1.0f, 1.0f, 1.0f));
   
   PSOutput output;
-  output.normal = QuantizeNormal(mul(bumpMapNormal, input.TBN));
+  output.normal = PackNormalHalf2(QuantizeNormal(mul(bumpMapNormal, input.TBN)));
   output.albedo = materialData.colorFactors * baseColor;
   if (output.albedo.a < materialData.alphaCutoff.r)
       discard;

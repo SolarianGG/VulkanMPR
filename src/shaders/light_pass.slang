@@ -10,7 +10,7 @@ RWTexture2D<float4> outputTexture;
 [[vk::binding(0, 1)]]
 Texture2D<float> depthTexture;
 [[vk::binding(1, 1)]]
-Texture2D<float2> normalTexture;
+Texture2D<uint> normalTexture;
 [[vk::binding(2, 1)]]
 Texture2D<float4> albedoTexture;
 [[vk::binding(3, 1)]]

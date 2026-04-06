@@ -188,20 +188,22 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
 
 Omdirectional tiled tetrahedron shadow mapping (GPU Pro 6)
 
+[Vertex data quantization](https://daniilvinn.github.io/2024/05/04/omniforce-vertex-quantization.html)
+
 
 
 ## Planned rendering feautres
 
 - GT7 Tone mapping
 - Auto exposure
-- BRDF (Burley + GGX)
+- Switch from Lambert to Burley diffuse BRDF
 - IBL
-- Bloom
-- Bend studio contact shadows
+- TAA / FXAA / SMAA
 - SSAO
 - SSR
-- TAA / FXAA / SMAA
+- Bend studio contact shadows
 - Occlusion culling
+- Bloom
 - Depth of field
 - Motion blur
 - Lens flare

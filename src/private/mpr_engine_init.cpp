@@ -274,7 +274,7 @@ void Engine::init_swapchain()
         mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(frame.depthImage.image),
                                    std::format("Depth Image [{}]", i).c_str());
 
-        frame.gBuffer.normal = create_image(m_CommonImageExtent3D, VK_FORMAT_R32G32_SFLOAT,
+        frame.gBuffer.normal = create_image(m_CommonImageExtent3D, VK_FORMAT_R32_UINT,
                                             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
                                                 VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
         mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,

@@ -133,8 +133,14 @@ public float2 QuantizeNormal(float3 n)
     return float2(n.x, n.y);
 }
 
-public float3 DecodeGBufferNormal(float2 f)
+public uint PackNormalHalf2(float2 v)
 {
+    return f32tof16(v.x) | (f32tof16(v.y) << 16u);
+}
+
+public float3 DecodeGBufferNormal(uint packed)
+{
+    float2 f = float2(f16tof32(packed & 0xFFFFu), f16tof32(packed >> 16u));
     float3 n = float3(f.x, f.y, 1.0f - abs(f.x) - abs(f.y));
     float t = max(-n.z, 0.0f);
     n.x += n.x >= 0.0f ? -t : t;
