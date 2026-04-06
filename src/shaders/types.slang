@@ -78,6 +78,7 @@ public struct GLTFMaterialData {
     public float4 colorFactors;
     public float4 metalRoughnessFactors; // r -> metal, g -> roughness
     public float4 alphaCutoff;           // r -> alpha cutoff
+    float4 padding;
 };
 
 public struct DirectionalLight {

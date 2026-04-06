@@ -42,10 +42,16 @@ struct PushConstants {
 [[vk::push_constant]]
 PushConstants pushConstants;
 
+groupshared DirectionalLight dirLight;
+
 [shader("compute")]
 [numthreads(16, 16, 1)]
-void computeMain(uint3 threadID : SV_DispatchThreadID)
+void computeMain(uint3 threadID : SV_DispatchThreadID, uint localID : SV_GroupIndex)
 {
+    bool hasDirectionalLight = pushConstants.directionalLight != nullptr;
+    if (localID == 0 && hasDirectionalLight)
+        dirLight = *pushConstants.directionalLight;
+    GroupMemoryBarrierWithGroupSync();
     uint width, height;
     outputTexture.GetDimensions(width, height);
     if (threadID.x >= width || threadID.y >= height) return;
@@ -73,13 +79,13 @@ void computeMain(uint3 threadID : SV_DispatchThreadID)
 
     float linearDepth = LinearizeDepth(depth, pushConstants.cameraNear, pushConstants.cameraFar);
     float3 color = 0.0f;
+    if (hasDirectionalLight)
     {
-        DirectionalLight dirLight = *pushConstants.directionalLight;
         float shadowFactor = CalculateDirectionalShadow(dirLight,
                 worldPos, normalWS, linearDepth, shadowMapArray, shadowSampler,
                 pushConstants.dirNormalBias, pushConstants.dirConstantBias);
         color += shadowFactor * CalculateDirLightPBR(
-                worldPos, pushConstants.sceneData.cameraPos, normalWS, baseColor, metallic, roughness, 
+                worldPos, pushConstants.sceneData.cameraPos, normalWS, baseColor, metallic, roughness,
                 dirLight);
     }
 

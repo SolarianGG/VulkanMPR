@@ -383,7 +383,8 @@ void Engine::update_scene()
                 m_mainDrawContext.pointLights.size() * sizeof(PointLightData));
 
     m_LightPassConstants.sceneData = frame.sceneDataBufferAddr;
-    m_LightPassConstants.directionalLight = frame.dirLightBufferAddr;
+    m_LightPassConstants.directionalLight =
+        m_mainDrawContext.dirLight.has_value() ? frame.dirLightBufferAddr : 0;
     m_LightPassConstants.visiblePointLights = frame.visiblePointLightsBufferAddr;
     m_LightPassConstants.visiblePointLightsCount = frame.visiblePointLightsCountBufferAddr;
     m_LightPassConstants.tetrahedronDataAddr = m_tetrahedronBuffer.get_buffer_device_address(m_device);
