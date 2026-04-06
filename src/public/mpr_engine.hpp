@@ -236,6 +236,7 @@ class Engine final
     VkPipelineLayout m_CullPointLightsPassPipelineLayout{};
 
     std::uint32_t m_OpaqueSize = 0;
+    std::uint32_t m_AlphaTestedSize = 0;
     std::uint32_t m_TransparentSize = 0;
 
     Instance *m_CurrentFrameInstanceBuffer = nullptr;
@@ -251,6 +252,15 @@ class Engine final
 
     VkPipeline m_PrepassPipeline{};
     VkPipelineLayout m_PrepassPipelineLayout{};
+
+    VkPipeline m_AlphaTestedPrepassPipeline{};
+    VkPipelineLayout m_AlphaTestedPrepassPipelineLayout{};
+
+    VkPipeline m_AlphaTestedShadowPassPipeline{};
+    VkPipelineLayout m_AlphaTestedShadowPassPipelineLayout{};
+
+    VkPipeline m_AlphaTestedPointLightShadowPassPipeline{};
+    VkPipelineLayout m_AlphaTestedPointLightShadowPassPipelineLayout{};
 
     DepthReductionPushConstants m_depthReductionPushConstants{};
 
@@ -282,6 +292,9 @@ class Engine final
     void init_directional_shadow_pass();
     void init_point_shadow_pass();
     void init_prepass();
+    void init_alpha_tested_prepass();
+    void init_alpha_tested_directional_shadow_pass();
+    void init_alpha_tested_point_shadow_pass();
     void init_post_pipeline();
     void init_cull_meshes_pipeline();
     void init_cull_point_lights_pipeline();
@@ -311,7 +324,7 @@ class Engine final
                       const glm::mat4 &viewProj);
     void populate_commands_with_cascade_count(VkCommandBuffer cmd, std::uint32_t objectCount);
     void cull_point_lights(VkCommandBuffer cmd);
-    void compute_point_lights_commands(VkCommandBuffer cmd);
+    void compute_point_lights_commands(VkCommandBuffer cmd, std::uint32_t instanceCount, std::uint32_t instanceOffset);
     void draw_point_lights_shadows_pass(VkCommandBuffer cmd);
     void copy_frame_buffers();
     void copy_staging_buffers(VkCommandBuffer cmd);

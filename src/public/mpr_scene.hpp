@@ -48,9 +48,11 @@ struct DrawContext
     std::vector<RenderObject> renderObjects;
 
     std::vector<Instance> opaqueInstances;
+    std::vector<Instance> alphaTestedInstances;
     std::vector<Instance> transparentInstances;
 
     std::unordered_map<RenderObject, std::uint32_t, RenderObjectHash> opaqueMeshes;
+    std::unordered_map<RenderObject, std::uint32_t, RenderObjectHash> alphaTestedMeshes;
     std::unordered_map<RenderObject, std::uint32_t, RenderObjectHash> transparentMeshes;
     std::optional<DirectionalLightData> dirLight;
     std::vector<PointLightData> pointLights;

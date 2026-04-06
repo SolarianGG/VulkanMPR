@@ -74,6 +74,7 @@ void GLTFMetallicRoughness::build_pipelines(Engine& engine) {
                            &layout) >>
         chk;
     opaquePipeline.pipelineLayout = layout;
+    alphaTestedPipeline.pipelineLayout = layout;
   }
 
   {
@@ -127,6 +128,8 @@ void GLTFMetallicRoughness::build_pipelines(Engine& engine) {
                 VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
         });
     opaquePipeline.pipeline = pipelineBuilder.build_pipeline(
+        engine.m_device, VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT);
+    alphaTestedPipeline.pipeline = pipelineBuilder.build_pipeline(
         engine.m_device, VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT);
   }
 
@@ -190,9 +193,11 @@ void GLTFMetallicRoughness::build_pipelines(Engine& engine) {
 
 void GLTFMetallicRoughness::clear_resources(Engine& engine) {
   vkDestroyPipeline(engine.m_device, opaquePipeline.pipeline, nullptr);
+  vkDestroyPipeline(engine.m_device, alphaTestedPipeline.pipeline, nullptr);
   vkDestroyPipeline(engine.m_device, transparentPipeline.pipeline, nullptr);
   vkDestroyPipelineLayout(engine.m_device, transparentPipeline.pipelineLayout,
                           nullptr);
+  // alphaTestedPipeline shares layout with opaquePipeline — destroy once
   vkDestroyPipelineLayout(engine.m_device, opaquePipeline.pipelineLayout,
                           nullptr);
   vkDestroyDescriptorSetLayout(engine.m_device, materialLayout, nullptr);
@@ -222,6 +227,9 @@ MaterialPipeline* GLTFMetallicRoughness::select_pipeline(
     const MaterialPass pass) {
   if (pass == MaterialPass::Opaque) {
     return &opaquePipeline;
+  }
+  if (pass == MaterialPass::AlphaTested) {
+    return &alphaTestedPipeline;
   }
   if (pass == MaterialPass::Transparent) {
     return &transparentPipeline;

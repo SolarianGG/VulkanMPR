@@ -10,6 +10,7 @@ class Engine;
 
 struct GLTFMetallicRoughness {
   MaterialPipeline opaquePipeline;
+  MaterialPipeline alphaTestedPipeline;
   MaterialPipeline transparentPipeline;
 
   VkDescriptorSetLayout materialLayout;

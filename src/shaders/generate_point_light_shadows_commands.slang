@@ -7,8 +7,8 @@ struct PushConstants {
     Count *meshDrawCommandsCount;
     PointLight *visiblePointLights;
     Count *visiblePointLightsCount;
-    uint32_t _padding0;
-    uint32_t *pointLightIndices; 
+    uint32_t instanceOffset;
+    uint32_t *pointLightIndices;
     uint32_t *pointLightOffsets;
     uint32_t *pointLightOffsetsCounter;
 };
@@ -31,7 +31,8 @@ void computeMain(uint3 threadID: SV_DispatchThreadID, uint workgroupID : SV_Grou
     }
     GroupMemoryBarrierWithGroupSync();
 
-    Instance instance = pushConstants.instances[workgroupID];
+    const uint instanceIndex = workgroupID + pushConstants.instanceOffset;
+    Instance instance = pushConstants.instances[instanceIndex];
     Mesh mesh = pushConstants.meshes[instance.meshIndex];
 
     float3 minAABB = mul(instance.worldTransform, float4(mesh.min, 1.0f)).xyz;
@@ -74,12 +75,12 @@ void computeMain(uint3 threadID: SV_DispatchThreadID, uint workgroupID : SV_Grou
             command.firstIndex = mesh.firstIndex;
             command.indexCount = mesh.indexCount;
             command.vertexOffset = mesh.vertexOffset;
-            command.firstInstance = workgroupID;
+            command.firstInstance = instanceIndex;
             command.instanceCount = groupCounter;
             pushConstants.meshDrawCommands[index] = command;
 
             startLightIndex = __atomic_add(*pushConstants.pointLightOffsetsCounter, groupCounter);
-            pushConstants.pointLightOffsets[workgroupID] = startLightIndex;
+            pushConstants.pointLightOffsets[instanceIndex] = startLightIndex;
         }
     }
 

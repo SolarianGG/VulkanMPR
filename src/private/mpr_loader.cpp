@@ -284,6 +284,8 @@ bool load_gltf(mp::Engine& engine, const std::filesystem::path& filePath) {
     auto passType = MaterialPass::Opaque;
     if (material.alphaMode == fastgltf::AlphaMode::Blend) {
       passType = MaterialPass::Transparent;
+    } else if (material.alphaMode == fastgltf::AlphaMode::Mask) {
+      passType = MaterialPass::AlphaTested;
     }
     newMat->data.passType = passType;
     newMat->data.pipeline = engine.m_metalRoughness.select_pipeline(passType);

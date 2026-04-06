@@ -67,11 +67,13 @@ void DrawContext::clear()
     min = glm::vec3{FLT_MAX};
     max = glm::vec3{-FLT_MAX};
     opaqueMeshes.clear();
+    alphaTestedMeshes.clear();
     transparentMeshes.clear();
     dirLight = std::nullopt;
     pointLights.clear();
     renderObjects.clear();
     opaqueInstances.clear();
+    alphaTestedInstances.clear();
     transparentInstances.clear();
 }
 
@@ -89,8 +91,12 @@ void MeshNode::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
                                    .min = s.min,
                                    .max = s.max};
 
-        auto &instanceVec = (passType == MaterialPass::Opaque) ? ctx.opaqueInstances : ctx.transparentInstances;
-        auto &submeshMap = (passType == MaterialPass::Opaque) ? ctx.opaqueMeshes : ctx.transparentMeshes;
+        auto &instanceVec = (passType == MaterialPass::Opaque)     ? ctx.opaqueInstances
+                          : (passType == MaterialPass::AlphaTested) ? ctx.alphaTestedInstances
+                                                                    : ctx.transparentInstances;
+        auto &submeshMap = (passType == MaterialPass::Opaque)     ? ctx.opaqueMeshes
+                         : (passType == MaterialPass::AlphaTested) ? ctx.alphaTestedMeshes
+                                                                   : ctx.transparentMeshes;
 
         auto it = submeshMap.find(rObject);
         uint32_t submeshIndex;
@@ -111,7 +117,7 @@ void MeshNode::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
             .materialIndices = s.material->data.indices,
         });
 
-        if (passType == MaterialPass::Opaque)
+        if (passType == MaterialPass::Opaque || passType == MaterialPass::AlphaTested)
         {
             for (int cx = 0; cx <= 1; cx++)
                 for (int cy = 0; cy <= 1; cy++)

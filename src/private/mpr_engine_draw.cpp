@@ -135,7 +135,7 @@ void Engine::draw()
         });
         barrierBuilder.barrier(cmd);
     }
-    compute_point_lights_commands(cmd);
+    compute_point_lights_commands(cmd, m_OpaqueSize, 0);
 
     {
         barrierBuilder.add_image_barrier(
@@ -584,6 +584,112 @@ void Engine::draw_directional_shadow_pass(VkCommandBuffer cmd)
 
     vkCmdEndRendering(cmd);
 
+    if (m_AlphaTestedSize > 0)
+    {
+        cull_objects(cmd, m_AlphaTestedSize, m_OpaqueSize, m_DirLightCullMatrix);
+
+        {
+            utils::BarrierBuilder barrierBuilder;
+            barrierBuilder.add_buffer_barrier({
+                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+                .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+                .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                .dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .buffer = currentFrame.countBuffer.buffer,
+                .offset = 0,
+                .size = VK_WHOLE_SIZE,
+            });
+            barrierBuilder.add_buffer_barrier({
+                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+                .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+                .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                .dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .buffer = currentFrame.drawCommandsBuffer.buffer,
+                .offset = 0,
+                .size = VK_WHOLE_SIZE,
+            });
+            barrierBuilder.barrier(cmd);
+        }
+
+        populate_commands_with_cascade_count(cmd, m_AlphaTestedSize);
+
+        {
+            utils::BarrierBuilder barrierBuilder;
+            barrierBuilder.add_buffer_barrier({
+                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+                .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+                .dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+                .dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .buffer = currentFrame.countBuffer.buffer,
+                .offset = 0,
+                .size = VK_WHOLE_SIZE,
+            });
+            barrierBuilder.add_buffer_barrier({
+                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+                .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+                .dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+                .dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .buffer = currentFrame.drawCommandsBuffer.buffer,
+                .offset = 0,
+                .size = VK_WHOLE_SIZE,
+            });
+            barrierBuilder.barrier(cmd);
+        }
+
+        // LOAD depth — opaque shadow already wrote to shadow array
+        const auto atDepthAttachment = utils::depth_attachment(
+            currentFrame.directionalShadowPassDepthArray.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, false);
+        const VkRenderingInfo atRenderInfo{
+            .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+            .pNext = nullptr,
+            .renderArea = {.extent = shadowPassExtent},
+            .layerCount = cascadeCount,
+            .colorAttachmentCount = 0,
+            .pColorAttachments = nullptr,
+            .pDepthAttachment = &atDepthAttachment,
+            .pStencilAttachment = nullptr,
+        };
+        vkCmdBeginRendering(cmd, &atRenderInfo);
+        vkCmdSetViewport(cmd, 0, 1, &viewport);
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+        const VkDescriptorBufferBindingInfoEXT atBindingInfo{
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+            .address = m_metalRoughness.descriptors.get_device_address(),
+            .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
+                     VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT};
+        vkCmdBindDescriptorBuffersEXT(cmd, 1, &atBindingInfo);
+
+        const std::uint32_t atBufferIndices[]{0};
+        const VkDeviceSize atOffsets[]{0};
+        vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                           m_AlphaTestedShadowPassPipelineLayout, 0, 1, atBufferIndices, atOffsets);
+
+        const DirectionalShadowPassAlphaTestedPushConstants atPushConstants{
+            .positionBufferAddr = m_globalPositionBufferAddress,
+            .attributesBufferAddr = m_GBufferMeshPushConstants.attributesBufferAddr,
+            .instanceBufferDeviceAddr = currentFrame.instanceBufferAddr,
+            .dirLightsBufferAddr = currentFrame.dirLightBufferAddr,
+            .cascadeCount = cascadeCount,
+        };
+        draw_meshes(cmd, m_AlphaTestedShadowPassPipelineLayout, m_AlphaTestedShadowPassPipeline, m_AlphaTestedSize,
+                    atPushConstants, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+
+        vkCmdEndRendering(cmd);
+    }
+
     mp::debug::cmd_end_label(cmd);
     const auto end = cn::steady_clock::now();
     const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
@@ -676,6 +782,69 @@ void Engine::draw_gBuffer_pass(VkCommandBuffer cmd)
                 m_OpaqueSize, m_GBufferMeshPushConstants, VK_SHADER_STAGE_VERTEX_BIT);
 
     vkCmdEndRendering(cmd);
+
+    if (m_AlphaTestedSize > 0)
+    {
+        cull_objects(cmd, m_AlphaTestedSize, m_OpaqueSize, m_sceneData.projView);
+
+        {
+            utils::BarrierBuilder barrierBuilder;
+            barrierBuilder.add_buffer_barrier({
+                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+                .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+                .dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+                .dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .buffer = currentFrame.countBuffer.buffer,
+                .offset = 0,
+                .size = VK_WHOLE_SIZE,
+            });
+            barrierBuilder.add_buffer_barrier({
+                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+                .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+                .dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+                .dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .buffer = currentFrame.drawCommandsBuffer.buffer,
+                .offset = 0,
+                .size = VK_WHOLE_SIZE,
+            });
+            barrierBuilder.barrier(cmd);
+        }
+
+        // LOAD all attachments — opaque GBuffer already wrote them
+        const auto normalAT =
+            utils::attachment_info(gBuffer.normal.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        const auto diffuseAT =
+            utils::attachment_info(gBuffer.diffuse.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        const auto specularAT =
+            utils::attachment_info(gBuffer.specular.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        const auto depthAT =
+            utils::depth_attachment(depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, false);
+        VkRenderingAttachmentInfo atColorAttachments[]{normalAT, diffuseAT, specularAT};
+        const auto atRenderInfo =
+            utils::rendering_info(m_CommonImageExtent2D, std::size(atColorAttachments), atColorAttachments, &depthAT);
+
+        vkCmdBeginRendering(cmd, &atRenderInfo);
+        vkCmdSetViewport(cmd, 0, 1, &viewport);
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+        vkCmdBindDescriptorBuffersEXT(cmd, 1, &gBufferBindingInfo);
+        vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                           m_metalRoughness.alphaTestedPipeline.pipelineLayout, 0, 1,
+                                           gBufferBufferIndices, gBufferOffsets);
+
+        draw_meshes(cmd, m_metalRoughness.alphaTestedPipeline.pipelineLayout,
+                    m_metalRoughness.alphaTestedPipeline.pipeline, m_AlphaTestedSize, m_GBufferMeshPushConstants,
+                    VK_SHADER_STAGE_VERTEX_BIT);
+
+        vkCmdEndRendering(cmd);
+    }
+
     mp::debug::cmd_end_label(cmd);
     const auto end = cn::steady_clock::now();
     const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
@@ -736,7 +905,7 @@ void Engine::draw_wboit(VkCommandBuffer cmd)
     const auto renderInfo =
         utils::rendering_info(m_CommonImageExtent2D, std::size(colorAttachments), colorAttachments, &depthAttachment);
 
-    cull_objects(cmd, m_TransparentSize, m_OpaqueSize, m_sceneData.projView);
+    cull_objects(cmd, m_TransparentSize, m_OpaqueSize + m_AlphaTestedSize, m_sceneData.projView);
     {
         utils::BarrierBuilder barrierBuilder;
         barrierBuilder.add_buffer_barrier({
@@ -1056,9 +1225,10 @@ void Engine::cull_point_lights(VkCommandBuffer cmd)
     mp::debug::cmd_end_label(cmd);
 }
 
-void Engine::compute_point_lights_commands(VkCommandBuffer cmd)
+void Engine::compute_point_lights_commands(VkCommandBuffer cmd, const std::uint32_t instanceCount,
+                                           const std::uint32_t instanceOffset)
 {
-    if (m_mainDrawContext.pointLights.empty() || m_OpaqueSize == 0)
+    if (m_mainDrawContext.pointLights.empty() || instanceCount == 0)
         return;
     mp::debug::cmd_begin_label(cmd, "Generate Point Light Commands", {0.7f, 0.5f, 0.2f, 1.f});
 
@@ -1073,7 +1243,7 @@ void Engine::compute_point_lights_commands(VkCommandBuffer cmd)
         .meshDrawCommandsCount = currentFrame.countBufferAddr,
         .visiblePointLights = currentFrame.visiblePointLightsBufferAddr,
         .visiblePointLightsCount = currentFrame.visiblePointLightsCountBufferAddr,
-        ._padding0 = 0,
+        .instanceOffset = instanceOffset,
         ._padding1 = 0,
         .pointLightIndices = currentFrame.pointLightIndicesBufferAddr,
         .pointLightOffsets = currentFrame.pointLightIndicesOffsetsBufferAddr,
@@ -1082,7 +1252,7 @@ void Engine::compute_point_lights_commands(VkCommandBuffer cmd)
     vkCmdPushConstants(cmd, m_GeneratePointLightCommandsPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                        sizeof(GeneratePointLightCommandsPushConstants), &pc);
 
-    vkCmdDispatch(cmd, m_OpaqueSize, 1, 1);
+    vkCmdDispatch(cmd, instanceCount, 1, 1);
     mp::debug::cmd_end_label(cmd);
 }
 
@@ -1137,6 +1307,124 @@ void Engine::draw_point_lights_shadows_pass(VkCommandBuffer cmd)
                 VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT);
 
     vkCmdEndRendering(cmd);
+
+    if (m_AlphaTestedSize > 0)
+    {
+        utils::BarrierBuilder barrierBuilder;
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+            .srcAccessMask = 0,
+            .dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+            .dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.countBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+        barrierBuilder.barrier(cmd);
+        vkCmdFillBuffer(cmd, currentFrame.countBuffer.buffer, 0, VK_WHOLE_SIZE, 0);
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+            .srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.countBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+            .srcAccessMask = 0,
+            .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.drawCommandsBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+        barrierBuilder.barrier(cmd);
+
+        compute_point_lights_commands(cmd, m_AlphaTestedSize, m_OpaqueSize);
+
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+            .dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.drawCommandsBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+            .dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.countBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+        barrierBuilder.barrier(cmd);
+
+        // LOAD depth — opaque shadow already wrote to tile map
+        const auto atDepthAttachment = utils::depth_attachment(currentFrame.pointLightsShadowTileMap.imageView,
+                                                               VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, false);
+        const VkRenderingInfo atRenderInfo{
+            .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+            .pNext = nullptr,
+            .renderArea = {.extent = shadowExtent},
+            .layerCount = 1,
+            .colorAttachmentCount = 0,
+            .pColorAttachments = nullptr,
+            .pDepthAttachment = &atDepthAttachment,
+            .pStencilAttachment = nullptr,
+        };
+        vkCmdBeginRendering(cmd, &atRenderInfo);
+        vkCmdSetViewport(cmd, 0, 1, &viewport);
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+        const VkDescriptorBufferBindingInfoEXT atBindingInfo{
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+            .address = m_metalRoughness.descriptors.get_device_address(),
+            .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
+                     VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT};
+        vkCmdBindDescriptorBuffersEXT(cmd, 1, &atBindingInfo);
+
+        const std::uint32_t atBufferIndices[]{0};
+        const VkDeviceSize atOffsets[]{0};
+        vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                           m_AlphaTestedPointLightShadowPassPipelineLayout, 0, 1, atBufferIndices,
+                                           atOffsets);
+
+        const PointLightsShadowPassAlphaTestedPushConstants atPc{
+            .positionBufferAddr = m_globalPositionBufferAddress,
+            .attributesBufferAddr = m_GBufferMeshPushConstants.attributesBufferAddr,
+            .instances = currentFrame.instanceBufferAddr,
+            .visiblePointLights = currentFrame.visiblePointLightsBufferAddr,
+            .pointLightIndices = currentFrame.pointLightIndicesBufferAddr,
+            .pointLightOffsets = currentFrame.pointLightIndicesOffsetsBufferAddr,
+            .tetrahedronDataAddr = m_tetrahedronBuffer.get_buffer_device_address(m_device),
+        };
+        draw_meshes(cmd, m_AlphaTestedPointLightShadowPassPipelineLayout,
+                    m_AlphaTestedPointLightShadowPassPipeline, m_AlphaTestedSize, atPc,
+                    VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+
+        vkCmdEndRendering(cmd);
+    }
+
     mp::debug::cmd_end_label(cmd);
 }
 
@@ -1250,6 +1538,67 @@ void Engine::draw_prepass(VkCommandBuffer cmd)
                 VK_SHADER_STAGE_VERTEX_BIT);
 
     vkCmdEndRendering(cmd);
+
+    if (m_AlphaTestedSize > 0)
+    {
+        cull_objects(cmd, m_AlphaTestedSize, m_OpaqueSize, m_sceneData.projView);
+
+        {
+            utils::BarrierBuilder barrierBuilder;
+            barrierBuilder.add_buffer_barrier({
+                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+                .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+                .dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+                .dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .buffer = currentFrame.countBuffer.buffer,
+                .offset = 0,
+                .size = VK_WHOLE_SIZE,
+            });
+            barrierBuilder.add_buffer_barrier({
+                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+                .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+                .dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+                .dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .buffer = currentFrame.drawCommandsBuffer.buffer,
+                .offset = 0,
+                .size = VK_WHOLE_SIZE,
+            });
+            barrierBuilder.barrier(cmd);
+        }
+
+        // LOAD depth — opaque prepass already wrote depth
+        const auto atDepthAttachment =
+            utils::depth_attachment(currentFrame.depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, false);
+        const auto atRenderInfo = utils::rendering_info(m_CommonImageExtent2D, 0, nullptr, &atDepthAttachment);
+
+        vkCmdBeginRendering(cmd, &atRenderInfo);
+        vkCmdSetViewport(cmd, 0, 1, &viewport);
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+        const VkDescriptorBufferBindingInfoEXT atPrepassBindingInfo{
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+            .address = m_metalRoughness.descriptors.get_device_address(),
+            .usage =
+                VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT};
+        vkCmdBindDescriptorBuffersEXT(cmd, 1, &atPrepassBindingInfo);
+
+        const std::uint32_t atPrepassBufferIndices[]{0};
+        const VkDeviceSize atPrepassOffsets[]{0};
+        vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_AlphaTestedPrepassPipelineLayout, 0,
+                                           1, atPrepassBufferIndices, atPrepassOffsets);
+
+        draw_meshes(cmd, m_AlphaTestedPrepassPipelineLayout, m_AlphaTestedPrepassPipeline, m_AlphaTestedSize,
+                    m_GBufferMeshPushConstants, VK_SHADER_STAGE_VERTEX_BIT);
+
+        vkCmdEndRendering(cmd);
+    }
+
     mp::debug::cmd_end_label(cmd);
 }
 
@@ -1455,7 +1804,7 @@ void Engine::copy_staging_buffers(VkCommandBuffer cmd)
     auto &frame = get_current_frame();
     utils::BarrierBuilder barrierBuilder;
 
-    const std::uint32_t totalInstances = m_OpaqueSize + m_TransparentSize;
+    const std::uint32_t totalInstances = m_OpaqueSize + m_AlphaTestedSize + m_TransparentSize;
     if (totalInstances > 0)
     {
         const VkBufferCopy instanceCopy{
@@ -1507,13 +1856,16 @@ void Engine::copy_staging_buffers(VkCommandBuffer cmd)
 void Engine::copy_frame_buffers()
 {
     m_OpaqueSize = static_cast<std::uint32_t>(m_mainDrawContext.opaqueInstances.size());
-    const std::uint32_t opaqueByteSize = m_OpaqueSize * sizeof(Instance);
-    std::memcpy(m_CurrentFrameInstanceBuffer, m_mainDrawContext.opaqueInstances.data(), opaqueByteSize);
+    std::memcpy(m_CurrentFrameInstanceBuffer, m_mainDrawContext.opaqueInstances.data(),
+                m_OpaqueSize * sizeof(Instance));
+
+    m_AlphaTestedSize = static_cast<std::uint32_t>(m_mainDrawContext.alphaTestedInstances.size());
+    std::memcpy(m_CurrentFrameInstanceBuffer + m_OpaqueSize, m_mainDrawContext.alphaTestedInstances.data(),
+                m_AlphaTestedSize * sizeof(Instance));
 
     m_TransparentSize = static_cast<std::uint32_t>(m_mainDrawContext.transparentInstances.size());
-    const std::uint32_t transparentByteSize = m_TransparentSize * sizeof(Instance);
-    std::memcpy(m_CurrentFrameInstanceBuffer + m_OpaqueSize, m_mainDrawContext.transparentInstances.data(),
-                transparentByteSize);
+    std::memcpy(m_CurrentFrameInstanceBuffer + m_OpaqueSize + m_AlphaTestedSize,
+                m_mainDrawContext.transparentInstances.data(), m_TransparentSize * sizeof(Instance));
 
     std::memcpy(m_CurrentMeshBuffer, m_mainDrawContext.renderObjects.data(),
                 m_mainDrawContext.renderObjects.size() * sizeof(RenderObject));

@@ -242,9 +242,30 @@ struct DirectionalShadowPassPushConstants
     std::uint32_t cascadeCount;
 };
 
+struct DirectionalShadowPassAlphaTestedPushConstants
+{
+    VkDeviceAddress positionBufferAddr;
+    VkDeviceAddress attributesBufferAddr;
+    VkDeviceAddress instanceBufferDeviceAddr;
+    VkDeviceAddress dirLightsBufferAddr;
+    std::uint32_t cascadeCount;
+};
+
+struct PointLightsShadowPassAlphaTestedPushConstants
+{
+    VkDeviceAddress positionBufferAddr;
+    VkDeviceAddress attributesBufferAddr;
+    VkDeviceAddress instances;
+    VkDeviceAddress visiblePointLights;
+    VkDeviceAddress pointLightIndices;
+    VkDeviceAddress pointLightOffsets;
+    VkDeviceAddress tetrahedronDataAddr;
+};
+
 enum class MaterialPass : std::uint8_t
 {
     Opaque,
+    AlphaTested,
     Transparent,
     Other
 };
@@ -354,7 +375,7 @@ struct GeneratePointLightCommandsPushConstants
     VkDeviceAddress meshDrawCommandsCount;
     VkDeviceAddress visiblePointLights;
     VkDeviceAddress visiblePointLightsCount;
-    std::uint32_t _padding0;
+    std::uint32_t instanceOffset;
     std::uint32_t _padding1;
     VkDeviceAddress pointLightIndices;
     VkDeviceAddress pointLightOffsets;

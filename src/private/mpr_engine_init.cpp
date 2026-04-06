@@ -533,6 +533,9 @@ void Engine::init_pipelines()
     init_depth_reduction_pass();
     m_metalRoughness.build_pipelines(*this);
     init_prepass();
+    init_alpha_tested_prepass();
+    init_alpha_tested_directional_shadow_pass();
+    init_alpha_tested_point_shadow_pass();
 }
 
 void Engine::init_light_pass_pipeline()
@@ -1558,6 +1561,193 @@ void Engine::init_mesh_data()
         destroy_buffer(m_globalPositionBuffer);
         destroy_buffer(m_globalAttributesBuffer);
         destroy_buffer(m_globalIndexBuffer);
+    });
+}
+
+void Engine::init_alpha_tested_prepass()
+{
+    const VkPushConstantRange pushConstantRange{
+        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+        .offset = 0,
+        .size = static_cast<std::uint32_t>(sizeof(GBufferPassPushConstants)),
+    };
+
+    const VkDescriptorSetLayout layouts[]{m_metalRoughness.materialLayout};
+    const VkPipelineLayoutCreateInfo layoutCreateInfo{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = std::size(layouts),
+        .pSetLayouts = layouts,
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &pushConstantRange,
+    };
+    vkCreatePipelineLayout(m_device, &layoutCreateInfo, nullptr, &m_AlphaTestedPrepassPipelineLayout) >> chk;
+
+    VkShaderModule prepassVert;
+    if (!load_shader_module("../../src/compiled_shaders/prepass.vertex.spv", m_device, &prepassVert))
+    {
+        throw std::runtime_error("Failed to load prepass vertex shader");
+    }
+
+    VkShaderModule prepassFrag;
+    if (!load_shader_module("../../src/compiled_shaders/prepass.pixel.spv", m_device, &prepassFrag))
+    {
+        throw std::runtime_error("Failed to load prepass pixel shader");
+    }
+
+    PipelineBuilder builder;
+    builder.pipelineLayout = m_AlphaTestedPrepassPipelineLayout;
+    builder.enable_depth_test(true, VK_COMPARE_OP_LESS_OR_EQUAL);
+    builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+    builder.set_polygon_mode(VK_POLYGON_MODE_FILL);
+    builder.add_shader(prepassVert, VK_SHADER_STAGE_VERTEX_BIT);
+    builder.add_shader(prepassFrag, VK_SHADER_STAGE_FRAGMENT_BIT);
+    builder.set_depth_format(m_frameData.at(0).depthImage.imageFormat);
+    builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+    builder.set_multisampling_none();
+
+    m_AlphaTestedPrepassPipeline = builder.build_pipeline(m_device, VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT);
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
+                               reinterpret_cast<uint64_t>(m_AlphaTestedPrepassPipeline),
+                               "Alpha-Tested Prepass Pipeline");
+
+    vkDestroyShaderModule(m_device, prepassVert, nullptr);
+    vkDestroyShaderModule(m_device, prepassFrag, nullptr);
+
+    m_mainDeletionQueue.push_function([this]() {
+        vkDestroyPipeline(m_device, m_AlphaTestedPrepassPipeline, nullptr);
+        vkDestroyPipelineLayout(m_device, m_AlphaTestedPrepassPipelineLayout, nullptr);
+    });
+}
+
+void Engine::init_alpha_tested_directional_shadow_pass()
+{
+    const VkDescriptorSetLayout layouts[]{m_metalRoughness.materialLayout};
+
+    const VkPushConstantRange pushConstantRange{
+        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+        .offset = 0,
+        .size = sizeof(DirectionalShadowPassAlphaTestedPushConstants),
+    };
+
+    const VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .pNext = nullptr,
+        .setLayoutCount = std::size(layouts),
+        .pSetLayouts = layouts,
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &pushConstantRange,
+    };
+    vkCreatePipelineLayout(m_device, &pipelineLayoutCreateInfo, nullptr, &m_AlphaTestedShadowPassPipelineLayout) >> chk;
+
+    VkShaderModule shadowPassVert;
+    if (!mp::load_shader_module(
+            "../../src/compiled_shaders/directional_shadow_pass_alpha_tested.vertex.spv", m_device,
+            &shadowPassVert))
+    {
+        throw std::runtime_error("Failed to load alpha-tested directional shadow pass vertex shader");
+    }
+
+    VkShaderModule shadowPassFrag;
+    if (!mp::load_shader_module(
+            "../../src/compiled_shaders/directional_shadow_pass_alpha_tested.pixel.spv", m_device,
+            &shadowPassFrag))
+    {
+        throw std::runtime_error("Failed to load alpha-tested directional shadow pass pixel shader");
+    }
+
+    mp::PipelineBuilder builder;
+    builder.pipelineLayout = m_AlphaTestedShadowPassPipelineLayout;
+    builder.enable_depth_test(true, VK_COMPARE_OP_LESS_OR_EQUAL);
+    builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+    builder.set_polygon_mode(VK_POLYGON_MODE_FILL);
+    builder.add_shader(shadowPassVert, VK_SHADER_STAGE_VERTEX_BIT);
+    builder.add_shader(shadowPassFrag, VK_SHADER_STAGE_FRAGMENT_BIT);
+    builder.set_depth_format(m_frameData.at(0).directionalShadowPassDepthArray.imageFormat);
+    builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+    builder.set_multisampling_none();
+
+    m_AlphaTestedShadowPassPipeline =
+        builder.build_pipeline(m_device, VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT);
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
+                               reinterpret_cast<uint64_t>(m_AlphaTestedShadowPassPipeline),
+                               "Alpha-Tested Directional Shadow Pass Pipeline");
+
+    vkDestroyShaderModule(m_device, shadowPassVert, nullptr);
+    vkDestroyShaderModule(m_device, shadowPassFrag, nullptr);
+
+    m_mainDeletionQueue.push_function([this]() {
+        vkDestroyPipeline(m_device, m_AlphaTestedShadowPassPipeline, nullptr);
+        vkDestroyPipelineLayout(m_device, m_AlphaTestedShadowPassPipelineLayout, nullptr);
+    });
+}
+
+void Engine::init_alpha_tested_point_shadow_pass()
+{
+    const VkDescriptorSetLayout layouts[]{m_metalRoughness.materialLayout};
+
+    const VkPushConstantRange pushConstantRange{
+        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+        .offset = 0,
+        .size = sizeof(PointLightsShadowPassAlphaTestedPushConstants),
+    };
+
+    const VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .pNext = nullptr,
+        .setLayoutCount = std::size(layouts),
+        .pSetLayouts = layouts,
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &pushConstantRange,
+    };
+    vkCreatePipelineLayout(m_device, &pipelineLayoutCreateInfo, nullptr,
+                           &m_AlphaTestedPointLightShadowPassPipelineLayout) >> chk;
+
+    VkShaderModule vert;
+    if (!mp::load_shader_module(
+            "../../src/compiled_shaders/point_lights_shadow_pass_alpha_tested.vertex.spv", m_device, &vert))
+    {
+        throw std::runtime_error("Failed to load alpha-tested point light shadow pass vertex shader");
+    }
+
+    VkShaderModule geom;
+    if (!mp::load_shader_module(
+            "../../src/compiled_shaders/point_lights_shadow_pass_alpha_tested.geometry.spv", m_device, &geom))
+    {
+        throw std::runtime_error("Failed to load alpha-tested point light shadow pass geometry shader");
+    }
+
+    VkShaderModule frag;
+    if (!mp::load_shader_module(
+            "../../src/compiled_shaders/point_lights_shadow_pass_alpha_tested.pixel.spv", m_device, &frag))
+    {
+        throw std::runtime_error("Failed to load alpha-tested point light shadow pass pixel shader");
+    }
+
+    mp::PipelineBuilder builder;
+    builder.pipelineLayout = m_AlphaTestedPointLightShadowPassPipelineLayout;
+    builder.enable_depth_test(true, VK_COMPARE_OP_LESS_OR_EQUAL);
+    builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+    builder.set_polygon_mode(VK_POLYGON_MODE_FILL);
+    builder.add_shader(vert, VK_SHADER_STAGE_VERTEX_BIT);
+    builder.add_shader(geom, VK_SHADER_STAGE_GEOMETRY_BIT);
+    builder.add_shader(frag, VK_SHADER_STAGE_FRAGMENT_BIT);
+    builder.set_depth_format(m_frameData.at(0).pointLightsShadowTileMap.imageFormat);
+    builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+    builder.set_multisampling_none();
+
+    m_AlphaTestedPointLightShadowPassPipeline =
+        builder.build_pipeline(m_device, VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT);
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
+                               reinterpret_cast<uint64_t>(m_AlphaTestedPointLightShadowPassPipeline),
+                               "Alpha-Tested Point Light Shadow Pass Pipeline");
+
+    vkDestroyShaderModule(m_device, vert, nullptr);
+    vkDestroyShaderModule(m_device, geom, nullptr);
+    vkDestroyShaderModule(m_device, frag, nullptr);
+
+    m_mainDeletionQueue.push_function([this]() {
+        vkDestroyPipeline(m_device, m_AlphaTestedPointLightShadowPassPipeline, nullptr);
+        vkDestroyPipelineLayout(m_device, m_AlphaTestedPointLightShadowPassPipelineLayout, nullptr);
     });
 }
 
