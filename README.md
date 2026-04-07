@@ -42,7 +42,7 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
 - Fully **GPU-Driven** architecture.
 - **Bindless rendering** for large numbers of textures and buffers via **descriptor buffers** extension.
 - **Slang** shader language integration
-- **glTF** model loading
+- Optimal **glTF** model loading using **fastgltf** and **meshoptimizer**
 - **Scene graph**
 - **Metal-roughness** PBR materials
 - **Debug labels** for more convenient RenderDoc + Nvidia nsights pipeline inspection
@@ -57,6 +57,7 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
 - **Gamma correction**
 - **WBOIT** (Weight blended order independent transparency)
 - **Normal mapping**
+- **Vertex quantization**
 
 ## Demo
 

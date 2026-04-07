@@ -33,6 +33,8 @@ struct VSOutput
     nointerpolation uint metalRoughSamplerID;
     nointerpolation uint normalTextureID;
     nointerpolation uint normalSamplerID;
+    nointerpolation uint emissiveTextureID;
+    nointerpolation uint emissiveSamplerID;
 };
 
 [shader("vertex")]
@@ -64,6 +66,8 @@ VSOutput vertexMain(uint vertexID : SV_VulkanVertexID, uint instanceID : SV_Vulk
     output.metalRoughSamplerID = instance.metalRoughSamplerID;
     output.normalTextureID = instance.normalTextureID;
     output.normalSamplerID = instance.normalSamplerID;
+    output.emissiveTextureID = instance.emissiveTextureID;
+    output.emissiveSamplerID = instance.emissiveSamplerID;
     return output;
 };
 
@@ -110,6 +114,9 @@ PSOutput fragmentMain(VSOutput input, float4 fragCoord : SV_Position)
   }
   color.a = diffuse.a;
 
+  float4 emissiveSample = textures[NonUniformResourceIndex(input.emissiveTextureID)]
+      .Sample(samplers[NonUniformResourceIndex(input.emissiveSamplerID)], input.uv);
+  color.rgb += emissiveSample.rgb * materialData.emissiveFactors.rgb;
 
   float weight =
     max(min(1.0, max(max(color.r, color.g), color.b) * color.a), color.a) *

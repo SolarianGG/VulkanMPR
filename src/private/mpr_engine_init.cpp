@@ -292,6 +292,12 @@ void Engine::init_swapchain()
         mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
                                    reinterpret_cast<uint64_t>(frame.gBuffer.specular.image),
                                    std::format("GBuffer Specular [{}]", i).c_str());
+        frame.gBuffer.emissive = create_image(m_CommonImageExtent3D, VK_FORMAT_R8G8B8A8_UNORM,
+                                              VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                                                  VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
+                                   reinterpret_cast<uint64_t>(frame.gBuffer.emissive.image),
+                                   std::format("GBuffer Emissive [{}]", i).c_str());
 
         frame.oitAccImage = create_image(m_CommonImageExtent3D, VK_FORMAT_R16G16B16A16_SFLOAT,
                                          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
@@ -361,6 +367,7 @@ void Engine::init_swapchain()
             destroy_image(frame.gBuffer.normal);
             destroy_image(frame.gBuffer.diffuse);
             destroy_image(frame.gBuffer.specular);
+            destroy_image(frame.gBuffer.emissive);
 
             destroy_image(frame.oitAccImage);
             destroy_image(frame.oitRevealImage);
@@ -472,6 +479,7 @@ void Engine::init_descriptors()
                 .add_binding(4, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT)
                 .add_binding(5, VK_DESCRIPTOR_TYPE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT)
                 .add_binding(6, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT)
+                .add_binding(7, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT)
                 .build(m_device, VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
     }
     for (auto &frame : m_frameData)
@@ -506,6 +514,8 @@ void Engine::init_descriptors()
         frame.lightPassDescriptorBuffer.write_sampler(5, 0, m_shadowSampler);
         frame.lightPassDescriptorBuffer.write_sampled_image(6, 0, frame.pointLightsShadowTileMap.imageView,
                                                             VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL);
+        frame.lightPassDescriptorBuffer.write_sampled_image(7, 0, frame.gBuffer.emissive.imageView,
+                                                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
 
     m_mainDeletionQueue.push_function([&]() mutable {
@@ -798,9 +808,8 @@ void Engine::init_depth_reduction_pass()
 
 void Engine::init_directional_shadow_pass()
 {
-    const VkPushConstantRange pushConstantRange{.stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-                                                .offset = 0,
-                                                .size = sizeof(DirectionalShadowPassPushConstants)};
+    const VkPushConstantRange pushConstantRange{
+        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT, .offset = 0, .size = sizeof(DirectionalShadowPassPushConstants)};
 
     const VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
                                                               .pNext = nullptr,
@@ -1533,7 +1542,7 @@ void Engine::init_mesh_data()
     ensure_attributes_capacity(1024);
     ensure_index_capacity(1024);
 
-#if 1
+#if 0
     const std::string sponzaPath = "../../assets/gltf-samples/Models/Sponza/glTF/sponza.gltf";
     if (!load_gltf(*this, sponzaPath))
     {
@@ -1548,6 +1557,13 @@ void Engine::init_mesh_data()
         throw std::runtime_error("Failed to load glTF file: " + bistroPath);
     }
 #endif
+
+    const std::string damagedHelmetPath =
+        "C:\\Users\\margaryta\\Desktop\\Projects\\VulkanMPR\\assets\\gltf-samples\\Models\\DamagedHelmet\\glTF\\DamagedHelmet.gltf";
+    if (!load_gltf(*this, damagedHelmetPath))
+    {
+        throw std::runtime_error("Failed to load glTF file: " + damagedHelmetPath);
+    }
 #if 0
   const std::string alphaBlendMode =
       "../../assets/gltf-samples/Models/AlphaBlendModeTest/glTF/"
@@ -1640,17 +1656,15 @@ void Engine::init_alpha_tested_directional_shadow_pass()
     vkCreatePipelineLayout(m_device, &pipelineLayoutCreateInfo, nullptr, &m_AlphaTestedShadowPassPipelineLayout) >> chk;
 
     VkShaderModule shadowPassVert;
-    if (!mp::load_shader_module(
-            "../../src/compiled_shaders/directional_shadow_pass_alpha_tested.vertex.spv", m_device,
-            &shadowPassVert))
+    if (!mp::load_shader_module("../../src/compiled_shaders/directional_shadow_pass_alpha_tested.vertex.spv", m_device,
+                                &shadowPassVert))
     {
         throw std::runtime_error("Failed to load alpha-tested directional shadow pass vertex shader");
     }
 
     VkShaderModule shadowPassFrag;
-    if (!mp::load_shader_module(
-            "../../src/compiled_shaders/directional_shadow_pass_alpha_tested.pixel.spv", m_device,
-            &shadowPassFrag))
+    if (!mp::load_shader_module("../../src/compiled_shaders/directional_shadow_pass_alpha_tested.pixel.spv", m_device,
+                                &shadowPassFrag))
     {
         throw std::runtime_error("Failed to load alpha-tested directional shadow pass pixel shader");
     }
@@ -1666,8 +1680,7 @@ void Engine::init_alpha_tested_directional_shadow_pass()
     builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
     builder.set_multisampling_none();
 
-    m_AlphaTestedShadowPassPipeline =
-        builder.build_pipeline(m_device, VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT);
+    m_AlphaTestedShadowPassPipeline = builder.build_pipeline(m_device, VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT);
     mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
                                reinterpret_cast<uint64_t>(m_AlphaTestedShadowPassPipeline),
                                "Alpha-Tested Directional Shadow Pass Pipeline");
@@ -1700,25 +1713,26 @@ void Engine::init_alpha_tested_point_shadow_pass()
         .pPushConstantRanges = &pushConstantRange,
     };
     vkCreatePipelineLayout(m_device, &pipelineLayoutCreateInfo, nullptr,
-                           &m_AlphaTestedPointLightShadowPassPipelineLayout) >> chk;
+                           &m_AlphaTestedPointLightShadowPassPipelineLayout) >>
+        chk;
 
     VkShaderModule vert;
-    if (!mp::load_shader_module(
-            "../../src/compiled_shaders/point_lights_shadow_pass_alpha_tested.vertex.spv", m_device, &vert))
+    if (!mp::load_shader_module("../../src/compiled_shaders/point_lights_shadow_pass_alpha_tested.vertex.spv", m_device,
+                                &vert))
     {
         throw std::runtime_error("Failed to load alpha-tested point light shadow pass vertex shader");
     }
 
     VkShaderModule geom;
-    if (!mp::load_shader_module(
-            "../../src/compiled_shaders/point_lights_shadow_pass_alpha_tested.geometry.spv", m_device, &geom))
+    if (!mp::load_shader_module("../../src/compiled_shaders/point_lights_shadow_pass_alpha_tested.geometry.spv",
+                                m_device, &geom))
     {
         throw std::runtime_error("Failed to load alpha-tested point light shadow pass geometry shader");
     }
 
     VkShaderModule frag;
-    if (!mp::load_shader_module(
-            "../../src/compiled_shaders/point_lights_shadow_pass_alpha_tested.pixel.spv", m_device, &frag))
+    if (!mp::load_shader_module("../../src/compiled_shaders/point_lights_shadow_pass_alpha_tested.pixel.spv", m_device,
+                                &frag))
     {
         throw std::runtime_error("Failed to load alpha-tested point light shadow pass pixel shader");
     }

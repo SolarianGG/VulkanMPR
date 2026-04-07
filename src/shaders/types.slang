@@ -63,6 +63,8 @@ public struct Instance
     public uint32_t metalRoughSamplerID;
     public uint32_t normalTextureID;
     public uint32_t normalSamplerID;
+    public uint32_t emissiveTextureID;
+    public uint32_t emissiveSamplerID;
 };
 
 public struct SceneData
@@ -78,7 +80,7 @@ public struct GLTFMaterialData {
     public float4 colorFactors;
     public float4 metalRoughnessFactors; // r -> metal, g -> roughness
     public float4 alphaCutoff;           // r -> alpha cutoff
-    float4 padding;
+    public float4 emissiveFactors;       // rgb -> emissive factor
 };
 
 public struct DirectionalLight {

@@ -112,6 +112,8 @@ void GLTFMetallicRoughness::build_pipelines(Engine& engine) {
         engine.m_frameData.at(0).gBuffer.diffuse.imageFormat);
     pipelineBuilder.add_color_attachment_format(
         engine.m_frameData.at(0).gBuffer.specular.imageFormat);
+    pipelineBuilder.add_color_attachment_format(
+        engine.m_frameData.at(0).gBuffer.emissive.imageFormat);
     pipelineBuilder.set_depth_format(
         engine.m_frameData.at(0).depthImage.imageFormat);
     pipelineBuilder.set_cull_mode(VK_CULL_MODE_BACK_BIT,

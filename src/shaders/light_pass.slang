@@ -22,6 +22,8 @@ Texture2DArray<float> shadowMapArray;
 SamplerComparisonState shadowSampler;
 [[vk::binding(6, 1)]]
 Texture2D<float> pointLightsTiledShadowMap;
+[[vk::binding(7, 1)]]
+Texture2D<float4> emissiveTexture;
 
 struct PushConstants {
     SceneData *sceneData;
@@ -97,5 +99,6 @@ void computeMain(uint3 threadID : SV_DispatchThreadID, uint localID : SV_GroupIn
         color += shadowFactor * CalculatePointLightPBR(worldPos, 
             pushConstants.sceneData.cameraPos, normalWS, baseColor, metallic, roughness, pointLight);
     }
+    color += emissiveTexture[uv].rgb;
     outputTexture[uv] = float4(color, 1.0f);
 }

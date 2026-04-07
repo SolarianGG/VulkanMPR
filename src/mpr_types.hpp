@@ -148,6 +148,8 @@ struct MaterialInstanceIndices
     std::uint32_t metalRoughnessSamplerID;
     std::uint32_t normalTextureID;
     std::uint32_t normalSamplerID;
+    std::uint32_t emissiveTextureID;
+    std::uint32_t emissiveSamplerID;
 };
 
 struct Instance

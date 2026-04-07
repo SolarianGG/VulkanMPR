@@ -259,6 +259,11 @@ void Engine::draw()
                                          VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
                                          VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                                          utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+        barrierBuilder.add_image_barrier(gBuffer.emissive.image, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+                                         VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                                         VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
+                                         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                         utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
         // Transition depth back from DEPTH_READ_ONLY (compute) to DEPTH_ATTACHMENT (GBuffer)
         barrierBuilder.add_image_barrier(
             currentDepthImage.image, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
@@ -285,6 +290,12 @@ void Engine::draw()
                                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                                          utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
         barrierBuilder.add_image_barrier(gBuffer.specular.image, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                                         VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
+                                         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+                                         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                         utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+        barrierBuilder.add_image_barrier(gBuffer.emissive.image, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                                          VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
                                          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
                                          VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
@@ -712,10 +723,12 @@ void Engine::draw_gBuffer_pass(VkCommandBuffer cmd)
         utils::attachment_info(gBuffer.diffuse.imageView, &val, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     const auto specularAttachment =
         utils::attachment_info(gBuffer.specular.imageView, &val, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    const auto emissiveAttachment =
+        utils::attachment_info(gBuffer.emissive.imageView, &val, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     const auto depthAttachment =
         utils::depth_attachment(depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, false);
 
-    VkRenderingAttachmentInfo attachments[]{normalAttachment, diffuseAttachment, specularAttachment};
+    VkRenderingAttachmentInfo attachments[]{normalAttachment, diffuseAttachment, specularAttachment, emissiveAttachment};
     const auto renderInfo =
         utils::rendering_info(m_CommonImageExtent2D, std::size(attachments), attachments, &depthAttachment);
 
@@ -823,9 +836,11 @@ void Engine::draw_gBuffer_pass(VkCommandBuffer cmd)
             utils::attachment_info(gBuffer.diffuse.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         const auto specularAT =
             utils::attachment_info(gBuffer.specular.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        const auto emissiveAT =
+            utils::attachment_info(gBuffer.emissive.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         const auto depthAT =
             utils::depth_attachment(depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, false);
-        VkRenderingAttachmentInfo atColorAttachments[]{normalAT, diffuseAT, specularAT};
+        VkRenderingAttachmentInfo atColorAttachments[]{normalAT, diffuseAT, specularAT, emissiveAT};
         const auto atRenderInfo =
             utils::rendering_info(m_CommonImageExtent2D, std::size(atColorAttachments), atColorAttachments, &depthAT);
 

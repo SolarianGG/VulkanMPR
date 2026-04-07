@@ -37,6 +37,7 @@ struct FrameData
         AllocatedImage normal;
         AllocatedImage diffuse;
         AllocatedImage specular;
+        AllocatedImage emissive;
     } gBuffer;
     AllocatedImage drawImage;
     AllocatedImage depthImage;

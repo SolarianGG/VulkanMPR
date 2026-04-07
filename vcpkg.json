@@ -2,6 +2,7 @@
   "dependencies": [
     "fastgltf",
     "glm",
+    "meshoptimizer",
     {
       "name": "sdl3",
       "features": [
@@ -12,6 +13,6 @@
     "vk-bootstrap",
     "volk",
     "vulkan-memory-allocator",
-    "meshoptimizer"
+    "assimp"
   ]
 }
