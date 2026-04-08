@@ -162,7 +162,7 @@ void DirectionalLightNode::edit()
     ImGui::Text("Directional light");
     ImGui::ColorPicker3("Color", reinterpret_cast<float *>(&m_Data.color));
     ImGui::DragFloat("Intensity", &m_Data.intensity, 0.01f, 0.01f, 100.0f);
-    ImGui::SliderInt("Cascades", &m_Data.cascadeCount.x, 1, kMaxCascadeCount);
+    ImGui::SliderInt("Cascades", &m_Data.cascadeCount, 1, kMaxCascadeCount);
 }
 
 void PointLightNode::edit()

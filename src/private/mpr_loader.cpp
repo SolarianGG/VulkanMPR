@@ -573,10 +573,9 @@ bool load_gltf(mp::Engine &engine, const std::filesystem::path &filePath)
             {
                 newNode = std::make_shared<DirectionalLightNode>(DirectionalLightData{
                     .direction = {},
-                    .padding = 0.0f,
+                    .cascadeCount = 4, 
                     .color = color,
                     .intensity = gltfLight.intensity,
-                    .cascadeCount = {4, 0, 0, 0},
                 });
             }
         }

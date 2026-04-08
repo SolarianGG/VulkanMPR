@@ -1542,7 +1542,7 @@ void Engine::init_mesh_data()
     ensure_attributes_capacity(1024);
     ensure_index_capacity(1024);
 
-#if 0
+#if 1
     const std::string sponzaPath = "../../assets/gltf-samples/Models/Sponza/glTF/sponza.gltf";
     if (!load_gltf(*this, sponzaPath))
     {
@@ -1558,12 +1558,14 @@ void Engine::init_mesh_data()
     }
 #endif
 
+#if 0
     const std::string damagedHelmetPath =
-        "C:\\Users\\margaryta\\Desktop\\Projects\\VulkanMPR\\assets\\gltf-samples\\Models\\DamagedHelmet\\glTF\\DamagedHelmet.gltf";
+        "../../assets/gltf-samples/Models/DamagedHelmet/glTF/DamagedHelmet.gltf";
     if (!load_gltf(*this, damagedHelmetPath))
     {
         throw std::runtime_error("Failed to load glTF file: " + damagedHelmetPath);
     }
+#endif
 #if 0
   const std::string alphaBlendMode =
       "../../assets/gltf-samples/Models/AlphaBlendModeTest/glTF/"

@@ -490,7 +490,7 @@ void Engine::draw_directional_shadow_pass(VkCommandBuffer cmd)
     const VkExtent2D shadowPassExtent{kDirectionalShadowMapSize, kDirectionalShadowMapSize};
     auto &currentFrame = get_current_frame();
 
-    const std::uint32_t cascadeCount = static_cast<std::uint32_t>(std::clamp(light.cascadeCount.x, 1, MAX_CASCADES));
+    const std::uint32_t cascadeCount = static_cast<std::uint32_t>(std::clamp(light.cascadeCount, 1, MAX_CASCADES));
 
     cull_objects(cmd, m_OpaqueSize, 0, m_DirLightCullMatrix);
 
@@ -1623,7 +1623,7 @@ void Engine::populate_commands_with_cascade_count(VkCommandBuffer cmd, std::uint
 
     auto &currentFrame = get_current_frame();
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_PopulateCommandsWithCascadeCountPipeline);
-    const auto cascadeCount = m_mainDrawContext.dirLight.value().cascadeCount.r;
+    const auto cascadeCount = m_mainDrawContext.dirLight.value().cascadeCount;
     const PopulateCommandsWithCascadeCountPushConstants pushConstants{.commands = currentFrame.drawCommandsBufferAddr,
                                                                       .count = currentFrame.countBufferAddr,
                                                                       .cascadesCount = cascadeCount};

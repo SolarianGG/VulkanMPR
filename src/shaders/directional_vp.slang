@@ -44,7 +44,7 @@ static const float BOUNDS_MODIFIER = 0.1f;
 [numthreads(1, 1, 1)] 
 void dirVpComputeMain(uint3 threadID : SV_DispatchThreadID)
 {
-    uint cascadeCount = pushConstants.dirLights[threadID.x].cascadeCount.r;
+    uint cascadeCount = pushConstants.dirLights[threadID.x].cascadeCount;
     float4x4 lightView = pushConstants.lightView;
     CascadesAABB cascadesBounds = pushConstants.splitsAABB[threadID.x];
 

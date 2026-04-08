@@ -9,7 +9,7 @@ public float CalculateDirectionalShadow(
 {
 
     uint cascadeIndex = 0;
-    for (uint j = 1; j < light.cascadeCount.r; ++j) {
+    for (uint j = 1; j < light.cascadeCount; ++j) {
         if (depth < light.splitDistances[j]) break;
         cascadeIndex = j;
     }

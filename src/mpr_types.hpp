@@ -26,7 +26,7 @@ namespace mp
 constexpr auto kNumberOfFrames = 2;
 
 constexpr float cameraNear = 0.1f;
-constexpr float cameraFar = 100.0f;
+constexpr float cameraFar = 200.0f;
 constexpr int kMaxCascadeCount = 4;
 constexpr int MAX_CASCADES = kMaxCascadeCount;
 
@@ -294,15 +294,13 @@ struct TetrahedronData
 struct DirectionalLightData
 {
     glm::vec3 direction;
-    float padding;
+    int cascadeCount;
     glm::vec3 color;
     float intensity;
-    glm::ivec4 cascadeCount; // r -> cascade count, gba -> padding
 
     std::array<float, kMaxCascadeCount> splitDistances;
     std::array<glm::mat4, kMaxCascadeCount> cascadeVPs;
 };
-static_assert(sizeof(DirectionalLightData) == 320);
 
 struct PointLightData
 {

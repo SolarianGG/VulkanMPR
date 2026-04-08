@@ -37,7 +37,7 @@ void depthPartitionCS(uint3 threadID : SV_DispatchThreadID)
     const float depthMax = asfloat(pushConstants.minMax.max);
     const float ratio = depthMax / depthMin;
 
-    uint cascadeCount = pushConstants.dirLight.cascadeCount.r;
+    uint cascadeCount = pushConstants.dirLight.cascadeCount;
     float splitDistances[MAX_CASCADE_COUNT];
     for (uint j = 0; j < cascadeCount; ++j) {
         if (cascadeCount > 1) {

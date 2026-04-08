@@ -84,10 +84,9 @@ public struct GLTFMaterialData {
 };
 
 public struct DirectionalLight {
-    public float4 direction; // w - padding
+    public float3 direction;
+    public int cascadeCount;
     public float4 color; // w - intensity
-
-    public int4 cascadeCount; // r - cascadeCount
 
     public float splitDistances[MAX_CASCADE_COUNT];
     public float4x4 cascadeVPs[MAX_CASCADE_COUNT];

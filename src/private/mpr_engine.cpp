@@ -153,7 +153,7 @@ Engine::Engine()
     m_isInitialized = true;
 
     m_LightPassConstants.dirNormalBias = 0.001f;
-    m_LightPassConstants.dirConstantBias = 0.0002f;
+    m_LightPassConstants.dirConstantBias = 0.001f;
     m_LightPassConstants.pointNormalBias = 0.03f;
     m_LightPassConstants.pointConstantBias = 0.001f;
 }
@@ -213,10 +213,10 @@ void Engine::run()
         if (ImGui::Begin("Other"))
         {
             ImGui::DragFloat("Camera speed", &m_camera.cameraSpeed, 0.01f, 0.01f, 100.0f);
-            ImGui::DragFloat("Dir normal bias", &m_LightPassConstants.dirNormalBias, 0.0001f, 0.0001f, 1.0f, "%.4f");
-            ImGui::DragFloat("Dir constant bias", &m_LightPassConstants.dirConstantBias, 0.001f, 0.001f, 1.0f, "%.4f");
-            ImGui::DragFloat("Point normal bias", &m_LightPassConstants.pointNormalBias, 0.0001f, 0.0001f, 1.0f, "%.4f");
-            ImGui::DragFloat("Point constant bias", &m_LightPassConstants.pointConstantBias, 0.001f, 0.001f, 1.0f, "%.4f");
+            ImGui::DragFloat("Dir normal bias", &m_LightPassConstants.dirNormalBias, 0.0001f, 0.0001f, 0.1f, "%.4f");
+            ImGui::DragFloat("Dir constant bias", &m_LightPassConstants.dirConstantBias, 0.0001f, 0.0001f, 0.1f, "%.4f");
+            ImGui::DragFloat("Point normal bias", &m_LightPassConstants.pointNormalBias, 0.0001f, 0.0001f, 0.1f, "%.4f");
+            ImGui::DragFloat("Point constant bias", &m_LightPassConstants.pointConstantBias, 0.0001f, 0.0001f, 0.1f, "%.4f");
             // TODO: Add debug light visualization
 #if 0
       ImGui::Checkbox("Draw debug light positions", &m_IsLightsRendered);
@@ -255,10 +255,9 @@ void Engine::run()
             {
                 const auto nodeIndex = m_scene.add_node(std::make_shared<DirectionalLightNode>(DirectionalLightData{
                     .direction = {0.0f, -1.0f, 0.0f},
-                    .padding = 0.0f,
+                    .cascadeCount = 4,
                     .color = {1.0f, 1.0f, 1.0f},
                     .intensity = 1.0f,
-                    .cascadeCount = {4, 0, 0, 0},
                 }));
 
                 auto &node = m_scene.nodes.find(nodeIndex)->second;
