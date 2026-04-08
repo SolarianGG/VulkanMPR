@@ -72,7 +72,7 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
   </tr>
   <tr>
     <td><img src="screenshots/pipeline_overview.png" width="600"/></td>
-    <td><img src="screenshots/pipelines_frame_time.png" width="600"/></td>
+    <td><img src="screenshots/pipeline_frame_time.png" width="600"/></td>
   </tr>
 </table>
 
