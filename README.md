@@ -67,6 +67,10 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
 
 <table>
   <tr>
+    <td align="center"><em>Full render pipeline pass structure</em></td>
+    <td align="center"><em>Per-pass GPU frame time breakdown</em></td>
+  </tr>
+  <tr>
     <td><img src="screenshots/pipeline_overview.png" width="600"/></td>
     <td><img src="screenshots/pipelines_frame_time.png" width="600"/></td>
   </tr>
@@ -86,7 +90,10 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
 </table>
 
 <table>
-    <tr>
+  <tr>
+    <td align="center"><em>Scene + Imgui</em></td>
+  </tr>
+  <tr>
     <td><img src="screenshots/Full_Scene.png" width="1100"/></td>
   </tr>
 </table>
@@ -95,18 +102,36 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
 
 #### SDSM CSM
 
+Each row shows the cascade split visualization (left) alongside the final rendered result (right).
+
 <table>
+  <tr>
+    <td align="center"><em>1 cascade - split regions</em></td>
+    <td align="center"><em>1 cascade - final render</em></td>
+  </tr>
   <tr>
     <td><img src="screenshots/CSM_1_cascade.png" width="600"/></td>
     <td><img src="screenshots/CSM_1_cascade_final.png" width="600"/></td>
+  </tr>
+  <tr>
+    <td align="center"><em>2 cascades - split regions</em></td>
+    <td align="center"><em>2 cascades - final render</em></td>
   </tr>
   <tr>
     <td><img src="screenshots/CSM_2_cascades.png" width="600"/></td>
     <td><img src="screenshots/CSM_2_cascades_final.png" width="600"/></td>
   </tr>
   <tr>
+    <td align="center"><em>3 cascades - split regions</em></td>
+    <td align="center"><em>3 cascades - final render</em></td>
+  </tr>
+  <tr>
     <td><img src="screenshots/CSM_3_cascades.png" width="600"/></td>
     <td><img src="screenshots/CSM_3_cascades_final.png" width="600"/></td>
+  </tr>
+  <tr>
+    <td align="center"><em>4 cascades - split regions</em></td>
+    <td align="center"><em>4 cascades - final render</em></td>
   </tr>
   <tr>
     <td><img src="screenshots/CSM_4_cascades.png" width="600"/></td>
@@ -118,8 +143,16 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
 
 <table>
   <tr>
+    <td align="center"><em>Simple DSM - shadow map coverage</em></td>
+    <td align="center"><em>SDSM CSM - shadow map coverage (tighter fit)</em></td>
+  </tr>
+  <tr>
     <td><img src="screenshots/dsm.png" width="600"/></td>
     <td><img src="screenshots/csm.png" width="600"/></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Simple DSM - Single shadow map projection tightened to scene bounds</em></td>
+    <td align="center"><em>SDSM CSM - Each cascade shadow map tightens only part of depth buffer</em></td>
   </tr>
   <tr>
     <td><img src="screenshots/dsm_screen.png" width="600"/></td>
@@ -131,8 +164,12 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
 
 <table>
   <tr>
+    <td align="center"><em>Tetrahedron shadow map - all faces packed in a single texture</em></td>
+    <td align="center"><em>Point light shadows applied in scene</em></td>
+  </tr>
+  <tr>
     <td><img src="screenshots/tetrahedron_shadow_map.png" width="600"/></td>
-    <td><img src="screenshots/Sponza_1.png" width="600"/></td>
+    <td><img src="screenshots/Sponza_4.png" width="600"/></td>
   </tr>
 </table>
 
@@ -140,15 +177,63 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
 
 <table>
   <tr>
+    <td align="center"><em>No bias or too low constant bias - shadow acne</em></td>
+    <td align="center"><em>Only constant bias - Peter panning</em></td>
+    <td align="center"><em>With normal offset + lower constant bias - clean contact shadows</em></td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/shadow_acne.png" width="600"/></td>
     <td><img src="screenshots/peter_panning.png" width="600"/></td>
     <td><img src="screenshots/PCF_Bias.png" width="600"/></td>
   </tr>
 </table>
 
+### Auto-exposure using luminance histogram
+
+The camera exposure adapts dynamically as the scene brightness changes, computed via a luminance histogram on the GPU.
+
+<table>
+  <tr>
+    <td align="center"><em>Auto-exposure in action - adapts from bright to dark areas</em></td>
+  </tr>
+  <tr>
+    <td><video src="screenshots/auto-exposure.mp4" controls width="670"/></td>
+  </tr>
+</table>
+
+### ACES Tone mapping
+
+<table>
+  <tr>
+    <td align="center"><em>Without tone mapping</em></td>
+    <td align="center"><em>With ACES tone mapping + auto exposure</em></td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/no-tone-mapping.png" width="600"/></td>
+    <td><img src="screenshots/tone-mapping.png" width="600"/></td>
+  </tr>
+</table>
+
+### Gamma correction
+
+<table>
+  <tr>
+    <td align="center"><em>Without gamma correction — colors appear dark and washed out</em></td>
+    <td align="center"><em>With gamma correction — perceptually correct brightness</em></td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/no_gamma.png" width="600"/></td>
+    <td><img src="screenshots/gamma.png" width="600"/></td>
+  </tr>
+</table>
 
 ### Normal mapping
 
 <table>
+  <tr>
+    <td align="center"><em>Without normal maps - flat, geometry-only shading</em></td>
+    <td align="center"><em>With normal maps - surface detail and micro-lighting</em></td>
+  </tr>
   <tr>
     <td><img src="screenshots/nonp.png" width="600"/></td>
     <td><img src="screenshots/np.png" width="600"/></td>
@@ -156,18 +241,13 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
 </table>
 
 
-### Gamma correction 
-
-<table>
-  <tr>
-    <td><img src="screenshots/no_gamma.png" width="600"/></td>
-    <td><img src="screenshots/gamma.png" width="600"/></td>
-  </tr>
-</table>
 
 ### WBOIT
 
 <table>
+  <tr>
+    <td align="center"><em>Weight Blended Order Independent Transparency - correct blending without depth sorting</em></td>
+  </tr>
   <tr>
     <td><img src="screenshots/wboit.png" width="600"/></td>
   </tr>
@@ -177,6 +257,11 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
 ### Scene manipulation
 
 <table>
+  <tr>
+    <td align="center"><em>Translation</em></td>
+    <td align="center"><em>Rotation</em></td>
+    <td align="center"><em>Scale</em></td>
+  </tr>
   <tr>
     <td><img src="screenshots/scene-manip-tr.png" width="400"/></td>
     <td><img src="screenshots/scene-manip-rt.png" width="400"/></td>

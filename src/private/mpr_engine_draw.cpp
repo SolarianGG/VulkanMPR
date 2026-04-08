@@ -437,7 +437,6 @@ void Engine::draw()
 
     draw_luminance_histogram(cmd);
 
-    // Barrier: histogram write → read
     {
         barrierBuilder.add_buffer_barrier({
             .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
@@ -451,12 +450,26 @@ void Engine::draw()
             .offset = 0,
             .size = VK_WHOLE_SIZE,
         });
+        {
+            barrierBuilder.add_buffer_barrier({
+                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+                .srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
+                .srcAccessMask = 0,
+                .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                .dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .buffer = m_avgLuminanceBuffer.buffer,
+                .offset = 0,
+                .size = VK_WHOLE_SIZE,
+            });
+            barrierBuilder.barrier(cmd);
+        }
         barrierBuilder.barrier(cmd);
     }
 
     draw_average_luminance(cmd);
 
-    // Barrier: avgLum write → read (for postprocess)
     {
         barrierBuilder.add_buffer_barrier({
             .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
@@ -733,8 +746,8 @@ void Engine::draw_directional_shadow_pass(VkCommandBuffer cmd)
         }
 
         // LOAD depth — opaque shadow already wrote to shadow array
-        const auto atDepthAttachment = utils::depth_attachment(
-            currentFrame.directionalShadowPassDepthArray.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, false);
+        const auto atDepthAttachment = utils::depth_attachment(currentFrame.directionalShadowPassDepthArray.imageView,
+                                                               VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, false);
         const VkRenderingInfo atRenderInfo{
             .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
             .pNext = nullptr,
@@ -752,14 +765,14 @@ void Engine::draw_directional_shadow_pass(VkCommandBuffer cmd)
         const VkDescriptorBufferBindingInfoEXT atBindingInfo{
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
             .address = m_metalRoughness.descriptors.get_device_address(),
-            .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
-                     VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT};
+            .usage =
+                VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT};
         vkCmdBindDescriptorBuffersEXT(cmd, 1, &atBindingInfo);
 
         const std::uint32_t atBufferIndices[]{0};
         const VkDeviceSize atOffsets[]{0};
-        vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                           m_AlphaTestedShadowPassPipelineLayout, 0, 1, atBufferIndices, atOffsets);
+        vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_AlphaTestedShadowPassPipelineLayout,
+                                           0, 1, atBufferIndices, atOffsets);
 
         const DirectionalShadowPassAlphaTestedPushConstants atPushConstants{
             .positionBufferAddr = m_globalPositionBufferAddress,
@@ -801,7 +814,8 @@ void Engine::draw_gBuffer_pass(VkCommandBuffer cmd)
     const auto depthAttachment =
         utils::depth_attachment(depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, false);
 
-    VkRenderingAttachmentInfo attachments[]{normalAttachment, diffuseAttachment, specularAttachment, emissiveAttachment};
+    VkRenderingAttachmentInfo attachments[]{normalAttachment, diffuseAttachment, specularAttachment,
+                                            emissiveAttachment};
     const auto renderInfo =
         utils::rendering_info(m_CommonImageExtent2D, std::size(attachments), attachments, &depthAttachment);
 
@@ -1487,8 +1501,8 @@ void Engine::draw_point_lights_shadows_pass(VkCommandBuffer cmd)
         const VkDescriptorBufferBindingInfoEXT atBindingInfo{
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
             .address = m_metalRoughness.descriptors.get_device_address(),
-            .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
-                     VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT};
+            .usage =
+                VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT};
         vkCmdBindDescriptorBuffersEXT(cmd, 1, &atBindingInfo);
 
         const std::uint32_t atBufferIndices[]{0};
@@ -1506,8 +1520,8 @@ void Engine::draw_point_lights_shadows_pass(VkCommandBuffer cmd)
             .pointLightOffsets = currentFrame.pointLightIndicesOffsetsBufferAddr,
             .tetrahedronDataAddr = m_tetrahedronBuffer.get_buffer_device_address(m_device),
         };
-        draw_meshes(cmd, m_AlphaTestedPointLightShadowPassPipelineLayout,
-                    m_AlphaTestedPointLightShadowPassPipeline, m_AlphaTestedSize, atPc,
+        draw_meshes(cmd, m_AlphaTestedPointLightShadowPassPipelineLayout, m_AlphaTestedPointLightShadowPassPipeline,
+                    m_AlphaTestedSize, atPc,
                     VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
 
         vkCmdEndRendering(cmd);
