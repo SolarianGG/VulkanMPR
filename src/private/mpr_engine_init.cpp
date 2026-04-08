@@ -537,6 +537,8 @@ void Engine::init_pipelines()
     init_populate_commands_with_cascade_count();
     init_wboit_composite_pass_pipeline();
     init_post_pipeline();
+    init_luminance_histogram_pipeline();
+    init_average_luminance_pipeline();
     init_generate_point_light_commands_pipeline();
     init_directional_shadow_pass();
     init_point_shadow_pass();
@@ -976,13 +978,18 @@ void Engine::init_prepass()
 
 void Engine::init_post_pipeline()
 {
+    const VkPushConstantRange postPcRange{
+        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+        .offset = 0,
+        .size = sizeof(PostProcessPushConstants),
+    };
     const VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .pNext = nullptr,
         .setLayoutCount = 1,
         .pSetLayouts = &m_DrawImageDescriptorSetLayout,
-        .pushConstantRangeCount = 0,
-        .pPushConstantRanges = nullptr,
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &postPcRange,
     };
     vkCreatePipelineLayout(m_device, &pipelineLayoutCreateInfo, nullptr, &m_PostProcessPassPipelineLayout) >> chk;
 
@@ -1015,6 +1022,104 @@ void Engine::init_post_pipeline()
     m_mainDeletionQueue.push_function([this] {
         vkDestroyPipeline(m_device, m_PostProcessPassPipeline, nullptr);
         vkDestroyPipelineLayout(m_device, m_PostProcessPassPipelineLayout, nullptr);
+    });
+}
+
+void Engine::init_luminance_histogram_pipeline()
+{
+    const VkPushConstantRange pcRange{
+        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+        .offset = 0,
+        .size = sizeof(LuminanceHistogramPushConstants),
+    };
+    const VkPipelineLayoutCreateInfo layoutInfo{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .pNext = nullptr,
+        .setLayoutCount = 1,
+        .pSetLayouts = &m_DrawImageDescriptorSetLayout,
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &pcRange,
+    };
+    vkCreatePipelineLayout(m_device, &layoutInfo, nullptr, &m_LuminanceHistogramPipelineLayout) >> chk;
+
+    VkShaderModule shader;
+    if (!load_shader_module("../../src/compiled_shaders/luminance_histogram.compute.spv", m_device, &shader))
+    {
+        throw std::runtime_error("Failed to load luminance_histogram.compute.spv");
+    }
+
+    const VkComputePipelineCreateInfo pipelineInfo{
+        .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT,
+        .stage =
+            {
+                .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                .pNext = nullptr,
+                .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+                .module = shader,
+                .pName = "main",
+            },
+        .layout = m_LuminanceHistogramPipelineLayout,
+    };
+    vkCreateComputePipelines(m_device, nullptr, 1, &pipelineInfo, nullptr, &m_LuminanceHistogramPipeline) >> chk;
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
+                               reinterpret_cast<uint64_t>(m_LuminanceHistogramPipeline),
+                               "Luminance Histogram Pipeline");
+    vkDestroyShaderModule(m_device, shader, nullptr);
+
+    m_mainDeletionQueue.push_function([this] {
+        vkDestroyPipeline(m_device, m_LuminanceHistogramPipeline, nullptr);
+        vkDestroyPipelineLayout(m_device, m_LuminanceHistogramPipelineLayout, nullptr);
+    });
+}
+
+void Engine::init_average_luminance_pipeline()
+{
+    const VkPushConstantRange pcRange{
+        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+        .offset = 0,
+        .size = sizeof(AverageLuminancePushConstants),
+    };
+    const VkPipelineLayoutCreateInfo layoutInfo{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .pNext = nullptr,
+        .setLayoutCount = 0,
+        .pSetLayouts = nullptr,
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &pcRange,
+    };
+    vkCreatePipelineLayout(m_device, &layoutInfo, nullptr, &m_AverageLuminancePipelineLayout) >> chk;
+
+    VkShaderModule shader;
+    if (!load_shader_module("../../src/compiled_shaders/average_luminance.compute.spv", m_device, &shader))
+    {
+        throw std::runtime_error("Failed to load average_luminance.compute.spv");
+    }
+
+    const VkComputePipelineCreateInfo pipelineInfo{
+        .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT,
+        .stage =
+            {
+                .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                .pNext = nullptr,
+                .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+                .module = shader,
+                .pName = "main",
+            },
+        .layout = m_AverageLuminancePipelineLayout,
+    };
+    vkCreateComputePipelines(m_device, nullptr, 1, &pipelineInfo, nullptr, &m_AverageLuminancePipeline) >> chk;
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
+                               reinterpret_cast<uint64_t>(m_AverageLuminancePipeline),
+                               "Average Luminance Pipeline");
+    vkDestroyShaderModule(m_device, shader, nullptr);
+
+    m_mainDeletionQueue.push_function([this] {
+        vkDestroyPipeline(m_device, m_AverageLuminancePipeline, nullptr);
+        vkDestroyPipelineLayout(m_device, m_AverageLuminancePipelineLayout, nullptr);
     });
 }
 
@@ -1392,6 +1497,16 @@ void Engine::init_frames_data()
                                    reinterpret_cast<uint64_t>(frame.splitsAABBBuffer.buffer),
                                    std::format("Splits AABB Buffer [{}]", i).c_str());
 
+        frame.histogramBuffer =
+            create_buffer(sizeof(std::uint32_t) * 256,
+                          VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                              VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                          VMA_MEMORY_USAGE_GPU_ONLY);
+        frame.histogramBufferAddr = frame.histogramBuffer.get_buffer_device_address(m_device);
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_BUFFER,
+                                   reinterpret_cast<uint64_t>(frame.histogramBuffer.buffer),
+                                   std::format("Luminance Histogram Buffer [{}]", i).c_str());
+
         frame.cascadeDepthDescBuffer =
             DescriptorBuffer(m_device, m_DepthPassDescSetLayout, DescriptorBufferProperties::query(m_chosenGpu));
         frame.cascadeDepthDescBuffer.create_buffer(
@@ -1461,9 +1576,25 @@ void Engine::init_frames_data()
             destroy_buffer(frame.pointLightBuffer);
             destroy_buffer(frame.minMaxBuffer);
             destroy_buffer(frame.splitsAABBBuffer);
+            destroy_buffer(frame.histogramBuffer);
             destroy_buffer(frame.cascadeDepthDescBuffer.get_buffer());
         }
     });
+
+    m_avgLuminanceBuffer =
+        create_buffer(sizeof(float),
+                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+                          VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                      VMA_MEMORY_USAGE_GPU_ONLY);
+    m_avgLuminanceBufferAddr = m_avgLuminanceBuffer.get_buffer_device_address(m_device);
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_BUFFER,
+                               reinterpret_cast<uint64_t>(m_avgLuminanceBuffer.buffer),
+                               "Average Luminance Buffer");
+    // Bootstrap with 1.0f so the first frame doesn't divide by zero
+    immediate_submit([&](VkCommandBuffer cmd) {
+        vkCmdFillBuffer(cmd, m_avgLuminanceBuffer.buffer, 0, VK_WHOLE_SIZE, 0x3F800000u);
+    });
+    m_mainDeletionQueue.push_function([this] { destroy_buffer(m_avgLuminanceBuffer); });
 }
 
 void Engine::init_default_data()

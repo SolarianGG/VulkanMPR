@@ -87,6 +87,9 @@ public struct DirectionalLight {
     public float3 direction;
     public int cascadeCount;
     public float4 color; // w - intensity
+    public float normalBias;
+    public float constantBias;
+    public float2 _pad;
 
     public float splitDistances[MAX_CASCADE_COUNT];
     public float4x4 cascadeVPs[MAX_CASCADE_COUNT];
@@ -102,6 +105,9 @@ public struct PointLight {
     public float range;
     public float3 color;
     public float intensity;
+    public float normalBias;
+    public float constantBias;
+    public float2 _pad;
 
     public float4x4 lightMatrices[4];
 };

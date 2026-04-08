@@ -567,15 +567,19 @@ bool load_gltf(mp::Engine &engine, const std::filesystem::path &filePath)
                     .range = gltfLight.range.value_or(10.0f),
                     .color = color,
                     .intensity = gltfLight.intensity,
+                    .normalBias = 0.03f,
+                    .constantBias = 0.001f,
                 });
             }
             else
             {
                 newNode = std::make_shared<DirectionalLightNode>(DirectionalLightData{
                     .direction = {},
-                    .cascadeCount = 4, 
+                    .cascadeCount = 4,
                     .color = color,
                     .intensity = gltfLight.intensity,
+                    .normalBias = 0.001f,
+                    .constantBias = 0.001f,
                 });
             }
         }

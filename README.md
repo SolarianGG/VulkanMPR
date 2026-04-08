@@ -58,6 +58,8 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
 - **WBOIT** (Weight blended order independent transparency)
 - **Normal mapping**
 - **Vertex quantization**
+- **Auto-exposure** using luminance histogram
+- **ACES tone mapping**
 
 ## Demo
 
@@ -191,15 +193,13 @@ Omdirectional tiled tetrahedron shadow mapping (GPU Pro 6)
 
 [Vertex data quantization](https://daniilvinn.github.io/2024/05/04/omniforce-vertex-quantization.html)
 
-
+[Auto-exposure](https://bruop.github.io/exposure/)
 
 ## Planned rendering feautres
 
-- GT7 Tone mapping
-- Auto exposure
 - Switch from Lambert to Burley diffuse BRDF
 - IBL
-- TAA / FXAA / SMAA
+- FXAA 3.11 / SMAA
 - SSAO
 - SSR
 - Bend studio contact shadows

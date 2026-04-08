@@ -163,6 +163,8 @@ void DirectionalLightNode::edit()
     ImGui::ColorPicker3("Color", reinterpret_cast<float *>(&m_Data.color));
     ImGui::DragFloat("Intensity", &m_Data.intensity, 0.01f, 0.01f, 100.0f);
     ImGui::SliderInt("Cascades", &m_Data.cascadeCount, 1, kMaxCascadeCount);
+    ImGui::DragFloat("Normal bias", &m_Data.normalBias, 0.0001f, 0.0001f, 0.1f, "%.4f");
+    ImGui::DragFloat("Constant bias", &m_Data.constantBias, 0.0001f, 0.0001f, 0.1f, "%.4f");
 }
 
 void PointLightNode::edit()
@@ -173,6 +175,8 @@ void PointLightNode::edit()
     ImGui::ColorPicker3("Color", reinterpret_cast<float *>(&m_Data.color));
     ImGui::DragFloat("Range", &m_Data.range, 0.01f, 0.01f, 100.0f);
     ImGui::DragFloat("Intensity", &m_Data.intensity, 0.01f, 0.01f, 100.0f);
+    ImGui::DragFloat("Normal bias", &m_Data.normalBias, 0.0001f, 0.0001f, 0.1f, "%.4f");
+    ImGui::DragFloat("Constant bias", &m_Data.constantBias, 0.0001f, 0.0001f, 0.1f, "%.4f");
 }
 
 void Scene::draw(const glm::mat4 &topMatrix, DrawContext &ctx)

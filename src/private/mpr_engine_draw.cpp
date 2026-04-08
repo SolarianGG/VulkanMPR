@@ -400,6 +400,79 @@ void Engine::draw()
         barrierBuilder.barrier(cmd);
     }
 
+    // Auto-exposure: reset histogram
+    {
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+            .srcAccessMask = 0,
+            .dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+            .dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.histogramBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+        barrierBuilder.barrier(cmd);
+    }
+    vkCmdFillBuffer(cmd, currentFrame.histogramBuffer.buffer, 0, VK_WHOLE_SIZE, 0);
+
+    // Barrier: fill → compute write
+    {
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+            .srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.histogramBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+        barrierBuilder.barrier(cmd);
+    }
+
+    draw_luminance_histogram(cmd);
+
+    // Barrier: histogram write → read
+    {
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.histogramBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+        barrierBuilder.barrier(cmd);
+    }
+
+    draw_average_luminance(cmd);
+
+    // Barrier: avgLum write → read (for postprocess)
+    {
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = m_avgLuminanceBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+        barrierBuilder.barrier(cmd);
+    }
+
     draw_post(cmd);
 
     // copy to swapchain
@@ -1476,8 +1549,66 @@ void Engine::draw_post(VkCommandBuffer cmd)
     vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_PostProcessPassPipelineLayout, 0,
                                        std::size(offsets), indices, offsets);
 
+    const PostProcessPushConstants postPc{.avgLum = m_avgLuminanceBufferAddr};
+    vkCmdPushConstants(cmd, m_PostProcessPassPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(postPc), &postPc);
+
     vkCmdDispatch(cmd, std::ceil(m_CommonImageExtent2D.width / 16.0f), std::ceil(m_CommonImageExtent2D.height / 16.0f),
                   1.0f);
+    mp::debug::cmd_end_label(cmd);
+}
+
+void Engine::draw_luminance_histogram(VkCommandBuffer cmd)
+{
+    mp::debug::cmd_begin_label(cmd, "Luminance Histogram", {0.8f, 0.6f, 0.2f, 1.f});
+    auto &currentFrame = get_current_frame();
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_LuminanceHistogramPipeline);
+
+    const VkDescriptorBufferBindingInfoEXT buffersInfo[]{
+        {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+         .pNext = nullptr,
+         .address = currentFrame.drawImageDescriptorBuffer.get_device_address(),
+         .usage =
+             VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
+    };
+    vkCmdBindDescriptorBuffersEXT(cmd, std::size(buffersInfo), buffersInfo);
+
+    const std::uint32_t indices[]{0};
+    const VkDeviceSize offsets[]{0};
+    vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_LuminanceHistogramPipelineLayout, 0,
+                                       std::size(offsets), indices, offsets);
+
+    const LuminanceHistogramPushConstants pc{
+        .histogram = currentFrame.histogramBufferAddr,
+        .minLogLum = m_autoExposureMinLogLum,
+        .invLogLumRange = 1.0f / m_autoExposureLogLumRange,
+    };
+    vkCmdPushConstants(cmd, m_LuminanceHistogramPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+
+    vkCmdDispatch(cmd, static_cast<std::uint32_t>(std::ceil(m_CommonImageExtent2D.width / 16.0f)),
+                  static_cast<std::uint32_t>(std::ceil(m_CommonImageExtent2D.height / 16.0f)), 1);
+    mp::debug::cmd_end_label(cmd);
+}
+
+void Engine::draw_average_luminance(VkCommandBuffer cmd)
+{
+    mp::debug::cmd_begin_label(cmd, "Average Luminance", {0.8f, 0.4f, 0.1f, 1.f});
+    auto &currentFrame = get_current_frame();
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_AverageLuminancePipeline);
+
+    const float timeCoeff = 1.0f - std::exp(-m_stats.frameTime * m_autoExposureAdaptationSpeed);
+    const AverageLuminancePushConstants pc{
+        .histogram = currentFrame.histogramBufferAddr,
+        .avgLum = m_avgLuminanceBufferAddr,
+        .minLogLum = m_autoExposureMinLogLum,
+        .logLumRange = m_autoExposureLogLumRange,
+        .timeCoeff = timeCoeff,
+        .numPixels = m_CommonImageExtent2D.width * m_CommonImageExtent2D.height,
+    };
+    vkCmdPushConstants(cmd, m_AverageLuminancePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+
+    vkCmdDispatch(cmd, 1, 1, 1);
     mp::debug::cmd_end_label(cmd);
 }
 

@@ -2,11 +2,13 @@
 [[vk::image_format("rgba16f")]]
 RWTexture2D<float4> outputTexture;
 
-#if 0
-struct PushConstants {
-    uint flags; // 2 -> toneMapping on/off, 1 -> auto exposure on / off
+struct PushConstants
+{
+    float *avgLum;
 };
-#endif
+
+[[vk::push_constant]]
+PushConstants pushConstants;
 
 // sRGB => XYZ => D65_2_D60 => AP1 => RRT_SAT
 static const float3x3 ACESInputMat =
@@ -56,6 +58,10 @@ void computeMain(uint3 threadID : SV_DispatchThreadID) {
     int2 uv = int2(threadID.xy);
 
     float3 color = outputTexture[uv].rgb;
+
+    // Auto-exposure: scale to sensor saturation using average scene luminance
+    float lum = max(*pushConstants.avgLum, 0.001f);
+    color = color / (9.6f * lum);
 
     color = ACESFitted(color);
 

@@ -187,14 +187,10 @@ struct LightPassPushConstants
     VkDeviceAddress tetrahedronDataAddr;
     float cameraNear;
     float cameraFar;
-    float dirNormalBias;
-    float dirConstantBias;
-    float pointNormalBias;
-    float pointConstantBias;
 
     glm::mat4 inverseCameraViewProj;
 };
-static_assert(sizeof(LightPassPushConstants) == 128);
+static_assert(sizeof(LightPassPushConstants) == 112);
 
 struct PointLightsShadowPassPushConstants
 {
@@ -297,6 +293,9 @@ struct DirectionalLightData
     int cascadeCount;
     glm::vec3 color;
     float intensity;
+    float normalBias;
+    float constantBias;
+    float _pad[2];
 
     std::array<float, kMaxCascadeCount> splitDistances;
     std::array<glm::mat4, kMaxCascadeCount> cascadeVPs;
@@ -308,6 +307,9 @@ struct PointLightData
     float range;
     glm::vec3 color;
     float intensity;
+    float normalBias;
+    float constantBias;
+    float _pad[2];
     std::array<glm::mat4, 4> tetrahedronFacesMatrices;
 
 #if 0
@@ -382,6 +384,28 @@ struct GeneratePointLightCommandsPushConstants
     VkDeviceAddress pointLightOffsetsCounter;
 };
 static_assert(sizeof(GeneratePointLightCommandsPushConstants) == 80);
+
+struct LuminanceHistogramPushConstants
+{
+    VkDeviceAddress histogram; // uint[256]
+    float minLogLum;           // e.g. -8.0f
+    float invLogLumRange;      // 1.0f / logLumRange
+};
+
+struct AverageLuminancePushConstants
+{
+    VkDeviceAddress histogram;
+    VkDeviceAddress avgLum; // float[1], read-write EMA state
+    float minLogLum;
+    float logLumRange;
+    float timeCoeff; // 1 - exp(-dt * adaptationSpeed), computed in C++
+    std::uint32_t numPixels;
+};
+
+struct PostProcessPushConstants
+{
+    VkDeviceAddress avgLum;
+};
 
 struct DrawContext;
 class IRenderable

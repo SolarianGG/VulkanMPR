@@ -152,10 +152,6 @@ Engine::Engine()
     m_camera.yaw = 0;
     m_isInitialized = true;
 
-    m_LightPassConstants.dirNormalBias = 0.001f;
-    m_LightPassConstants.dirConstantBias = 0.001f;
-    m_LightPassConstants.pointNormalBias = 0.03f;
-    m_LightPassConstants.pointConstantBias = 0.001f;
 }
 
 Engine &Engine::get()
@@ -213,10 +209,12 @@ void Engine::run()
         if (ImGui::Begin("Other"))
         {
             ImGui::DragFloat("Camera speed", &m_camera.cameraSpeed, 0.01f, 0.01f, 100.0f);
-            ImGui::DragFloat("Dir normal bias", &m_LightPassConstants.dirNormalBias, 0.0001f, 0.0001f, 0.1f, "%.4f");
-            ImGui::DragFloat("Dir constant bias", &m_LightPassConstants.dirConstantBias, 0.0001f, 0.0001f, 0.1f, "%.4f");
-            ImGui::DragFloat("Point normal bias", &m_LightPassConstants.pointNormalBias, 0.0001f, 0.0001f, 0.1f, "%.4f");
-            ImGui::DragFloat("Point constant bias", &m_LightPassConstants.pointConstantBias, 0.0001f, 0.0001f, 0.1f, "%.4f");
+            if (ImGui::CollapsingHeader("Auto Exposure"))
+            {
+                ImGui::DragFloat("Adaptation speed", &m_autoExposureAdaptationSpeed, 0.1f, 0.1f, 10.0f);
+                ImGui::DragFloat("Min log lum", &m_autoExposureMinLogLum, 0.1f, -12.0f, 0.0f);
+                ImGui::DragFloat("Log lum range", &m_autoExposureLogLumRange, 0.1f, 4.0f, 20.0f);
+            }
             // TODO: Add debug light visualization
 #if 0
       ImGui::Checkbox("Draw debug light positions", &m_IsLightsRendered);
@@ -258,6 +256,8 @@ void Engine::run()
                     .cascadeCount = 4,
                     .color = {1.0f, 1.0f, 1.0f},
                     .intensity = 1.0f,
+                    .normalBias = 0.001f,
+                    .constantBias = 0.001f,
                 }));
 
                 auto &node = m_scene.nodes.find(nodeIndex)->second;
@@ -273,7 +273,9 @@ void Engine::run()
                     PointLightData{.position = (m_mainDrawContext.max + m_mainDrawContext.min) * 0.5f,
                                    .range = 10.0f,
                                    .color = glm::vec3(1.0f, 1.0f, 1.0f),
-                                   .intensity = 3.0f}));
+                                   .intensity = 3.0f,
+                                   .normalBias = 0.03f,
+                                   .constantBias = 0.001f}));
 
                 auto &node = m_scene.nodes.find(nodeIndex)->second;
                 node->worldTransform = glm::mat4(1.0f);

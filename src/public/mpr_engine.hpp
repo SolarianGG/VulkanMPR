@@ -72,6 +72,8 @@ struct FrameData
     VkDeviceAddress minMaxBufferAddr;
     AllocatedBuffer splitsAABBBuffer;
     VkDeviceAddress splitsAABBBufferAddr;
+    AllocatedBuffer histogramBuffer;
+    VkDeviceAddress histogramBufferAddr;
     DescriptorBuffer cascadeDepthDescBuffer;
     AllocatedBuffer instanceBuffer;
     VkDeviceAddress instanceBufferAddr;
@@ -227,6 +229,17 @@ class Engine final
     VkPipeline m_PostProcessPassPipeline{};
     VkPipelineLayout m_PostProcessPassPipelineLayout{};
 
+    AllocatedBuffer m_avgLuminanceBuffer{};
+    VkDeviceAddress m_avgLuminanceBufferAddr{};
+    VkPipeline m_LuminanceHistogramPipeline{};
+    VkPipelineLayout m_LuminanceHistogramPipelineLayout{};
+    VkPipeline m_AverageLuminancePipeline{};
+    VkPipelineLayout m_AverageLuminancePipelineLayout{};
+
+    float m_autoExposureAdaptationSpeed{1.0f};
+    float m_autoExposureMinLogLum{-8.0f};
+    float m_autoExposureLogLumRange{12.0f};
+
 #if 0
   VkDescriptorSetLayout m_CullPassDescriptorSetLayout;
 #endif
@@ -297,6 +310,8 @@ class Engine final
     void init_alpha_tested_directional_shadow_pass();
     void init_alpha_tested_point_shadow_pass();
     void init_post_pipeline();
+    void init_luminance_histogram_pipeline();
+    void init_average_luminance_pipeline();
     void init_cull_meshes_pipeline();
     void init_cull_point_lights_pipeline();
     void init_populate_commands_with_cascade_count();
@@ -313,6 +328,8 @@ class Engine final
     void draw_wboit_composite(VkCommandBuffer cmd);
     void update_scene();
     void draw_post(VkCommandBuffer cmd);
+    void draw_luminance_histogram(VkCommandBuffer cmd);
+    void draw_average_luminance(VkCommandBuffer cmd);
     void draw_prepass(VkCommandBuffer cmd);
     void compute_depth_reduction(VkCommandBuffer cmd);
     void compute_depth_partition(VkCommandBuffer cmd);

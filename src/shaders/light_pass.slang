@@ -33,10 +33,6 @@ struct PushConstants {
     TetrahedronData *tetraData;
     float cameraNear;
     float cameraFar;
-    float dirNormalBias;
-    float dirConstantBias;
-    float pointNormalBias;
-    float pointConstantBias;
 
     float4x4 inverseCameraViewProj;
 };
@@ -85,7 +81,7 @@ void computeMain(uint3 threadID : SV_DispatchThreadID, uint localID : SV_GroupIn
     {
         float shadowFactor = CalculateDirectionalShadow(dirLight,
                 worldPos, normalWS, linearDepth, shadowMapArray, shadowSampler,
-                pushConstants.dirNormalBias, pushConstants.dirConstantBias);
+                dirLight.normalBias, dirLight.constantBias);
         color += shadowFactor * CalculateDirLightPBR(
                 worldPos, pushConstants.sceneData.cameraPos, normalWS, baseColor, metallic, roughness,
                 dirLight);
@@ -95,7 +91,7 @@ void computeMain(uint3 threadID : SV_DispatchThreadID, uint localID : SV_GroupIn
     for (uint i = 0; i < pointLightsCount; ++i) {
         PointLight pointLight = pushConstants.visiblePointLights[i];
         float shadowFactor = CalculatePointShadow(pointLight, worldPos, normalWS, pushConstants.tetraData, pointLightsTiledShadowMap, shadowSampler,
-                pushConstants.pointNormalBias, pushConstants.pointConstantBias);
+                pointLight.normalBias, pointLight.constantBias);
         color += shadowFactor * CalculatePointLightPBR(worldPos, 
             pushConstants.sceneData.cameraPos, normalWS, baseColor, metallic, roughness, pointLight);
     }
