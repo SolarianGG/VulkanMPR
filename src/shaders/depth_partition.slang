@@ -22,64 +22,100 @@ struct PushConstants {
 [[vk::push_constant]]
 PushConstants pushConstants;
 
+groupshared uint3 ldsMin[MAX_CASCADE_COUNT];
+groupshared uint3 ldsMax[MAX_CASCADE_COUNT];
+groupshared uint cascadeCount;
+groupshared float depthMin;
+groupshared float depthMax;
+groupshared uint minLocalIndex;
+
 [shader("compute")]
 [numthreads(16, 16, 1)]
-void depthPartitionCS(uint3 threadID : SV_DispatchThreadID)
+void depthPartitionCS(uint3 threadID: SV_DispatchThreadID, uint localIndex: SV_GroupIndex)
 {
+    if (localIndex == 0)
+    {
+        [unroll]
+        for (uint i = 0; i < MAX_CASCADE_COUNT; ++i)
+        {
+            ldsMin[i] = asuint(float ::maxValue);
+            ldsMax[i] = asuint(-float ::maxValue);
+        }
+        cascadeCount = pushConstants.dirLight.cascadeCount;
+        minLocalIndex = ~0u;
+        depthMin = asfloat(pushConstants.minMax.min);
+        depthMax = asfloat(pushConstants.minMax.max);
+    }
+    GroupMemoryBarrierWithGroupSync();
+
     uint width, height;
     depthMap.GetDimensions(width, height);
-    if (threadID.x >= width || threadID.y >= height) return;
 
-    const float z_initial = depthMap[threadID.xy].r;
-    if (z_initial >= 1.0) return;
+    bool valid = (threadID.x < width && threadID.y < height);
+    float z_initial = valid ? depthMap[threadID.xy].r : 1.0f;
+    valid = valid && (z_initial < 1.0f);
 
-    const float depthMin = asfloat(pushConstants.minMax.min);
-    const float depthMax = asfloat(pushConstants.minMax.max);
-    const float ratio = depthMax / depthMin;
-
-    uint cascadeCount = pushConstants.dirLight.cascadeCount;
     float splitDistances[MAX_CASCADE_COUNT];
-    for (uint j = 0; j < cascadeCount; ++j) {
-        if (cascadeCount > 1) {
-            splitDistances[j] = depthMin * pow(ratio, float(j) / float(cascadeCount));
-        } else {
-            splitDistances[j] = depthMax;
+
+    if (valid)
+    {
+        const float ratio = depthMax / depthMin;
+
+        for (uint j = 0; j < cascadeCount; ++j) {
+            if (cascadeCount > 1) {
+                splitDistances[j] = depthMin * pow(ratio, float(j) / float(cascadeCount));
+            } else {
+                splitDistances[j] = depthMax;
+            }
+        }
+        for (uint j = cascadeCount; j < MAX_CASCADE_COUNT; ++j) {
+             splitDistances[j] = splitDistances[j - 1];
+        }
+
+        float3 worldSpace = ReconstructWorldPos(threadID.xy, uint2(width, height), pushConstants.inverseCameraViewProj, z_initial);
+        float3 lightSpace = mul(pushConstants.lightViewMatrix, float4(worldSpace, 1.0f)).xyz;
+
+        const float cameraViewDepth = LinearizeDepth(z_initial, pushConstants.near, pushConstants.far);
+        uint cascadeIndex = 0;
+        for (uint j = 1; j < cascadeCount; ++j) {
+            if (cameraViewDepth < splitDistances[j]) break;
+                cascadeIndex = j;
+        }
+
+        uint4 groupMask = WaveMatch(cascadeIndex);
+
+        float3 groupMin = WaveMultiMin(lightSpace, groupMask);
+        float3 groupMax = WaveMultiMax(lightSpace, groupMask);
+
+        if (IsGroupLeader(groupMask)) {
+            AtomicMinFloat(&ldsMin[cascadeIndex].x, groupMin.x);
+            AtomicMinFloat(&ldsMin[cascadeIndex].y, groupMin.y);
+            AtomicMinFloat(&ldsMin[cascadeIndex].z, groupMin.z);
+            AtomicMaxFloat(&ldsMax[cascadeIndex].x, groupMax.x);
+            AtomicMaxFloat(&ldsMax[cascadeIndex].y, groupMax.y);
+            AtomicMaxFloat(&ldsMax[cascadeIndex].z, groupMax.z);
+        }
+
+        uint minWaveIndex = WaveActiveMin(localIndex);
+        if (WaveIsFirstLane())
+        {
+            InterlockedMin(minLocalIndex, minWaveIndex);
         }
     }
-    for (uint j = cascadeCount; j < MAX_CASCADE_COUNT; ++j) {
-         splitDistances[j] = splitDistances[j - 1];
-    }
 
-    float3 worldSpace = ReconstructWorldPos(threadID.xy, uint2(width, height), pushConstants.inverseCameraViewProj, z_initial);
-    float3 lightSpace = mul(pushConstants.lightViewMatrix, float4(worldSpace, 1.0f)).xyz;
+    GroupMemoryBarrierWithGroupSync();
 
-    const float cameraViewDepth = LinearizeDepth(z_initial, pushConstants.near, pushConstants.far);
-    uint cascadeIndex = 0;
-    for (uint j = 1; j < cascadeCount; ++j) {
-        if (cameraViewDepth < splitDistances[j]) break;
-            cascadeIndex = j;
-    }
-
-    uint4 groupMask = WaveMatch(cascadeIndex);
-
-    int4 highLanes = (int4)(firstbithigh(groupMask) | uint4(0, 0x20, 0x40, 0x60));
-    // The signed max should be the highest lane index in the group.
-    uint highLane = (uint)max(max(max(highLanes.x, highLanes.y), highLanes.z), highLanes.w);
-    bool leader = WaveGetLaneIndex() == highLane;
-
-    float3 groupMin = WaveMultiMin(lightSpace, groupMask);
-    float3 groupMax = WaveMultiMax(lightSpace, groupMask);
-    
-    if (leader) {
-        AtomicMinFloat(&pushConstants.splitsAABB.bounds[cascadeIndex].minX, groupMin.x);
-        AtomicMinFloat(&pushConstants.splitsAABB.bounds[cascadeIndex].minY, groupMin.y);
-        AtomicMinFloat(&pushConstants.splitsAABB.bounds[cascadeIndex].minZ, groupMin.z);
-        AtomicMaxFloat(&pushConstants.splitsAABB.bounds[cascadeIndex].maxX, groupMax.x);
-        AtomicMaxFloat(&pushConstants.splitsAABB.bounds[cascadeIndex].maxY, groupMax.y);
-        AtomicMaxFloat(&pushConstants.splitsAABB.bounds[cascadeIndex].maxZ, groupMax.z);
-    }
-    if (WaveIsFirstLane())
+    if (localIndex == minLocalIndex)
     {
+        for (uint i = 0; i < cascadeCount; ++i)
+        {
+            AtomicMinFloat(&pushConstants.splitsAABB.bounds[i].minX, asfloat(ldsMin[i].x));
+            AtomicMinFloat(&pushConstants.splitsAABB.bounds[i].minY, asfloat(ldsMin[i].y));
+            AtomicMinFloat(&pushConstants.splitsAABB.bounds[i].minZ, asfloat(ldsMin[i].z));
+            AtomicMaxFloat(&pushConstants.splitsAABB.bounds[i].maxX, asfloat(ldsMax[i].x));
+            AtomicMaxFloat(&pushConstants.splitsAABB.bounds[i].maxY, asfloat(ldsMax[i].y));
+            AtomicMaxFloat(&pushConstants.splitsAABB.bounds[i].maxZ, asfloat(ldsMax[i].z));
+        }
         pushConstants.dirLight.splitDistances = splitDistances;
     }
 }

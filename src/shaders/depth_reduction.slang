@@ -12,23 +12,49 @@ struct PushConstants {
 [[vk::push_constant]]
 PushConstants pushConstants;
 
+groupshared uint groupMin;
+groupshared uint groupMax;
+groupshared uint width;
+groupshared uint height;
+groupshared uint minLocalIndex;
+
 [shader("compute")]
 [numthreads(16, 16, 1)]
-void depthReductionCS(uint3 threadID : SV_DispatchThreadID)
+void depthReductionCS(uint3 threadID : SV_DispatchThreadID, uint localIndex : SV_GroupIndex)
 {
-    uint width, height;
-    depthMap.GetDimensions(width, height);
-    if (threadID.x >= width || threadID.y >= height) return;
-
-    const float z_initial = depthMap[threadID.xy].r;
-    if (z_initial >= 1.0 || z_initial < 0.0) return;
-
-    float linearizedDepth = LinearizeDepth(z_initial, pushConstants.near, pushConstants.far);
-    float min = WaveActiveMin(linearizedDepth);
-    float max = WaveActiveMax(linearizedDepth);
-    if (WaveIsFirstLane())
+    if (localIndex == 0)
     {
-        AtomicMinFloat(&pushConstants.minMax.min, min);
-        AtomicMaxFloat(&pushConstants.minMax.max, max);
+        groupMax = asuint(0.0f);
+        groupMin = asuint(float ::maxValue);
+        minLocalIndex = ~0u;
+
+        depthMap.GetDimensions(width, height);
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    bool valid = (threadID.x < width && threadID.y < height);
+    float z_initial = valid ? depthMap[threadID.xy] : 1.0f;
+    valid = valid && (z_initial < 1.0f && z_initial >= 0.0f);
+
+    if (valid)
+    {
+        float linearizedDepth = LinearizeDepth(z_initial, pushConstants.near, pushConstants.far);
+        float waveMin = WaveActiveMin(linearizedDepth);
+        float waveMax = WaveActiveMax(linearizedDepth);
+
+        uint minWaveLocalIndex = WaveActiveMin(localIndex);
+        if (WaveIsFirstLane())
+        {
+            InterlockedMin(groupMin, asuint(waveMin));
+            InterlockedMax(groupMax, asuint(waveMax));
+            InterlockedMin(minLocalIndex, minWaveLocalIndex);
+        }
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+    if (localIndex == minLocalIndex)
+    {
+        InterlockedMin(pushConstants.minMax.min, groupMin);
+        InterlockedMax(pushConstants.minMax.max, groupMax);
     }
 }

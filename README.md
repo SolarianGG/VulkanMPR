@@ -197,7 +197,7 @@ The camera exposure adapts dynamically as the scene brightness changes, computed
     <td align="center"><em>Auto-exposure in action - adapts from bright to dark areas</em></td>
   </tr>
   <tr>
-    <td><video src="screenshots/auto-exposure.mp4" controls width="670"/></td>
+    <td><img src="screenshots/auto-exposure.gif" width="600"/></td>
   </tr>
 </table>
 

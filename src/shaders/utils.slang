@@ -22,6 +22,14 @@ public float3 ReconstructWorldPos(
     return world.xyz / world.w;
 }
 
+public bool IsGroupLeader(uint4 groupMask)
+{
+    int4 highLanes = (int4)(firstbithigh(groupMask) | uint4(0, 0x20, 0x40, 0x60));
+    // The signed max should be the highest lane index in the group.
+    uint highLane = (uint)max(max(max(highLanes.x, highLanes.y), highLanes.z), highLanes.w);
+    return WaveGetLaneIndex() == highLane;
+}
+
 [[ForceInline]]
 public float LinearizeDepth(float d, float zNear, float zFar)
 {
@@ -33,6 +41,7 @@ public void AtomicMinFloat(uint *addr, float value)
     uint newVal = asuint(value);
     uint oldVal;
 
+    [allow_uav_condition]
     while (true)
     {
         InterlockedCompareExchange(*addr, ~0u, ~0u, oldVal);
@@ -55,6 +64,7 @@ public void AtomicMaxFloat(uint *addr, float value)
     uint newVal = asuint(value);
     uint oldVal;
 
+    [allow_uav_condition]
     while (true)
     {
         InterlockedCompareExchange(*addr, ~0u, ~0u, oldVal);

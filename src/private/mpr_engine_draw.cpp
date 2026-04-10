@@ -1786,7 +1786,7 @@ void Engine::compute_depth_reduction(VkCommandBuffer cmd)
 
     MinMax initMinMax;
     initMinMax.min = std::bit_cast<std::uint32_t>(std::numeric_limits<float>::max());
-    initMinMax.max = std::bit_cast<std::uint32_t>(-std::numeric_limits<float>::max());
+    initMinMax.max = 0u; // sentinel for unsigned InterlockedMax: all positive linearized depths > 0
     vkCmdUpdateBuffer(cmd, frame.minMaxBuffer.buffer, 0, sizeof(MinMax), &initMinMax);
 
     utils::BarrierBuilder barrierBuilder;

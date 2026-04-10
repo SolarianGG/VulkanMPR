@@ -108,6 +108,7 @@ void Engine::init_vulkan()
         .shaderDemoteToHelperInvocation = true,
         .synchronization2 = true,
         .dynamicRendering = true,
+        .shaderIntegerDotProduct = true,
     };
 
     VkPhysicalDeviceShaderAtomicFloatFeaturesEXT atomicFloatFeatures{
@@ -1673,7 +1674,7 @@ void Engine::init_mesh_data()
     ensure_attributes_capacity(1024);
     ensure_index_capacity(1024);
 
-#if 0
+#if 1
     const std::string sponzaPath = "../../assets/gltf-samples/Models/Sponza/glTF/sponza.gltf";
     if (!load_gltf(*this, sponzaPath))
     {
@@ -1681,7 +1682,7 @@ void Engine::init_mesh_data()
     }
 #endif
 
-#if 1
+#if 0
     const std::string bistroPath = "../../assets/bistro_exterior.glb";
     if (!load_gltf(*this, bistroPath))
     {
