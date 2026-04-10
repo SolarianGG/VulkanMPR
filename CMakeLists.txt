@@ -28,6 +28,7 @@ find_package(glm CONFIG REQUIRED)
 find_package(fastgltf CONFIG REQUIRED)
 find_package(assimp CONFIG REQUIRED)
 find_package(meshoptimizer CONFIG REQUIRED)
+find_package(tinyfiledialogs CONFIG REQUIRED)
 
 # Have to build ImGui from source since vcpkg's imgui package are prebuild without Volk support
 add_library(ImGui STATIC 
@@ -99,6 +100,7 @@ target_link_libraries(VulkanMPR PRIVATE
   assimp::assimp
   volk::volk volk::volk_headers
   meshoptimizer::meshoptimizer
+  tinyfiledialogs::tinyfiledialogs
   ImGui
   ImGuizmo
 )

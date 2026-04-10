@@ -8,6 +8,7 @@
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_vulkan.h>
+#include <tinyfiledialogs.h>
 
 #include <format>
 #include <print>
@@ -1674,38 +1675,16 @@ void Engine::init_mesh_data()
     ensure_attributes_capacity(1024);
     ensure_index_capacity(1024);
 
-#if 1
-    const std::string sponzaPath = "../../assets/gltf-samples/Models/Sponza/glTF/sponza.gltf";
-    if (!load_gltf(*this, sponzaPath))
-    {
-        throw std::runtime_error("Failed to load glTF file: " + sponzaPath);
-    }
-#endif
+    const wchar_t *filters[]{L"*.gltf", L"*.glb"};
+    const auto *fileName =
+        tinyfd_openFileDialogW(L"Load gltf", L"../../assets/gltf-samples/Models/Sponza/glTF/sponza.gltf",
+                               std::size(filters), filters, L"Gltf files", false);
+    const std::wstring path = fileName ? fileName : L"../../assets/gltf-samples/Models/Sponza/glTF/sponza.gltf";
 
-#if 0
-    const std::string bistroPath = "../../assets/bistro_exterior.glb";
-    if (!load_gltf(*this, bistroPath))
+    if (!load_gltf(*this, path))
     {
-        throw std::runtime_error("Failed to load glTF file: " + bistroPath);
+        throw std::runtime_error(std::format("Failed to load gltf"));
     }
-#endif
-
-#if 0
-    const std::string damagedHelmetPath =
-        "../../assets/gltf-samples/Models/DamagedHelmet/glTF/DamagedHelmet.gltf";
-    if (!load_gltf(*this, damagedHelmetPath))
-    {
-        throw std::runtime_error("Failed to load glTF file: " + damagedHelmetPath);
-    }
-#endif
-#if 0
-  const std::string alphaBlendMode =
-      "../../assets/gltf-samples/Models/AlphaBlendModeTest/glTF/"
-      "AlphaBlendModeTest.gltf";
-  if (!load_gltf(*this, alphaBlendMode)) {
-    throw std::runtime_error("Failed to load glTF file: " + alphaBlendMode);
-  }
-#endif
 
     m_mainDeletionQueue.push_function([this] {
         destroy_buffer(m_globalPositionBuffer);

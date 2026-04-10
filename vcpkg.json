@@ -1,5 +1,6 @@
 {
   "dependencies": [
+    "assimp",
     "fastgltf",
     "glm",
     "meshoptimizer",
@@ -10,9 +11,9 @@
       ]
     },
     "stb",
+    "tinyfiledialogs",
     "vk-bootstrap",
     "volk",
-    "vulkan-memory-allocator",
-    "assimp"
+    "vulkan-memory-allocator"
   ]
 }
