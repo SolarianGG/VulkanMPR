@@ -4,6 +4,9 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
+#include "mpr_image.hpp"
+#include "mpr_init_vk_stucts.hpp"
+
 #include <algorithm>
 #include <assimp/Importer.hpp>
 #include <assimp/postprocess.h>
@@ -164,6 +167,8 @@ namespace mp
 {
 bool load_gltf(mp::Engine &engine, const std::filesystem::path &filePath)
 {
+    namespace cn = std::chrono;
+    using namespace std::chrono_literals;
     if (!std::filesystem::exists(filePath))
     {
         std::println("Provided file path: {} is not a regular file or does not exists", filePath.string());
@@ -180,13 +185,15 @@ bool load_gltf(mp::Engine &engine, const std::filesystem::path &filePath)
 
     constexpr auto supportedExtensions =
         fastgltf::Extensions::KHR_mesh_quantization | fastgltf::Extensions::KHR_texture_transform |
-        fastgltf::Extensions::KHR_lights_punctual | fastgltf::Extensions::KHR_materials_variants;
+        fastgltf::Extensions::KHR_lights_punctual | fastgltf::Extensions::KHR_materials_variants |
+        fastgltf::Extensions::KHR_texture_basisu | fastgltf::Extensions::MSFT_texture_dds;
     fastgltf::Parser parser(supportedExtensions);
 
     constexpr auto gltfOptions = fastgltf::Options::DontRequireValidAssetMember | fastgltf::Options::AllowDouble |
                                  fastgltf::Options::LoadExternalBuffers | fastgltf::Options::LoadExternalImages |
                                  fastgltf::Options::DecomposeNodeMatrices | fastgltf::Options::GenerateMeshIndices;
 
+    const auto start = cn::steady_clock::now();
     auto load = parser.loadGltf(gltfFile.get(), filePath.parent_path(), gltfOptions);
     if (load.error() != fastgltf::Error::None)
     {
@@ -262,6 +269,7 @@ bool load_gltf(mp::Engine &engine, const std::filesystem::path &filePath)
             }
         }
     };
+    const auto fastgltfParseTime = cn::steady_clock::now();
     for (auto &material : asset.materials)
     {
         auto newMat = std::make_shared<GLTFMaterial>();
@@ -305,7 +313,9 @@ bool load_gltf(mp::Engine &engine, const std::filesystem::path &filePath)
         {
             const auto textureIndex = material.normalTexture.value().textureIndex;
             const auto imgIndex = asset.textures[textureIndex].imageIndex.value();
-            const auto samplerIndex = asset.textures[textureIndex].samplerIndex.value();
+            const auto samplerIndex = asset.textures[textureIndex].samplerIndex.has_value()
+                                          ? asset.textures[textureIndex].samplerIndex.value()
+                                          : 0;
             getImage(imgIndex, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT,
                      newMat->data.indices.normalTextureID);
             getSampler(samplerIndex, newMat->data.indices.normalSamplerID);
@@ -341,6 +351,7 @@ bool load_gltf(mp::Engine &engine, const std::filesystem::path &filePath)
         materials.push_back(std::move(newMat));
         dataIndex++;
     }
+    const auto materialsTextureSamplersLoadingTime = cn::steady_clock::now();
 
     // Accumulate all mesh data on the CPU before a single GPU upload
     std::vector<Vertex> allVertices;
@@ -547,6 +558,7 @@ bool load_gltf(mp::Engine &engine, const std::filesystem::path &filePath)
             surf.vertexOffset += static_cast<std::int32_t>(globalVertexBase);
         }
     }
+    const auto meshProcessing = cn::steady_clock::now();
 
     // Adding nodes
     for (auto &node : asset.nodes)
@@ -632,8 +644,82 @@ bool load_gltf(mp::Engine &engine, const std::filesystem::path &filePath)
             node->refresh_transform(glm::mat4(1.0f));
         }
     }
+    const auto nodeProcessingTime = cn::steady_clock::now();
 
+    std::println("FastglTF parsing time: {}",
+                 cn::duration_cast<cn::milliseconds>(fastgltfParseTime - start).count() / 1000.0f);
+    std::println("Materials + texturs + samplers parsing time: {}",
+                 cn::duration_cast<cn::milliseconds>(materialsTextureSamplersLoadingTime - fastgltfParseTime).count() /
+                     1000.0f);
+    std::println("Meshes parsing time: {}",
+                 cn::duration_cast<cn::milliseconds>(meshProcessing - materialsTextureSamplersLoadingTime).count() /
+                     1000.0f);
+    std::println("Node parsing time: {}",
+                 cn::duration_cast<cn::milliseconds>(nodeProcessingTime - meshProcessing).count() / 1000.0f);
     return true;
+}
+
+std::optional<AllocatedImage> load_hdr(mp::Engine &engine, const std::filesystem::path &filePath)
+{
+    if (!std::filesystem::exists(filePath))
+    {
+        std::println("HDR file not found: {}", filePath.string());
+        return std::nullopt;
+    }
+
+    int width, height, channels;
+    float *data = stbi_loadf(filePath.string().c_str(), &width, &height, &channels, 4);
+    if (!data)
+    {
+        std::println("Failed to load HDR '{}': {}", filePath.string(), stbi_failure_reason());
+        return std::nullopt;
+    }
+
+    const VkExtent3D extent{
+        static_cast<std::uint32_t>(width),
+        static_cast<std::uint32_t>(height),
+        1u,
+    };
+    constexpr std::uint32_t kBytesPerPixel = 4 * sizeof(float); // RGBA f32 = 16 bytes
+    const std::size_t bufferSize = static_cast<std::size_t>(width) * height * kBytesPerPixel;
+
+    const AllocatedImage image = engine.create_image(extent, VK_FORMAT_R32G32B32A32_SFLOAT,
+                                                     VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+
+    const AllocatedBuffer stagingBuffer =
+        engine.create_buffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+    std::memcpy(stagingBuffer.allocationInfo.pMappedData, data, bufferSize);
+    stbi_image_free(data);
+
+    engine.immediate_submit([&](const VkCommandBuffer cmd) {
+        utils::BarrierBuilder barrierBuilder;
+        barrierBuilder.add_image_barrier(image.image, VK_PIPELINE_STAGE_2_NONE, 0, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                                         VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                         utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+        barrierBuilder.barrier(cmd);
+
+        const VkBufferImageCopy copyRegion{
+            .bufferOffset = 0,
+            .bufferRowLength = 0,
+            .bufferImageHeight = 0,
+            .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+            .imageOffset = {},
+            .imageExtent = extent,
+        };
+        vkCmdCopyBufferToImage(cmd, stagingBuffer.buffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                               &copyRegion);
+
+        utils::transition_image(cmd, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    });
+    engine.destroy_buffer(stagingBuffer);
+
+    if (image.image == nullptr)
+    {
+        return std::nullopt;
+    }
+    return image;
 }
 
 #if 0

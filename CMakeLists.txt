@@ -7,7 +7,6 @@ endif()
 
 project ("VulkanMPR")
 
-
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(VCPKG_CXX_FLAGS "-DIMGUI_IMPL_VULKAN_USE_LOADER")
@@ -17,6 +16,8 @@ set(INCLUDE_PATH "${SRC_PATH}/public/")
 set(COMP_PATH "${SRC_PATH}/private/")
 set(IMGUI_PATH "${PROJECT_SOURCE_DIR}/external/imgui")
 set(IMGUIZMO_PATH "${PROJECT_SOURCE_DIR}/external/imguizmo")
+set(DDSIMAGE_PATH "${PROJECT_SOURCE_DIR}/external/dds_image")
+set(KTX_PATH "${PROJECT_SOURCE_DIR}/external/ktx")
 
 find_package(Vulkan REQUIRED)
 find_package(volk CONFIG REQUIRED)
@@ -65,6 +66,25 @@ add_library(ImGuizmo STATIC
 target_include_directories(ImGuizmo PRIVATE ${IMGUIZMO_PATH} ${IMGUI_PATH})
 target_link_libraries(ImGuizmo PRIVATE ImGui)
 
+
+add_library(KTX STATIC 
+  "${KTX_PATH}/lib/texture.c"
+    "${KTX_PATH}/lib/hashlist.c"
+    "${KTX_PATH}/lib/checkheader.c"
+    "${KTX_PATH}/lib/swap.c"
+    "${KTX_PATH}/lib/memstream.c"
+    "${KTX_PATH}/lib/filestream.c"
+    "${KTX_PATH}/lib/vkloader.c"
+    )
+
+target_include_directories(KTX PRIVATE 
+  "$ENV{VULKAN_SDK}/Include"
+  "${KTX_PATH}/include"
+  "${KTX_PATH}/other_include"
+)
+
+target_link_libraries(KTX PRIVATE Vulkan::Vulkan volk::volk volk::volk_headers)
+
 add_executable(VulkanMPR "${SRC_PATH}/VulkanMPR.cpp"
                          "${COMP_PATH}/mpr_engine.cpp"
                          "${COMP_PATH}/mpr_engine_draw.cpp"
@@ -88,7 +108,10 @@ target_include_directories(VulkanMPR PRIVATE
   ${IMGUI_PATH} 
   ${IMGUIZMO_PATH}
   ${Stb_INCLUDE_DIR}
-  "${IMGUI_PATH}/backends")
+  "${IMGUI_PATH}/backends"
+  "${KTX_PATH}/include"
+  "${DDSIMAGE_PATH}"
+  )
 
 target_link_libraries(VulkanMPR PRIVATE
   Vulkan::Vulkan
@@ -103,6 +126,7 @@ target_link_libraries(VulkanMPR PRIVATE
   tinyfiledialogs::tinyfiledialogs
   ImGui
   ImGuizmo
+  KTX
 )
 
 target_compile_definitions(VulkanMPR PRIVATE
