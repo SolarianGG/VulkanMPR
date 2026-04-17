@@ -11,13 +11,13 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(VCPKG_CXX_FLAGS "-DIMGUI_IMPL_VULKAN_USE_LOADER")
 
+
 set(SRC_PATH "${PROJECT_SOURCE_DIR}/src")
 set(INCLUDE_PATH "${SRC_PATH}/public/")
 set(COMP_PATH "${SRC_PATH}/private/")
 set(IMGUI_PATH "${PROJECT_SOURCE_DIR}/external/imgui")
 set(IMGUIZMO_PATH "${PROJECT_SOURCE_DIR}/external/imguizmo")
 set(DDSIMAGE_PATH "${PROJECT_SOURCE_DIR}/external/dds_image")
-set(KTX_PATH "${PROJECT_SOURCE_DIR}/external/ktx")
 
 find_package(Vulkan REQUIRED)
 find_package(volk CONFIG REQUIRED)
@@ -27,7 +27,6 @@ find_package(Stb REQUIRED)
 find_package(SDL3 CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
 find_package(fastgltf CONFIG REQUIRED)
-find_package(assimp CONFIG REQUIRED)
 find_package(meshoptimizer CONFIG REQUIRED)
 find_package(tinyfiledialogs CONFIG REQUIRED)
 
@@ -42,6 +41,7 @@ add_library(ImGui STATIC
   "${IMGUI_PATH}/backends/imgui_impl_vulkan.cpp"
   "${IMGUI_PATH}/backends/imgui_impl_sdl3.cpp"
 )
+
 
 target_include_directories(ImGui PRIVATE ${IMGUI_PATH} "${IMGUI_PATH}/backends")
 
@@ -65,25 +65,6 @@ add_library(ImGuizmo STATIC
 
 target_include_directories(ImGuizmo PRIVATE ${IMGUIZMO_PATH} ${IMGUI_PATH})
 target_link_libraries(ImGuizmo PRIVATE ImGui)
-
-
-add_library(KTX STATIC 
-  "${KTX_PATH}/lib/texture.c"
-    "${KTX_PATH}/lib/hashlist.c"
-    "${KTX_PATH}/lib/checkheader.c"
-    "${KTX_PATH}/lib/swap.c"
-    "${KTX_PATH}/lib/memstream.c"
-    "${KTX_PATH}/lib/filestream.c"
-    "${KTX_PATH}/lib/vkloader.c"
-    )
-
-target_include_directories(KTX PRIVATE 
-  "$ENV{VULKAN_SDK}/Include"
-  "${KTX_PATH}/include"
-  "${KTX_PATH}/other_include"
-)
-
-target_link_libraries(KTX PRIVATE Vulkan::Vulkan volk::volk volk::volk_headers)
 
 add_executable(VulkanMPR "${SRC_PATH}/VulkanMPR.cpp"
                          "${COMP_PATH}/mpr_engine.cpp"
@@ -109,7 +90,6 @@ target_include_directories(VulkanMPR PRIVATE
   ${IMGUIZMO_PATH}
   ${Stb_INCLUDE_DIR}
   "${IMGUI_PATH}/backends"
-  "${KTX_PATH}/include"
   "${DDSIMAGE_PATH}"
   )
 
@@ -120,13 +100,11 @@ target_link_libraries(VulkanMPR PRIVATE
   SDL3::SDL3
   glm::glm
   fastgltf::fastgltf
-  assimp::assimp
   volk::volk volk::volk_headers
   meshoptimizer::meshoptimizer
   tinyfiledialogs::tinyfiledialogs
   ImGui
   ImGuizmo
-  KTX
 )
 
 target_compile_definitions(VulkanMPR PRIVATE

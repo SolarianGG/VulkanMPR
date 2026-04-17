@@ -9,6 +9,11 @@
 
 struct SDL_Window;
 
+namespace dds
+{
+struct Image;
+} // namespace dds
+
 namespace mp
 {
 
@@ -108,6 +113,7 @@ class Engine final
                                 bool mipMapped = false);
     AllocatedImage create_image(void *data, VkExtent3D extent, VkFormat format, VkImageUsageFlags imageUsage,
                                 bool mipMapped = false);
+    AllocatedImage create_image(dds::Image *ddsImage, VkImageUsageFlags imageUsage);
     void destroy_image(const AllocatedImage &image);
     FrameData &get_current_frame();
 

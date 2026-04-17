@@ -91,109 +91,6 @@ void Engine::draw()
     }
     draw_prepass(cmd);
 
-    // Generate point light commands
-    {
-        barrierBuilder.add_buffer_barrier({
-            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
-            .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-            .srcAccessMask = 0,
-            .dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-            .dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
-            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .buffer = currentFrame.countBuffer.buffer,
-            .offset = 0,
-            .size = VK_WHOLE_SIZE,
-        });
-        barrierBuilder.barrier(cmd);
-
-        vkCmdFillBuffer(cmd, currentFrame.countBuffer.buffer, 0, VK_WHOLE_SIZE, 0);
-
-        barrierBuilder.add_buffer_barrier({
-            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
-            .srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-            .srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
-            .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-            .dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
-            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .buffer = currentFrame.countBuffer.buffer,
-            .offset = 0,
-            .size = VK_WHOLE_SIZE,
-        });
-        barrierBuilder.add_buffer_barrier({
-            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
-            .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-            .srcAccessMask = 0,
-            .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-            .dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
-            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .buffer = currentFrame.drawCommandsBuffer.buffer,
-            .offset = 0,
-            .size = VK_WHOLE_SIZE,
-        });
-        barrierBuilder.barrier(cmd);
-    }
-    compute_point_lights_commands(cmd, m_OpaqueSize, 0);
-
-    {
-        barrierBuilder.add_image_barrier(
-            currentFrame.pointLightsShadowTileMap.image, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
-            VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-            VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-            utils::init_subresource_range(VK_IMAGE_ASPECT_DEPTH_BIT));
-        barrierBuilder.add_buffer_barrier({
-            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
-            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-            .srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
-            .dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
-            .dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
-            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .buffer = currentFrame.drawCommandsBuffer.buffer,
-            .offset = 0,
-            .size = VK_WHOLE_SIZE,
-        });
-        barrierBuilder.add_buffer_barrier({
-            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
-            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-            .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT,
-            .dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
-            .dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
-            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .buffer = currentFrame.countBuffer.buffer,
-            .offset = 0,
-            .size = VK_WHOLE_SIZE,
-        });
-        barrierBuilder.add_buffer_barrier({
-            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
-            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-            .srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
-            .dstStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT,
-            .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
-            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .buffer = currentFrame.pointLightIndicesBuffer.buffer,
-            .offset = 0,
-            .size = VK_WHOLE_SIZE,
-        });
-        barrierBuilder.add_buffer_barrier({
-            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
-            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-            .srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
-            .dstStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT,
-            .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
-            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .buffer = currentFrame.pointLightIndicesOffsetsBuffer.buffer,
-            .offset = 0,
-            .size = VK_WHOLE_SIZE,
-        });
-        barrierBuilder.barrier(cmd);
-    }
     draw_point_lights_shadows_pass(cmd);
 
     // Compute minZ/maxZ from prepass depth
@@ -1307,7 +1204,7 @@ void Engine::cull_point_lights(VkCommandBuffer cmd)
         .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .buffer = currentFrame.pointLightIndicesBuffer.buffer,
+        .buffer = currentFrame.visiblePointLightsBuffer.buffer,
         .offset = 0,
         .size = VK_WHOLE_SIZE,
     });
@@ -1319,7 +1216,7 @@ void Engine::cull_point_lights(VkCommandBuffer cmd)
         .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .buffer = currentFrame.pointLightIndicesOffsetsBuffer.buffer,
+        .buffer = currentFrame.visiblePointLightsCountBuffer.buffer,
         .offset = 0,
         .size = VK_WHOLE_SIZE,
     });
@@ -1360,11 +1257,125 @@ void Engine::compute_point_lights_commands(VkCommandBuffer cmd, const std::uint3
 
 void Engine::draw_point_lights_shadows_pass(VkCommandBuffer cmd)
 {
+    auto &currentFrame = get_current_frame();
+
+    // Always transition tile map to DEPTH_ATTACHMENT_OPTIMAL each frame so that
+    // the pre-light-pass barrier (DEPTH_ATTACHMENT -> DEPTH_READ_ONLY) always
+    // sees the correct oldLayout, even when there are no point lights.
+    {
+        utils::BarrierBuilder barrierBuilder;
+        barrierBuilder.add_image_barrier(
+            currentFrame.pointLightsShadowTileMap.image, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+            VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+            VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+            utils::init_subresource_range(VK_IMAGE_ASPECT_DEPTH_BIT));
+        barrierBuilder.barrier(cmd);
+    }
+
     if (m_mainDrawContext.pointLights.empty())
         return;
     mp::debug::cmd_begin_label(cmd, "Point Light Shadow Pass", {0.9f, 0.4f, 0.1f, 1.f});
 
-    auto &currentFrame = get_current_frame();
+    // Generate point light commands
+    {
+        utils::BarrierBuilder barrierBuilder;
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+            .srcAccessMask = 0,
+            .dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+            .dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.countBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+        barrierBuilder.barrier(cmd);
+
+        vkCmdFillBuffer(cmd, currentFrame.countBuffer.buffer, 0, VK_WHOLE_SIZE, 0);
+
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+            .srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.countBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+            .srcAccessMask = 0,
+            .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.drawCommandsBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+        barrierBuilder.barrier(cmd);
+    }
+    compute_point_lights_commands(cmd, m_OpaqueSize, 0);
+
+    {
+        utils::BarrierBuilder barrierBuilder;
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+            .dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.drawCommandsBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+            .dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.countBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT,
+            .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.pointLightIndicesBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+        barrierBuilder.add_buffer_barrier({
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT,
+            .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer = currentFrame.pointLightIndicesOffsetsBuffer.buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        });
+        barrierBuilder.barrier(cmd);
+    }
 
     const VkExtent2D shadowExtent{kPointLightsShadowMapSize, kPointLightsShadowMapSize};
 

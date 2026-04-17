@@ -4,13 +4,16 @@
 #include <vulkan/utility/vk_format_utils.h>
 #include <vulkan/vk_enum_string_helper.h>
 
+#include <algorithm>
 #include <format>
+#include <vector>
 #include <vk_mem_alloc.h>
 
 #include "mpr_error_check.hpp"
 #include "mpr_image.hpp"
 #include "mpr_init_vk_stucts.hpp"
 #include "mpr_debug_utils.hpp"
+#include "dds.hpp"
 // clang-format on
 
 namespace mp {
@@ -165,6 +168,84 @@ AllocatedImage Engine::create_image(void* data, const VkExtent3D extent,
   });
   destroy_buffer(stagingBuffer);
   return image;
+}
+
+AllocatedImage Engine::create_image(dds::Image *ddsImage, const VkImageUsageFlags imageUsage)
+{
+    const VkFormat format = dds::getVulkanFormat(ddsImage->format, ddsImage->supportsAlpha);
+    if (format == VK_FORMAT_UNDEFINED)
+        throw std::runtime_error(std::format("DDS: unsupported DXGI format {}", static_cast<int>(ddsImage->format)));
+
+    const VkExtent3D extent{ddsImage->width, ddsImage->height, std::max(ddsImage->depth, 1u)};
+    const uint32_t numMips = ddsImage->numMips;
+
+    VkImageCreateInfo imageCI = utils::image_create_info(format, imageUsage | VK_IMAGE_USAGE_TRANSFER_DST_BIT, extent);
+    imageCI.mipLevels = numMips;
+
+    AllocatedImage image;
+    image.imageFormat = format;
+    image.imageExtent = extent;
+
+    const VmaAllocationCreateInfo allocCI{
+        .usage = VMA_MEMORY_USAGE_GPU_ONLY,
+        .requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+    };
+    vmaCreateImage(m_allocator, &imageCI, &allocCI, &image.image, &image.allocation, nullptr) >> chk;
+
+    VkImageViewCreateInfo viewCI = utils::image_view_create_info(format, image.image, VK_IMAGE_ASPECT_COLOR_BIT);
+    viewCI.subresourceRange.levelCount = numMips;
+    vkCreateImageView(m_device, &viewCI, nullptr, &image.imageView) >> chk;
+
+    VkDeviceSize totalSize = 0;
+    for (const auto &mip : ddsImage->mipmaps)
+        totalSize += mip.size();
+
+    const AllocatedBuffer stagingBuffer =
+        create_buffer(totalSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+
+    auto *dst = static_cast<uint8_t *>(stagingBuffer.allocationInfo.pMappedData);
+    VkDeviceSize offset = 0;
+    for (const auto &mip : ddsImage->mipmaps)
+    {
+        std::memcpy(dst + offset, mip.data(), mip.size());
+        offset += mip.size();
+    }
+
+    immediate_submit([&](const VkCommandBuffer cmd) {
+        utils::BarrierBuilder barrierBuilder;
+        barrierBuilder.add_image_barrier(image.image, VK_PIPELINE_STAGE_2_NONE, 0,
+                                         VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                                         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                         utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+        barrierBuilder.barrier(cmd);
+
+        std::vector<VkBufferImageCopy> regions;
+        regions.reserve(numMips);
+        VkDeviceSize mipOffset = 0;
+        uint32_t mipW = ddsImage->width;
+        uint32_t mipH = ddsImage->height;
+        for (uint32_t mip = 0; mip < numMips; ++mip)
+        {
+            VkBufferImageCopy region{};
+            region.bufferOffset = mipOffset;
+            region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            region.imageSubresource.mipLevel = mip;
+            region.imageSubresource.layerCount = 1;
+            region.imageExtent = {std::max(mipW, 1u), std::max(mipH, 1u), 1u};
+            regions.push_back(region);
+            mipOffset += ddsImage->mipmaps[mip].size();
+            mipW = std::max(mipW / 2, 1u);
+            mipH = std::max(mipH / 2, 1u);
+        }
+        vkCmdCopyBufferToImage(cmd, stagingBuffer.buffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               static_cast<uint32_t>(regions.size()), regions.data());
+
+        utils::transition_image(cmd, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    });
+
+    destroy_buffer(stagingBuffer);
+    return image;
 }
 
 void Engine::destroy_image(const AllocatedImage& image) {

@@ -86,8 +86,10 @@ PSOutput fragmentMain(VSOutput input, float4 fragCoord : SV_Position)
 
   float4 metalRoughness = textures[NonUniformResourceIndex(input.metalRoughTextureID)].Sample( samplers[NonUniformResourceIndex(input.metalRoughSamplerID)], input.uv);
 
-  float3 bumpMapNormal = textures[NonUniformResourceIndex(input.normalTextureID)] .Sample(samplers[NonUniformResourceIndex(input.normalSamplerID)], input.uv) .rgb;
-  bumpMapNormal = normalize(bumpMapNormal * 2.0f - float3(1.0f, 1.0f, 1.0f));
+  float2 normalRG = textures[NonUniformResourceIndex(input.normalTextureID)].Sample(samplers[NonUniformResourceIndex(input.normalSamplerID)], input.uv).rg;
+  float2 normalXY = normalRG * 2.0f - 1.0f;
+  float normalZ = sqrt(max(0.0f, 1.0f - dot(normalXY, normalXY)));
+  float3 bumpMapNormal = normalize(float3(normalXY, normalZ));
   
   float3 worldPos = input.worldPos.xyz;
   float3 normal = normalize(mul(bumpMapNormal, input.TBN));

@@ -4,13 +4,11 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
+#include "dds.hpp"
 #include "mpr_image.hpp"
 #include "mpr_init_vk_stucts.hpp"
 
 #include <algorithm>
-#include <assimp/Importer.hpp>
-#include <assimp/postprocess.h>
-#include <assimp/scene.h>
 #include <fastgltf/base64.hpp>
 #include <fastgltf/core.hpp>
 #include <fastgltf/glm_element_traits.hpp>
@@ -94,53 +92,76 @@ VkSamplerMipmapMode extract_mip_map_mode(const fastgltf::Filter filter)
 std::optional<mp::AllocatedImage> load_image(mp::Engine &engine, fastgltf::Asset &asset, fastgltf::Image &image,
                                              const VkFormat imageFormat, const VkImageUsageFlags imageUsage)
 {
-    mp::AllocatedImage newImage;
-    int width, height, nChannels;
-    auto *data = std::visit(
+    constexpr std::uint32_t kDdsMagic = 0x20534444u; // 'DDS '
+
+    auto tryLoadDDS = [&](const std::uint8_t *ptr,
+                          std::size_t size) -> std::optional<mp::AllocatedImage> {
+        if (size < 4 || *reinterpret_cast<const std::uint32_t *>(ptr) != kDdsMagic)
+            return std::nullopt;
+        dds::Image ddsImage;
+        if (dds::readImage(ptr, size, &ddsImage) != dds::ReadResult::Success)
+            return std::nullopt;
+        return engine.create_image(&ddsImage, imageUsage);
+    };
+
+    auto loadStbi = [&](const std::uint8_t *ptr, int size) -> std::optional<mp::AllocatedImage> {
+        int width, height, nChannels;
+        void *data = stbi_load_from_memory(reinterpret_cast<const stbi_uc *>(ptr), size, &width, &height, &nChannels, 4);
+        if (!data)
+            return std::nullopt;
+        const VkExtent3D extent{static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), 1u};
+        mp::AllocatedImage result = engine.create_image(data, extent, imageFormat, imageUsage, true);
+        stbi_image_free(data);
+        return result;
+    };
+
+    return std::visit(
         fastgltf::visitor{
-            [](auto &arg) -> void * { return nullptr; },
-            [&](fastgltf::sources::URI &filePath) -> void * {
+            [](auto &) -> std::optional<mp::AllocatedImage> { return std::nullopt; },
+            [&](fastgltf::sources::URI &filePath) -> std::optional<mp::AllocatedImage> {
                 assert(filePath.fileByteOffset == 0);
                 assert(filePath.uri.isLocalPath());
                 const std::string path(filePath.uri.path().begin(), filePath.uri.path().end());
-                return stbi_load(path.c_str(), &width, &height, &nChannels, 4);
+                const std::string ext = path.size() >= 4 ? path.substr(path.size() - 4) : std::string{};
+                if (ext == ".dds" || ext == ".DDS")
+                {
+                    dds::Image ddsImage;
+                    if (dds::readFile(path, &ddsImage) != dds::ReadResult::Success)
+                        return std::nullopt;
+                    return engine.create_image(&ddsImage, imageUsage);
+                }
+                int width, height, nChannels;
+                void *data = stbi_load(path.c_str(), &width, &height, &nChannels, 4);
+                if (!data)
+                    return std::nullopt;
+                const VkExtent3D extent{static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), 1u};
+                mp::AllocatedImage result = engine.create_image(data, extent, imageFormat, imageUsage, true);
+                stbi_image_free(data);
+                return result;
             },
-            [&](fastgltf::sources::Array &vector) -> void * {
-                return stbi_load_from_memory(reinterpret_cast<const stbi_uc *>(vector.bytes.data()),
-                                             static_cast<int>(vector.bytes.size()), &width, &height, &nChannels, 4);
+            [&](fastgltf::sources::Array &vector) -> std::optional<mp::AllocatedImage> {
+                const auto *bytes = reinterpret_cast<const std::uint8_t *>(vector.bytes.data());
+                if (auto dds = tryLoadDDS(bytes, vector.bytes.size()))
+                    return dds;
+                return loadStbi(bytes, static_cast<int>(vector.bytes.size()));
             },
-            [&](fastgltf::sources::BufferView &view) -> void * {
+            [&](fastgltf::sources::BufferView &view) -> std::optional<mp::AllocatedImage> {
                 const auto &bufferView = asset.bufferViews[view.bufferViewIndex];
                 auto &buffer = asset.buffers[bufferView.bufferIndex];
-                return std::visit(fastgltf::visitor{[](auto &arg) -> void * { return nullptr; },
-                                                    [&](fastgltf::sources::Array &vector) -> void * {
-                                                        return stbi_load_from_memory(
-                                                            reinterpret_cast<const stbi_uc *>(vector.bytes.data() +
-                                                                                              bufferView.byteOffset),
-                                                            static_cast<int>(bufferView.byteLength), &width, &height,
-                                                            &nChannels, 4);
-                                                    }},
-                                  buffer.data);
+                return std::visit(
+                    fastgltf::visitor{
+                        [](auto &) -> std::optional<mp::AllocatedImage> { return std::nullopt; },
+                        [&](fastgltf::sources::Array &vector) -> std::optional<mp::AllocatedImage> {
+                            const auto *bytes = reinterpret_cast<const std::uint8_t *>(
+                                vector.bytes.data() + bufferView.byteOffset);
+                            if (auto dds = tryLoadDDS(bytes, bufferView.byteLength))
+                                return dds;
+                            return loadStbi(bytes, static_cast<int>(bufferView.byteLength));
+                        }},
+                    buffer.data);
             },
         },
         image.data);
-    if (data)
-    {
-        const VkExtent3D extent{static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), 1u};
-
-        newImage = engine.create_image(data, extent, imageFormat, imageUsage, true);
-    }
-    else
-    {
-        return std::nullopt;
-    }
-    stbi_image_free(data);
-
-    if (newImage.image == nullptr)
-    {
-        return std::nullopt;
-    }
-    return newImage;
 }
 
 VkSampler load_sampler(mp::Engine &engine, fastgltf::Sampler &sampler)
@@ -249,6 +270,11 @@ bool load_gltf(mp::Engine &engine, const std::filesystem::path &filePath)
     };
 
     auto getSampler = [&file, &engine, &samplers, &asset](const std::size_t samplerIndex, std::uint32_t &instanceID) {
+        if (samplerIndex >= asset.samplers.size())
+        {
+            instanceID = 0; // no sampler defined — use engine default (slot 0)
+            return;
+        }
         if (const auto samplerIt = samplers.find(samplerIndex); samplerIt != samplers.end())
         {
             instanceID = samplerIt->second;
@@ -309,13 +335,17 @@ bool load_gltf(mp::Engine &engine, const std::filesystem::path &filePath)
             .emissiveSamplerID = 0,
         };
 
+        auto resolveSamplerIndex = [](const auto &asset, const auto textureIndex) {
+            return asset.textures[textureIndex].samplerIndex.has_value()
+                       ? asset.textures[textureIndex].samplerIndex.value()
+                       : 0;
+        };
+
         if (material.normalTexture.has_value())
         {
             const auto textureIndex = material.normalTexture.value().textureIndex;
             const auto imgIndex = asset.textures[textureIndex].imageIndex.value();
-            const auto samplerIndex = asset.textures[textureIndex].samplerIndex.has_value()
-                                          ? asset.textures[textureIndex].samplerIndex.value()
-                                          : 0;
+            const auto samplerIndex = resolveSamplerIndex(asset, textureIndex);
             getImage(imgIndex, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT,
                      newMat->data.indices.normalTextureID);
             getSampler(samplerIndex, newMat->data.indices.normalSamplerID);
@@ -324,7 +354,7 @@ bool load_gltf(mp::Engine &engine, const std::filesystem::path &filePath)
         {
             const auto textureIndex = material.pbrData.baseColorTexture.value().textureIndex;
             const auto imgIndex = asset.textures[textureIndex].imageIndex.value();
-            const auto samplerIndex = asset.textures[textureIndex].samplerIndex.value();
+            const auto samplerIndex = resolveSamplerIndex(asset, textureIndex);
             getImage(imgIndex, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_USAGE_SAMPLED_BIT,
                      newMat->data.indices.colorTextureID);
             getSampler(samplerIndex, newMat->data.indices.colorSamplerID);
@@ -333,7 +363,7 @@ bool load_gltf(mp::Engine &engine, const std::filesystem::path &filePath)
         {
             const auto textureIndex = material.pbrData.metallicRoughnessTexture.value().textureIndex;
             const auto imgIndex = asset.textures[textureIndex].imageIndex.value();
-            const auto samplerIndex = asset.textures[textureIndex].samplerIndex.value();
+            const auto samplerIndex = resolveSamplerIndex(asset, textureIndex);
             getImage(imgIndex, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT,
                      newMat->data.indices.metalRoughnessTextureID);
             getSampler(samplerIndex, newMat->data.indices.metalRoughnessSamplerID);
@@ -342,7 +372,7 @@ bool load_gltf(mp::Engine &engine, const std::filesystem::path &filePath)
         {
             const auto textureIndex = material.emissiveTexture.value().textureIndex;
             const auto imgIndex = asset.textures[textureIndex].imageIndex.value();
-            const auto samplerIndex = asset.textures[textureIndex].samplerIndex.value();
+            const auto samplerIndex = resolveSamplerIndex(asset, textureIndex);
             getImage(imgIndex, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_USAGE_SAMPLED_BIT,
                      newMat->data.indices.emissiveTextureID);
             getSampler(samplerIndex, newMat->data.indices.emissiveSamplerID);
@@ -721,65 +751,4 @@ std::optional<AllocatedImage> load_hdr(mp::Engine &engine, const std::filesystem
     }
     return image;
 }
-
-#if 0
-bool load_fbx(mp::Engine &engine, const std::filesystem::path &filePath)
-{
-    if (!std::filesystem::exists(filePath))
-    {
-        std::println("Provided file path: {} is not a regular file or does not exists", filePath.string());
-        return false;
-    }
-    std::println("Loading FBX: {}", filePath.string());
-
-    Assimp::Importer importer;
-    const aiScene *scene =
-        importer.ReadFile(filePath.string(), aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_GenSmoothNormals |
-                                                 aiProcess_JoinIdenticalVertices);
-
-    if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
-    {
-        std::println("Failed to load {}, due to: {}", filePath.string(), importer.GetErrorString());
-        return false;
-    }
-
-    for (std::uint32_t i = 0; i < scene->mNumMaterials; ++i)
-    {
-        const auto *mat = scene->mMaterials[i];
-        aiString normalsTexturePath, baseColorTexturePath, metalTexturePath, roughnessTexturePath;
-
-        if (mat->GetTexture(aiTextureType_BASE_COLOR, 0, &baseColorTexturePath) == AI_SUCCESS)
-        {
-            // Load file at texPath
-        }
-
-        bool bHasMetalness = mat->GetTexture(aiTextureType_METALNESS, 0, &metalTexturePath) == AI_SUCCESS;
-
-        // Load Roughness Map
-        bool bHasRoughness = mat->GetTexture(aiTextureType_DIFFUSE_ROUGHNESS, 0, &roughnessTexturePath) == AI_SUCCESS;
-
-        // Same file
-        if (bHasMetalness && bHasRoughness && metalTexturePath == roughnessTexturePath)
-        {
-            
-        }
-        else
-        {
-        
-        }
-
-        if (mat->GetTexture(aiTextureType_NORMALS, 0, &normalsTexturePath) == AI_SUCCESS)
-        {
-        }
-
-        float metallic = 0.0f;
-        float roughness = 0.0f;
-        aiColor4D colorFactors{};
-        mat->Get(AI_MATKEY_BASE_COLOR, colorFactors);
-        mat->Get(AI_MATKEY_METALLIC_FACTOR, metallic);
-        mat->Get(AI_MATKEY_ROUGHNESS_FACTOR, roughness);
-    }
-    return true;
-}
-#endif
 } // namespace mp

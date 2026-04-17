@@ -14,8 +14,5 @@ bool load_gltf(
 std::optional<AllocatedImage> load_hdr(mp::Engine& engine,
                                        const std::filesystem::path& filePath);
 
-#if 0
-bool load_fbx(mp::Engine &engine, const std::filesystem::path &filePath);
-#endif
 
 }

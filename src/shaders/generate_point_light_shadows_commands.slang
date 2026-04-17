@@ -35,8 +35,21 @@ void computeMain(uint3 threadID: SV_DispatchThreadID, uint workgroupID : SV_Grou
     Instance instance = pushConstants.instances[instanceIndex];
     Mesh mesh = pushConstants.meshes[instance.meshIndex];
 
-    float3 minAABB = mul(instance.worldTransform, float4(mesh.min, 1.0f)).xyz;
-    float3 maxAABB = mul(instance.worldTransform, float4(mesh.max, 1.0f)).xyz;
+    float4x4 M = instance.worldTransform;
+    float3 col0 = float3(M[0][0], M[1][0], M[2][0]);
+    float3 col1 = float3(M[0][1], M[1][1], M[2][1]);
+    float3 col2 = float3(M[0][2], M[1][2], M[2][2]);
+    float3 translation = float3(M[0][3], M[1][3], M[2][3]);
+
+    float3 xa = col0 * mesh.min.x;
+    float3 xb = col0 * mesh.max.x;
+    float3 ya = col1 * mesh.min.y;
+    float3 yb = col1 * mesh.max.y;
+    float3 za = col2 * mesh.min.z;
+    float3 zb = col2 * mesh.max.z;
+
+    float3 minAABB = translation + min(xa, xb) + min(ya, yb) + min(za, zb);
+    float3 maxAABB = translation + max(xa, xb) + max(ya, yb) + max(za, zb);
     uint visiblePointLightsCount = pushConstants.visiblePointLightsCount.commandCount;
     for (uint i = 0; i < visiblePointLightsCount; i += WORKGROUP_THREAD_COUNT) 
     {

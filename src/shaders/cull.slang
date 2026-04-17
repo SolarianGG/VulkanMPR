@@ -27,9 +27,23 @@ void computeMain(uint3 threadID: SV_DispatchThreadID) {
     Mesh mesh = pushConstants.meshes[object.meshIndex];
 
     // Now we're using subgroups in order to remove atomic increment memory pressure
-    float3 worldMin = mul(object.worldTransform, float4(mesh.min, 1.0f)).xyz;
-    float3 worldMax = mul(object.worldTransform, float4(mesh.max, 1.0f)).xyz;
-    bool bNeedToAdd = IsInFrustum(worldMin, worldMax, pushConstants.viewProj);
+
+    float4x4 M = object.worldTransform;
+    float3 col0 = float3(M[0][0], M[1][0], M[2][0]);
+    float3 col1 = float3(M[0][1], M[1][1], M[2][1]);
+    float3 col2 = float3(M[0][2], M[1][2], M[2][2]);
+    float3 translation = float3(M[0][3], M[1][3], M[2][3]);
+
+    float3 xa = col0 * mesh.min.x;
+    float3 xb = col0 * mesh.max.x;
+    float3 ya = col1 * mesh.min.y;
+    float3 yb = col1 * mesh.max.y;
+    float3 za = col2 * mesh.min.z;
+    float3 zb = col2 * mesh.max.z;
+
+    float3 minAABB = translation + min(xa, xb) + min(ya, yb) + min(za, zb);
+    float3 maxAABB = translation + max(xa, xb) + max(ya, yb) + max(za, zb);
+    bool bNeedToAdd = IsInFrustum(minAABB, maxAABB, pushConstants.viewProj);
     uint laneOffset = WavePrefixCountBits(bNeedToAdd);
     uint amountToAdd = WaveActiveCountBits(bNeedToAdd);
 

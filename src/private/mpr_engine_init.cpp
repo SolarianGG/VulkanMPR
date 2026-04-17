@@ -1466,7 +1466,7 @@ void Engine::init_frames_data()
         frame.pointLightIndicesBufferAddr = frame.pointLightIndicesBuffer.get_buffer_device_address(m_device);
 
         frame.pointLightIndicesOffsetsBuffer =
-            create_buffer(sizeof(std::uint32_t) * kMaxPointLights,
+            create_buffer(sizeof(std::uint32_t) * kMaxInstances,
                           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
                               VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                           VMA_MEMORY_USAGE_GPU_ONLY);
@@ -1633,10 +1633,16 @@ void Engine::init_default_data()
     mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(m_errorImage.image),
                                "Default Error Image");
 
-    VkSamplerCreateInfo samplerCreateInfo{
+     VkSamplerCreateInfo samplerCreateInfo{
         .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+        .pNext = nullptr,
         .magFilter = VK_FILTER_LINEAR,
         .minFilter = VK_FILTER_LINEAR,
+        .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+        .anisotropyEnable = true,
+        .maxAnisotropy = 16.0f,
+        .minLod = 0,
+        .maxLod = VK_LOD_CLAMP_NONE,
     };
     vkCreateSampler(m_device, &samplerCreateInfo, nullptr, &m_defaultSamplerLinear);
     mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_SAMPLER, reinterpret_cast<uint64_t>(m_defaultSamplerLinear),

@@ -1,6 +1,5 @@
 {
   "dependencies": [
-    "assimp",
     "fastgltf",
     "glm",
     "meshoptimizer",
