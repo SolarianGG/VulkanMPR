@@ -120,7 +120,7 @@ AllocatedImage Engine::create_image(void* data, const VkExtent3D extent,
   }
   const auto bufferSize =
       extent.width * extent.height * extent.depth * imagePixelSize;
-  const AllocatedImage image =
+  AllocatedImage image =
       create_image(extent, format,
                    imageUsage | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                        VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
@@ -135,12 +135,12 @@ AllocatedImage Engine::create_image(void* data, const VkExtent3D extent,
 
   immediate_submit([&](const VkCommandBuffer cmd) {
     utils::BarrierBuilder barrierBuilder;
-    barrierBuilder.add_image_barrier(
-        image.image, VK_PIPELINE_STAGE_2_NONE, 0,
-        VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-        VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT,
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+    barrierBuilder.add_image_barrier(image.transition(
+        {.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+         .accessMask = VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT,
+         .layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+         .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+         .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
     barrierBuilder.barrier(cmd);
     VkBufferImageCopy copyRegion;
     copyRegion.imageExtent = extent;
@@ -213,10 +213,12 @@ AllocatedImage Engine::create_image(dds::Image *ddsImage, const VkImageUsageFlag
 
     immediate_submit([&](const VkCommandBuffer cmd) {
         utils::BarrierBuilder barrierBuilder;
-        barrierBuilder.add_image_barrier(image.image, VK_PIPELINE_STAGE_2_NONE, 0,
-                                         VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                                         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                         utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+        barrierBuilder.add_image_barrier(image.transition(
+            {.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+             .accessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+             .layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+             .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+             .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
         barrierBuilder.barrier(cmd);
 
         std::vector<VkBufferImageCopy> regions;

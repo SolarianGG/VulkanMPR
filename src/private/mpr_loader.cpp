@@ -713,7 +713,7 @@ std::optional<AllocatedImage> load_hdr(mp::Engine &engine, const std::filesystem
     constexpr std::uint32_t kBytesPerPixel = 4 * sizeof(float); // RGBA f32 = 16 bytes
     const std::size_t bufferSize = static_cast<std::size_t>(width) * height * kBytesPerPixel;
 
-    const AllocatedImage image = engine.create_image(extent, VK_FORMAT_R32G32B32A32_SFLOAT,
+    AllocatedImage image = engine.create_image(extent, VK_FORMAT_R32G32B32A32_SFLOAT,
                                                      VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
 
     const AllocatedBuffer stagingBuffer =
@@ -723,10 +723,12 @@ std::optional<AllocatedImage> load_hdr(mp::Engine &engine, const std::filesystem
 
     engine.immediate_submit([&](const VkCommandBuffer cmd) {
         utils::BarrierBuilder barrierBuilder;
-        barrierBuilder.add_image_barrier(image.image, VK_PIPELINE_STAGE_2_NONE, 0, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-                                         VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
-                                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                         utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT));
+        barrierBuilder.add_image_barrier(image.transition(
+            {.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+             .accessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+             .layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+             .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+             .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
         barrierBuilder.barrier(cmd);
 
         const VkBufferImageCopy copyRegion{

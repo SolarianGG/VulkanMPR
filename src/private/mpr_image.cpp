@@ -14,13 +14,18 @@ void generate_mipmaps(VkCommandBuffer cmd, VkImage image, VkExtent2D extent) {
         .baseArrayLayer = 0,
         .layerCount = VK_REMAINING_ARRAY_LAYERS,
     };
-    barrierBuilder.add_image_barrier(
-        image, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-        VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT,
-        VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-        VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, srcSubRange);
+    barrierBuilder.add_image_barrier(VkImageMemoryBarrier2{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+        .srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+        .srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT,
+        .dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+        .dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT,
+        .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        .newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = image,
+        .subresourceRange = srcSubRange});
     barrierBuilder.barrier(cmd);
     if (i < mipLevels - 1) {
       VkExtent2D halfSize;

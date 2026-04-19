@@ -94,6 +94,22 @@ inline bool is_nearly_zero(const float value)
     return FP_ZERO == fpclassify(value);
 }
 
+struct ImageResource
+{
+    VkPipelineStageFlags2 stageMask;
+    VkAccessFlags2 accessMask;
+    VkImageLayout layout;
+    uint32_t queueFamilyIndex;
+    VkImageSubresourceRange subresourceRange;
+};
+
+struct BufferResource
+{
+    VkPipelineStageFlags2 stageMask;
+    VkAccessFlags2 accessMask;
+    uint32_t queueFamilyIndex;
+};
+
 struct AllocatedImage
 {
     VkImage image;
@@ -101,6 +117,33 @@ struct AllocatedImage
     VmaAllocation allocation;
     VkExtent3D imageExtent;
     VkFormat imageFormat;
+    ImageResource resource{
+    .stageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
+    .accessMask = 0,
+    .layout = VK_IMAGE_LAYOUT_UNDEFINED,
+    .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+    };
+
+
+    VkImageMemoryBarrier2 transition(const ImageResource& newResource)
+    {
+        const VkImageMemoryBarrier2 barrier{
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+            .pNext = nullptr,
+            .srcStageMask = resource.stageMask,
+            .srcAccessMask = resource.accessMask,
+            .dstStageMask = newResource.stageMask,
+            .dstAccessMask = newResource.accessMask,
+            .oldLayout = resource.layout,
+            .newLayout = newResource.layout,
+            .srcQueueFamilyIndex = resource.queueFamilyIndex,
+            .dstQueueFamilyIndex = newResource.queueFamilyIndex,
+            .image = image,
+            .subresourceRange = newResource.subresourceRange 
+        };
+        resource = newResource;
+        return barrier;
+    }
 };
 
 struct AllocatedBuffer
@@ -108,6 +151,11 @@ struct AllocatedBuffer
     VkBuffer buffer;
     VmaAllocation allocation;
     VmaAllocationInfo allocationInfo;
+    BufferResource resource{
+        .stageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
+        .accessMask = 0,
+        .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+    };
 
     VkDeviceAddress get_buffer_device_address(VkDevice device) const
     {
@@ -116,6 +164,25 @@ struct AllocatedBuffer
             .buffer = buffer,
         };
         return vkGetBufferDeviceAddress(device, &addrInfo);
+    }
+
+    VkBufferMemoryBarrier2 transition(const BufferResource &newResource)
+    {
+        VkBufferMemoryBarrier2 barrier{
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .pNext = nullptr,
+            .srcStageMask = resource.stageMask,
+            .srcAccessMask = resource.accessMask,
+            .dstStageMask = newResource.stageMask,
+            .dstAccessMask = newResource.accessMask,
+            .srcQueueFamilyIndex = resource.queueFamilyIndex,
+            .dstQueueFamilyIndex = newResource.queueFamilyIndex,
+            .buffer = buffer,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        };
+        resource = newResource;
+        return barrier;
     }
 };
 
