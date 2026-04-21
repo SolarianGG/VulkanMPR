@@ -8,6 +8,7 @@
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_vulkan.h>
+#include <glm/gtc/type_ptr.hpp>
 #include <tinyfiledialogs.h>
 
 #include <format>
@@ -154,7 +155,9 @@ void Engine::init_vulkan()
     };
 
     VkPhysicalDeviceAccelerationStructureFeaturesKHR accelFeature{
-        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR};
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
+        .accelerationStructure = true,
+    };
     VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeature{
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR};
 
@@ -197,7 +200,7 @@ void Engine::init_vulkan()
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
             .pNext = &m_RTProperties,
         };
-        
+
         vkGetPhysicalDeviceProperties2(m_chosenGpu, &rtProps);
     }
 
@@ -1615,6 +1618,198 @@ void Engine::init_frames_data()
     m_mainDeletionQueue.push_function([this] { destroy_buffer(m_avgLuminanceBuffer); });
 }
 
+AccelerationStructure Engine::allocate_acceleration_structure(VkAccelerationStructureCreateInfoKHR &createInfo)
+{
+    AccelerationStructure resultAccel{};
+
+    resultAccel.buffer = create_buffer(createInfo.size,
+                                       VK_BUFFER_USAGE_2_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
+                                           VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT,
+                                       VMA_MEMORY_USAGE_GPU_ONLY);
+
+    createInfo.buffer = resultAccel.buffer.buffer;
+    vkCreateAccelerationStructureKHR(m_device, &createInfo, nullptr, &resultAccel.accel) >> chk;
+
+    {
+        VkAccelerationStructureDeviceAddressInfoKHR info{
+            .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR,
+            .accelerationStructure = resultAccel.accel};
+        resultAccel.address = vkGetAccelerationStructureDeviceAddressKHR(m_device, &info);
+    }
+
+    return resultAccel;
+}
+
+void Engine::create_acceleration_structure(VkAccelerationStructureTypeKHR asType,
+                                           VkBuildAccelerationStructureFlagsKHR flags,
+                                           VkAccelerationStructureGeometryKHR &asGeometry,
+                                           VkAccelerationStructureBuildRangeInfoKHR &asBuildRangeInfo,
+                                           AccelerationStructure &accelerationStructure)
+{
+    auto alignUp = [](auto value, size_t alignment) noexcept { return ((value + alignment - 1) & ~(alignment - 1)); };
+
+    VkAccelerationStructureBuildGeometryInfoKHR asBuildInfo{
+        .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
+        .type = asType,                                         // The type of acceleration structure (BLAS or TLAS)
+        .flags = flags,                                         // Build flags (e.g. prefer fast trace)
+        .mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR, // Build mode vs update
+        .geometryCount = 1,                                     // Deal with one geometry at a time
+        .pGeometries = &asGeometry,                             // The geometry to build the acceleration structure from
+    };
+
+    std::vector<std::uint32_t> maxPrimCount{asBuildRangeInfo.primitiveCount};
+    VkAccelerationStructureBuildSizesInfoKHR asBuildSize{
+        .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR};
+    vkGetAccelerationStructureBuildSizesKHR(m_device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &asBuildInfo,
+                                            maxPrimCount.data(), &asBuildSize);
+
+    VkDeviceSize scratchSize =
+        alignUp(asBuildSize.buildScratchSize, m_ASProperties.minAccelerationStructureScratchOffsetAlignment);
+
+    AllocatedBuffer scratchBuffer =
+        create_buffer(scratchSize,
+                      VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT |
+                          VK_BUFFER_USAGE_2_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR,
+                      VMA_MEMORY_USAGE_GPU_ONLY);
+
+    VkAccelerationStructureCreateInfoKHR createInfo{
+        .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR,
+        .size = asBuildSize.accelerationStructureSize,
+        .type = asType,
+    };
+    accelerationStructure = allocate_acceleration_structure(createInfo);
+
+    immediate_submit([&](VkCommandBuffer cmd) {
+        asBuildInfo.dstAccelerationStructure = accelerationStructure.accel;
+        asBuildInfo.scratchData.deviceAddress = scratchBuffer.get_buffer_device_address(m_device);
+
+        VkAccelerationStructureBuildRangeInfoKHR *pBuildRangeInfo = &asBuildRangeInfo;
+        vkCmdBuildAccelerationStructuresKHR(cmd, 1, &asBuildInfo, &pBuildRangeInfo);
+    });
+
+    destroy_buffer(scratchBuffer);
+}
+
+void Engine::create_BLAS()
+{
+    const auto meshesCount = m_mainDrawContext.renderObjects.size();
+    m_BlasAccels.resize(meshesCount);
+
+    for (std::size_t i = 0; i < meshesCount; ++i)
+    {
+        VkAccelerationStructureGeometryKHR asGeometry{};
+        VkAccelerationStructureBuildRangeInfoKHR asBuildRangeInfo{};
+
+        primitive_to_geometry(m_mainDrawContext.renderObjects[i], asGeometry, asBuildRangeInfo);
+
+        create_acceleration_structure(VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
+                                      VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR, asGeometry,
+                                      asBuildRangeInfo, m_BlasAccels[i]);
+        debug::set_object_name(m_device, VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_KHR,
+                               reinterpret_cast<std::uint64_t>(m_BlasAccels[i].accel),
+                               std::format("Bottom-level acceleration structure: {}", i).c_str());
+    }
+
+    std::println("Bottom-level acceleration structures built successfully");
+}
+
+void Engine::create_TLAS()
+{
+    auto toTransformMatrixKHR = [](const glm::mat4 &m) {
+        VkTransformMatrixKHR t;
+        memcpy(&t, glm::value_ptr(glm::transpose(m)), sizeof(t));
+        return t;
+    };
+    std::vector<VkAccelerationStructureInstanceKHR> tlasInstances;
+    auto appendInstances = [&tlasInstances, &toTransformMatrixKHR, this](const std::vector<Instance> &instances) {
+        tlasInstances.reserve(tlasInstances.size() + instances.size());
+        for (const auto &instance : instances)
+        {
+            VkAccelerationStructureInstanceKHR asInstance{};
+            asInstance.transform = toTransformMatrixKHR(instance.world); // Position of the instance
+            asInstance.instanceCustomIndex = instance.meshIndex;         // gl_InstanceCustomIndexEXT
+            asInstance.accelerationStructureReference = m_BlasAccels[instance.meshIndex].address; // Will be set in
+            asInstance.instanceShaderBindingTableRecordOffset = 0; // We will use the same hit group for all objects
+            asInstance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_CULL_DISABLE_BIT_NV; // No culling - double sided
+            asInstance.mask = 0xFF;
+            tlasInstances.emplace_back(asInstance);
+        }
+    };
+
+    appendInstances(m_mainDrawContext.opaqueInstances);
+    appendInstances(m_mainDrawContext.alphaTestedInstances);
+    appendInstances(m_mainDrawContext.transparentInstances);
+
+    const auto instancesSize = std::span<VkAccelerationStructureInstanceKHR const>(tlasInstances).size_bytes();
+    AllocatedBuffer tlasInstanceBuffer =
+        create_buffer(instancesSize,
+                      VK_BUFFER_USAGE_2_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
+                          VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_2_TRANSFER_DST_BIT,
+                      VMA_MEMORY_USAGE_GPU_ONLY);
+
+    AllocatedBuffer stagingBuffer =
+        create_buffer(instancesSize, VK_BUFFER_USAGE_2_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+
+    std::memcpy(stagingBuffer.allocationInfo.pMappedData, tlasInstances.data(), instancesSize);
+    immediate_submit([&stagingBuffer, &tlasInstanceBuffer, instancesSize](VkCommandBuffer cmd) {
+        VkBufferCopy region{.srcOffset = 0, .dstOffset = 0, .size = instancesSize};
+        vkCmdCopyBuffer(cmd, stagingBuffer.buffer, tlasInstanceBuffer.buffer, 1, &region);
+    });
+    destroy_buffer(stagingBuffer);
+
+    {
+        VkAccelerationStructureGeometryKHR asGeometry{};
+        VkAccelerationStructureBuildRangeInfoKHR asBuildRangeInfo{};
+
+        // Convert the instance information to acceleration structure geometry, similar to primitiveToGeometry()
+        VkAccelerationStructureGeometryInstancesDataKHR geometryInstances{
+            .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR,
+            .data = {.deviceAddress = tlasInstanceBuffer.get_buffer_device_address(m_device)}};
+        asGeometry = {.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
+                      .geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR,
+                      .geometry = {.instances = geometryInstances}};
+        asBuildRangeInfo = {.primitiveCount = static_cast<std::uint32_t>(tlasInstances.size())};
+
+        create_acceleration_structure(VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR,
+                                      VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR, asGeometry,
+                                      asBuildRangeInfo, m_TlasAccel);
+        debug::set_object_name(m_device, VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_KHR,
+                               reinterpret_cast<std::uint64_t>(m_TlasAccel.accel), "TLAS");
+    }
+
+    std::println("Top-level acceleration structure has been built successfully");
+    destroy_buffer(tlasInstanceBuffer);
+}
+
+void Engine::primitive_to_geometry(RenderObject &mesh, VkAccelerationStructureGeometryKHR &asGeometry,
+                                   VkAccelerationStructureBuildRangeInfoKHR &asBuildRangeInfo)
+{
+    // Describe buffer as array of VertexObj.
+    VkAccelerationStructureGeometryTrianglesDataKHR triangles{
+        .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR,
+        .vertexFormat = VK_FORMAT_R32G32B32_SFLOAT, // vec3 vertex position data
+        .vertexData = {.deviceAddress = m_globalPositionBufferAddress},
+        .vertexStride = sizeof(glm::vec3),
+        .maxVertex = static_cast<std::uint32_t>(m_globalPositionCount - 1),
+        .indexType = VK_INDEX_TYPE_UINT32, // Index type (VK_INDEX_TYPE_UINT16 or VK_INDEX_TYPE_UINT32)
+        .indexData = {.deviceAddress = m_globalIndexBufferDeviceAddress},
+    };
+
+    // Identify the above data as containing opaque triangles.
+    asGeometry = VkAccelerationStructureGeometryKHR{
+        .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
+        .geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR,
+        .geometry = {.triangles = triangles},
+        .flags = VK_GEOMETRY_NO_DUPLICATE_ANY_HIT_INVOCATION_BIT_KHR | VK_GEOMETRY_OPAQUE_BIT_KHR,
+    };
+
+    asBuildRangeInfo = VkAccelerationStructureBuildRangeInfoKHR{
+        .primitiveCount = mesh.indexCount / 3,
+        .primitiveOffset = mesh.firstIndex * static_cast<std::uint32_t>(sizeof(std::uint32_t)),
+        .firstVertex = static_cast<std::uint32_t>(mesh.vertexOffset),
+    };
+}
+
 void Engine::init_default_data()
 {
     std::uint32_t whiteColor = glm::packUnorm4x8(glm::vec4(1.0f, 1.0f, 1.0f, 1.0f));
@@ -1708,10 +1903,22 @@ void Engine::init_mesh_data()
         throw std::runtime_error(std::format("Failed to load gltf"));
     }
 
+    m_scene.draw(glm::mat4(1.0f), m_mainDrawContext);
+    create_BLAS();
+    create_TLAS();
+
     m_mainDeletionQueue.push_function([this] {
         destroy_buffer(m_globalPositionBuffer);
         destroy_buffer(m_globalAttributesBuffer);
         destroy_buffer(m_globalIndexBuffer);
+
+        for (auto &blas : m_BlasAccels)
+        {
+            vkDestroyAccelerationStructureKHR(m_device, blas.accel, nullptr);
+            destroy_buffer(blas.buffer);
+        }
+        vkDestroyAccelerationStructureKHR(m_device, m_TlasAccel.accel, nullptr);
+        destroy_buffer(m_TlasAccel.buffer);
     });
 }
 

@@ -182,6 +182,7 @@ VkSampler load_sampler(mp::Engine &engine, fastgltf::Sampler &sampler)
     vkCreateSampler(engine.m_device, &samplerCreateInfo, nullptr, &vkSampler) >> mp::chk;
     return vkSampler;
 }
+
 } // namespace
 
 namespace mp
@@ -531,6 +532,7 @@ bool load_gltf(mp::Engine &engine, const std::filesystem::path &filePath)
             newMesh.geoSurfaces.push_back(newSurface);
         }
 
+        
         meshes.emplace_back(std::make_shared<MeshAsset>(std::move(newMesh)));
         file.add_mesh(meshes.back());
     }

@@ -31,6 +31,13 @@ struct EngineStats
     float shadowPassDrawTime;
 };
 
+struct AccelerationStructure
+{
+    VkAccelerationStructureKHR accel;
+    VkDeviceAddress address;
+    AllocatedBuffer buffer;
+};
+
 struct FrameData
 {
     VkCommandBuffer commandBuffer;
@@ -212,6 +219,7 @@ class Engine final
     std::size_t m_globalAttributesCapacity = 0;
 
     AllocatedBuffer m_globalIndexBuffer{};
+    VkDeviceAddress m_globalIndexBufferDeviceAddress{};
     std::size_t m_globalIndexCount = 0;
     std::size_t m_globalIndexCapacity = 0;
 
@@ -299,8 +307,8 @@ class Engine final
     VkPipelineLayout m_DDGIPipelineLayout{};
     VkDescriptorSetLayout m_DDGIDescriptorSetLayout{};
 
-    std::vector<VkAccelerationStructureKHR> m_BlasAccels{};
-    VkAccelerationStructureKHR m_TlasAccel{};
+    std::vector<AccelerationStructure> m_BlasAccels{};
+    AccelerationStructure m_TlasAccel{};
 
     AllocatedBuffer m_SBTBuffer{};
     std::vector<std::uint8_t> m_ShaderHandles{};
@@ -370,8 +378,18 @@ class Engine final
     void copy_staging_buffers(VkCommandBuffer cmd);
 
     void init_frames_data();
+    AccelerationStructure allocate_acceleration_structure(VkAccelerationStructureCreateInfoKHR &createInfo);
+    void create_acceleration_structure(VkAccelerationStructureTypeKHR asType,
+                                       VkBuildAccelerationStructureFlagsKHR flags,
+                                       VkAccelerationStructureGeometryKHR &asGeometry,
+                                       VkAccelerationStructureBuildRangeInfoKHR &asBuildRangeInfo,
+                                       AccelerationStructure& accelerationStructure);
+    void create_BLAS();
+    void create_TLAS();
+    void primitive_to_geometry(RenderObject &primitive, VkAccelerationStructureGeometryKHR &asGeometry,
+                               VkAccelerationStructureBuildRangeInfoKHR &asBuildRangeInfo);
 
-    static std::uint64_t render_scene_tree_ui(Scene &scene, std::uint64_t nodeIndex, std::uint64_t selectedNode);
+        static std::uint64_t render_scene_tree_ui(Scene &scene, std::uint64_t nodeIndex, std::uint64_t selectedNode);
     bool edit_transform_ui(const glm::mat4 &view, const glm::mat4 &projection, glm::mat4 &globalTransform);
     void edit_node(Scene &scene, std::uint64_t nodeIndex);
 };
