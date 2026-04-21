@@ -246,9 +246,6 @@ class Engine final
     float m_autoExposureMinLogLum{-8.0f};
     float m_autoExposureLogLumRange{12.0f};
 
-#if 0
-  VkDescriptorSetLayout m_CullPassDescriptorSetLayout;
-#endif
     VkPipeline m_CullPassPipeline{};
     VkPipelineLayout m_CullPassPipelineLayout{};
 
@@ -297,6 +294,25 @@ class Engine final
 
     glm::mat4 m_DirLightCullMatrix{1.0f};
     glm::mat4 m_DirLightViewMatrix{1.0f};
+
+    VkPipeline m_DDGIPipeline{};
+    VkPipelineLayout m_DDGIPipelineLayout{};
+    VkDescriptorSetLayout m_DDGIDescriptorSetLayout{};
+
+    std::vector<VkAccelerationStructureKHR> m_BlasAccels{};
+    VkAccelerationStructureKHR m_TlasAccel{};
+
+    AllocatedBuffer m_SBTBuffer{};
+    std::vector<std::uint8_t> m_ShaderHandles{};
+    VkStridedDeviceAddressRegionKHR m_RaygenRegion{};
+    VkStridedDeviceAddressRegionKHR m_MissRegion{};
+    VkStridedDeviceAddressRegionKHR m_HitRegion{};
+    VkStridedDeviceAddressRegionKHR m_CallableRegion{};
+
+    VkPhysicalDeviceRayTracingPipelinePropertiesKHR m_RTProperties{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR};
+    VkPhysicalDeviceAccelerationStructurePropertiesKHR m_ASProperties{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR};
 
   private:
     void init_window();

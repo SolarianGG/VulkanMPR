@@ -199,7 +199,7 @@ class DescriptorBuffer {
  private:
   void cache_binding_offsets() {
     // TODO: FIX
-    // get the maximum binding for determine vector size
+    // get the maximum binding to determine vector size
     uint32_t maxBinding = 0;
     VkDescriptorSetLayoutBinding bindings[32];  // tmp buffer 
     uint32_t bindingCount = 0;

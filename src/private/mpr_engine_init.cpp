@@ -147,22 +147,32 @@ void Engine::init_vulkan()
         .independentBlend = true,
         .geometryShader = true,
         .samplerAnisotropy = true,
+        .textureCompressionBC = true,
         .shaderClipDistance = true,
         .shaderInt64 = true,
         .shaderInt16 = true,
     };
 
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR accelFeature{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR};
+    VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeature{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR};
+
     vkb::PhysicalDeviceSelector selector{result.value()};
 
     std::vector<const char *> requiredExtensions{
-        VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME, VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME,
+        VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME,          VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME,
         VK_NV_SHADER_SUBGROUP_PARTITIONED_EXTENSION_NAME, // VK_EXT_SHADER_SUBGROUP_PARTITIONED_EXTENSION_NAME
+        VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,     VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
+        VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
     };
     const auto physicalDevice = selector.set_minimum_version(1, 3)
                                     .add_required_extensions(requiredExtensions)
                                     .set_required_features_13(features13)
                                     .add_required_extension_features(descriptorBufferFeatures)
                                     .add_required_extension_features(atomicFloatFeatures)
+                                    .add_required_extension_features(accelFeature)
+                                    .add_required_extension_features(rtPipelineFeature)
                                     .set_required_features_12(features12)
                                     .set_required_features_11(features11)
                                     .set_required_features(features10)
@@ -180,6 +190,16 @@ void Engine::init_vulkan()
     m_device = vkbDevice.device;
     m_chosenGpu = vkbDevice.physical_device;
     std::println("Physical GPU: {}", vkbDevice.physical_device.name);
+
+    {
+        m_RTProperties.pNext = &m_ASProperties;
+        VkPhysicalDeviceProperties2 rtProps{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+            .pNext = &m_RTProperties,
+        };
+        
+        vkGetPhysicalDeviceProperties2(m_chosenGpu, &rtProps);
+    }
 
     m_queue = vkbDevice.get_queue(vkb::QueueType::graphics).value();
     m_queueFamilyIndex = vkbDevice.get_queue_index(vkb::QueueType::graphics).value();
@@ -1115,8 +1135,7 @@ void Engine::init_average_luminance_pipeline()
     };
     vkCreateComputePipelines(m_device, nullptr, 1, &pipelineInfo, nullptr, &m_AverageLuminancePipeline) >> chk;
     mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
-                               reinterpret_cast<uint64_t>(m_AverageLuminancePipeline),
-                               "Average Luminance Pipeline");
+                               reinterpret_cast<uint64_t>(m_AverageLuminancePipeline), "Average Luminance Pipeline");
     vkDestroyShaderModule(m_device, shader, nullptr);
 
     m_mainDeletionQueue.push_function([this] {
@@ -1499,11 +1518,10 @@ void Engine::init_frames_data()
                                    reinterpret_cast<uint64_t>(frame.splitsAABBBuffer.buffer),
                                    std::format("Splits AABB Buffer [{}]", i).c_str());
 
-        frame.histogramBuffer =
-            create_buffer(sizeof(std::uint32_t) * 256,
-                          VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-                              VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-                          VMA_MEMORY_USAGE_GPU_ONLY);
+        frame.histogramBuffer = create_buffer(sizeof(std::uint32_t) * 256,
+                                              VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                                  VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                                              VMA_MEMORY_USAGE_GPU_ONLY);
         frame.histogramBufferAddr = frame.histogramBuffer.get_buffer_device_address(m_device);
         mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_BUFFER,
                                    reinterpret_cast<uint64_t>(frame.histogramBuffer.buffer),
@@ -1589,13 +1607,11 @@ void Engine::init_frames_data()
                           VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                       VMA_MEMORY_USAGE_GPU_ONLY);
     m_avgLuminanceBufferAddr = m_avgLuminanceBuffer.get_buffer_device_address(m_device);
-    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_BUFFER,
-                               reinterpret_cast<uint64_t>(m_avgLuminanceBuffer.buffer),
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_BUFFER, reinterpret_cast<uint64_t>(m_avgLuminanceBuffer.buffer),
                                "Average Luminance Buffer");
     // Bootstrap with 1.0f so the first frame doesn't divide by zero
-    immediate_submit([&](VkCommandBuffer cmd) {
-        vkCmdFillBuffer(cmd, m_avgLuminanceBuffer.buffer, 0, VK_WHOLE_SIZE, 0x3F800000u);
-    });
+    immediate_submit(
+        [&](VkCommandBuffer cmd) { vkCmdFillBuffer(cmd, m_avgLuminanceBuffer.buffer, 0, VK_WHOLE_SIZE, 0x3F800000u); });
     m_mainDeletionQueue.push_function([this] { destroy_buffer(m_avgLuminanceBuffer); });
 }
 
@@ -1633,7 +1649,7 @@ void Engine::init_default_data()
     mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(m_errorImage.image),
                                "Default Error Image");
 
-     VkSamplerCreateInfo samplerCreateInfo{
+    VkSamplerCreateInfo samplerCreateInfo{
         .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
         .pNext = nullptr,
         .magFilter = VK_FILTER_LINEAR,
