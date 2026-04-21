@@ -378,10 +378,6 @@ struct PointLightData
     float constantBias;
     float _pad[2];
     std::array<glm::mat4, 4> tetrahedronFacesMatrices;
-
-#if 0
-    glm::mat4 viewProject;
-#endif
 };
 
 // GPU structures for SDSM, values are in uint32_t because nvidia gpus do not support atomic float min/max

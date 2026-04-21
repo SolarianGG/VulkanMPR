@@ -362,13 +362,12 @@ void Engine::update_scene()
                     const glm::vec3 worldPt(cx ? m_mainDrawContext.max.x : m_mainDrawContext.min.x,
                                             cy ? m_mainDrawContext.max.y : m_mainDrawContext.min.y,
                                             cz ? m_mainDrawContext.max.z : m_mainDrawContext.min.z);
-                    const glm::vec3 ls = glm::vec3(light.cascadeVPs[0] * glm::vec4(worldPt, 1.0f));
-                    lsMin = glm::min(lsMin, ls);
-                    lsMax = glm::max(lsMax, ls);
+                    lsMin = glm::min(lsMin, worldPt);
+                    lsMax = glm::max(lsMax, worldPt);
                 }
 
         m_DirLightCullMatrix =
-            glm::orthoRH_ZO(lsMin.x, lsMax.x, lsMin.y, lsMax.y, -lsMax.z, -lsMin.z) * light.cascadeVPs[0];
+            glm::orthoRH_ZO(lsMin.x, lsMax.x, lsMin.y, lsMax.y, -lsMax.z, -lsMin.z);
     }
 
     auto &frame = get_current_frame();
