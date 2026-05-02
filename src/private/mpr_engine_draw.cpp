@@ -171,6 +171,18 @@ void Engine::draw()
 
     draw_gBuffer_pass(cmd);
 
+    // DDGI Probe Pass
+    {
+        barrierBuilder.add_image_barrier(currentFrame.rayData.transition(
+            {.stageMask        = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
+             .accessMask       = VK_ACCESS_2_SHADER_WRITE_BIT,
+             .layout           = VK_IMAGE_LAYOUT_GENERAL,
+             .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+             .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
+        barrierBuilder.barrier(cmd);
+    }
+    draw_ddgi_probe_pass(cmd);
+
     // Light pass
     {
         barrierBuilder.add_image_barrier(gBuffer.normal.transition(
@@ -1613,6 +1625,57 @@ void Engine::copy_frame_buffers()
 
     std::memcpy(m_CurrentMeshBuffer, m_mainDrawContext.renderObjects.data(),
                 m_mainDrawContext.renderObjects.size() * sizeof(RenderObject));
+}
+
+void Engine::draw_ddgi_probe_pass(VkCommandBuffer cmd)
+{
+    mp::debug::cmd_begin_label(cmd, "DDGI Probe Pass", {0.2f, 0.9f, 0.4f, 1.f});
+    auto &currentFrame = get_current_frame();
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_DDGIPipeline);
+
+    const VkDescriptorBufferBindingInfoEXT bindingInfos[]{
+        {.sType   = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+         .address = currentFrame.ddgiDescBuffer.get_device_address(),
+         .usage   = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
+                    VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
+        {.sType   = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+         .address = m_metalRoughness.descriptors.get_device_address(),
+         .usage   = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
+                    VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
+    };
+    vkCmdBindDescriptorBuffersEXT(cmd, std::size(bindingInfos), bindingInfos);
+
+    const std::uint32_t setIndices[]{0, 1};
+    const VkDeviceSize  setOffsets[]{0, 0};
+    vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
+                                       m_DDGIPipelineLayout, 0, std::size(setIndices),
+                                       setIndices, setOffsets);
+
+    const DDGIProbePushConstants pc{
+        .volumes            = m_DDGIVolumesAddr,
+        .currentVolumeIndex = 0u,
+        .vPositions         = m_globalPositionBufferAddress,
+        .vAttributes        = m_globalAttributesBufferAddress,
+        .indices            = m_globalIndexBufferDeviceAddress,
+        .instances          = currentFrame.instanceBufferAddr,
+        .meshes             = currentFrame.meshBufferAddr,
+    };
+    vkCmdPushConstants(cmd, m_DDGIPipelineLayout,
+                       VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
+                           VK_SHADER_STAGE_ANY_HIT_BIT_KHR,
+                       0, sizeof(DDGIProbePushConstants), &pc);
+
+    vkCmdTraceRaysKHR(cmd,
+                      &m_RaygenRegion,
+                      &m_MissRegion,
+                      &m_HitRegion,
+                      &m_CallableRegion,
+                      kDDGIDefaultRays,
+                      kDDGIDefaultProbesX * kDDGIDefaultProbesZ,
+                      kDDGIDefaultProbesY);
+
+    mp::debug::cmd_end_label(cmd);
 }
 
 } // namespace mp

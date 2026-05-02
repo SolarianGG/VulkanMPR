@@ -32,6 +32,11 @@ constexpr int MAX_CASCADES = kMaxCascadeCount;
 
 constexpr std::uint32_t kDirectionalShadowMapSize = 2048u;
 
+constexpr std::uint32_t kDDGIDefaultRays    = 64u;
+constexpr std::uint32_t kDDGIDefaultProbesX = 8u;
+constexpr std::uint32_t kDDGIDefaultProbesY = 4u;
+constexpr std::uint32_t kDDGIDefaultProbesZ = 16u;
+
 constexpr std::uint32_t kPointLightsShadowMapSize = 8192u;
 constexpr std::uint32_t kPointLightTileSize = 1024u;
 constexpr std::uint32_t kMaxPointLights =
@@ -504,5 +509,29 @@ struct MeshAsset
 
     std::vector<GeoSurface> geoSurfaces;
 };
+
+struct DDGIVolume {
+    glm::vec3  origin;
+    int        probeNumRays;
+    glm::vec4  rotation;
+    glm::vec3  probeSpacing;
+    float      probeMaxRayDistance;
+    glm::ivec3 probeCounts;
+    float      _padding1{};
+    glm::vec4  probeRayRotation;
+};
+static_assert(sizeof(DDGIVolume) == 80);
+
+struct DDGIProbePushConstants {
+    VkDeviceAddress volumes;
+    std::uint32_t   currentVolumeIndex;
+    std::uint32_t   _pad0{};
+    VkDeviceAddress vPositions;
+    VkDeviceAddress vAttributes;
+    VkDeviceAddress indices;
+    VkDeviceAddress instances;
+    VkDeviceAddress meshes;
+};
+static_assert(sizeof(DDGIProbePushConstants) == 56);
 
 } // namespace mp

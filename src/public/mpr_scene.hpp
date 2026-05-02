@@ -142,6 +142,20 @@ struct PointLightNode : public Node
     void edit() override;
 };
 
+struct DDGIVolumeNode : public Node
+{
+  public:
+    DDGIVolume m_Data{};
+    bool m_bVisualize = false;
+public:
+    DDGIVolumeNode() = default;
+    explicit DDGIVolumeNode(const DDGIVolume& volume, bool bVisualize = false) : m_Data(volume), m_bVisualize(bVisualize){}
+
+    void draw(const glm::mat4 &topMatrix, DrawContext &ctx) override;
+
+    void edit() override;
+};
+
 struct Scene final : public IRenderable
 {
     std::unordered_map<std::uint64_t, std::shared_ptr<MeshAsset>> meshes;

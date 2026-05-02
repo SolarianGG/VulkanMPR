@@ -96,6 +96,9 @@ struct FrameData
     VkDeviceAddress drawCommandsBufferAddr;
     AllocatedBuffer countBuffer;
     VkDeviceAddress countBufferAddr;
+
+    AllocatedImage   rayData;
+    DescriptorBuffer ddgiDescBuffer;
 };
 
 class Engine final
@@ -317,6 +320,9 @@ class Engine final
     VkStridedDeviceAddressRegionKHR m_HitRegion{};
     VkStridedDeviceAddressRegionKHR m_CallableRegion{};
 
+    AllocatedBuffer m_DDGIVolumesBuffer{};
+    VkDeviceAddress m_DDGIVolumesAddr{};
+
     VkPhysicalDeviceRayTracingPipelinePropertiesKHR m_RTProperties{
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR};
     VkPhysicalDeviceAccelerationStructurePropertiesKHR m_ASProperties{
@@ -344,6 +350,7 @@ class Engine final
     void init_average_luminance_pipeline();
     void init_cull_meshes_pipeline();
     void init_cull_point_lights_pipeline();
+    void init_ddgi_probe_pipeline();
     void init_populate_commands_with_cascade_count();
     void init_generate_point_light_commands_pipeline();
     void init_imgui();
@@ -361,6 +368,7 @@ class Engine final
     void draw_luminance_histogram(VkCommandBuffer cmd);
     void draw_average_luminance(VkCommandBuffer cmd);
     void draw_prepass(VkCommandBuffer cmd);
+    void draw_ddgi_probe_pass(VkCommandBuffer cmd);
     void compute_depth_reduction(VkCommandBuffer cmd);
     void compute_depth_partition(VkCommandBuffer cmd);
     void compute_dir_lights_vp(VkCommandBuffer cmd);

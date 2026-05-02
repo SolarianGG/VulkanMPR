@@ -10,10 +10,10 @@ public static const int POINT_LIGHT_TILES_PER_ROW = POINT_LIGHT_SHADOW_MAP_SIZE 
 public struct Vertex
 {
     public float3 pos;
-    public float16_t u;
-    public float16_t v;
-    public vector<float16_t, 2> norm;
-    public vector<float16_t, 2> tangent;
+    public float u;
+    public float3 norm;
+    public float v;
+    public float4 tangent;
 };
 
 public struct VertexPosition
@@ -120,4 +120,15 @@ public struct MinMax {
 public struct AABB {
     public uint minX; public uint minY; public uint minZ; public uint _pad0;
     public uint maxX; public uint maxY; public uint maxZ; public uint _pad1;
+};
+
+public struct DDGIVolume {
+    public float3 origin;
+    public int probeNumRays;
+    public float4 rotation;
+    public float3 probeSpacing;
+    public float probeMaxRayDistance;
+    public int3 probeCounts;
+    public float _padding1;
+    public float4 probeRayRotation;
 };

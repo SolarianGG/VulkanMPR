@@ -179,6 +179,23 @@ void PointLightNode::edit()
     ImGui::DragFloat("Constant bias", &m_Data.constantBias, 0.0001f, 0.0001f, 0.1f, "%.4f");
 }
 
+void DDGIVolumeNode::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
+{
+    if (m_bVisualize)
+    {
+        // TODO: Add volume to draw context
+    }
+
+    Node::draw(topMatrix, ctx);
+}
+
+void DDGIVolumeNode::edit()
+{
+    Node::edit();
+
+    
+}
+
 void Scene::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
 {
     for (const auto &node : topNodes)

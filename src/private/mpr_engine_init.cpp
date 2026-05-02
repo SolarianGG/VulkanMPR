@@ -159,7 +159,9 @@ void Engine::init_vulkan()
         .accelerationStructure = true,
     };
     VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeature{
-        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR};
+        .sType              = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR,
+        .rayTracingPipeline = VK_TRUE,
+    };
 
     vkb::PhysicalDeviceSelector selector{result.value()};
 
@@ -507,6 +509,13 @@ void Engine::init_descriptors()
                 .add_binding(7, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT)
                 .build(m_device, VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
     }
+    {
+        m_DDGIDescriptorSetLayout =
+            DescriptorSetLayoutBuilder()
+                .add_binding(0, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR)
+                .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR)
+                .build(m_device, VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
+    }
     for (auto &frame : m_frameData)
     {
         frame.lightPassDescriptorBuffer =
@@ -546,6 +555,7 @@ void Engine::init_descriptors()
     m_mainDeletionQueue.push_function([&]() mutable {
         vkDestroyDescriptorSetLayout(m_device, m_LightPassDescriptorSetLayout, nullptr);
         vkDestroyDescriptorSetLayout(m_device, m_DrawImageDescriptorSetLayout, nullptr);
+        vkDestroyDescriptorSetLayout(m_device, m_DDGIDescriptorSetLayout, nullptr);
         for (auto &frame : m_frameData)
         {
             destroy_buffer(frame.lightPassDescriptorBuffer.get_buffer());
@@ -573,6 +583,7 @@ void Engine::init_pipelines()
     init_alpha_tested_prepass();
     init_alpha_tested_directional_shadow_pass();
     init_alpha_tested_point_shadow_pass();
+    init_ddgi_probe_pipeline();
 }
 
 void Engine::init_light_pass_pipeline()
@@ -1199,6 +1210,155 @@ void Engine::init_cull_point_lights_pipeline()
     });
 }
 
+void Engine::init_ddgi_probe_pipeline()
+{
+    const VkDescriptorSetLayout layouts[]{
+        m_DDGIDescriptorSetLayout,
+        m_metalRoughness.materialLayout,
+    };
+    const VkPushConstantRange pcRange{
+        .stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
+                      VK_SHADER_STAGE_ANY_HIT_BIT_KHR,
+        .offset = 0,
+        .size   = sizeof(DDGIProbePushConstants),
+    };
+    const VkPipelineLayoutCreateInfo layoutInfo{
+        .sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount         = static_cast<std::uint32_t>(std::size(layouts)),
+        .pSetLayouts            = layouts,
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges    = &pcRange,
+    };
+    vkCreatePipelineLayout(m_device, &layoutInfo, nullptr, &m_DDGIPipelineLayout) >> chk;
+
+    VkShaderModule rgenShader, missShader, chitShader, ahitShader;
+    if (!load_shader_module("../../src/compiled_shaders/probe.raygeneration.spv", m_device, &rgenShader))
+        throw std::runtime_error("Failed to load probe.raygeneration.spv");
+    if (!load_shader_module("../../src/compiled_shaders/probe.miss.spv", m_device, &missShader))
+        throw std::runtime_error("Failed to load probe.miss.spv");
+    if (!load_shader_module("../../src/compiled_shaders/probe.closesthit.spv", m_device, &chitShader))
+        throw std::runtime_error("Failed to load probe.closesthit.spv");
+    if (!load_shader_module("../../src/compiled_shaders/probe.anyhit.spv", m_device, &ahitShader))
+        throw std::runtime_error("Failed to load probe.anyhit.spv");
+
+    const VkPipelineShaderStageCreateInfo stages[]{
+        {.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+         .stage  = VK_SHADER_STAGE_RAYGEN_BIT_KHR,
+         .module = rgenShader,
+         .pName  = "main"},
+        {.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+         .stage  = VK_SHADER_STAGE_MISS_BIT_KHR,
+         .module = missShader,
+         .pName  = "main"},
+        {.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+         .stage  = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR,
+         .module = chitShader,
+         .pName  = "main"},
+        {.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+         .stage  = VK_SHADER_STAGE_ANY_HIT_BIT_KHR,
+         .module = ahitShader,
+         .pName  = "main"},
+    };
+
+    const VkRayTracingShaderGroupCreateInfoKHR groups[]{
+        {.sType              = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR,
+         .type               = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR,
+         .generalShader      = 0,
+         .closestHitShader   = VK_SHADER_UNUSED_KHR,
+         .anyHitShader       = VK_SHADER_UNUSED_KHR,
+         .intersectionShader = VK_SHADER_UNUSED_KHR},
+        {.sType              = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR,
+         .type               = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR,
+         .generalShader      = 1,
+         .closestHitShader   = VK_SHADER_UNUSED_KHR,
+         .anyHitShader       = VK_SHADER_UNUSED_KHR,
+         .intersectionShader = VK_SHADER_UNUSED_KHR},
+        {.sType              = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR,
+         .type               = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR,
+         .generalShader      = VK_SHADER_UNUSED_KHR,
+         .closestHitShader   = 2,
+         .anyHitShader       = 3,
+         .intersectionShader = VK_SHADER_UNUSED_KHR},
+    };
+
+    const VkRayTracingPipelineCreateInfoKHR rtInfo{
+        .sType                        = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR,
+        .flags                        = VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
+        .stageCount                   = static_cast<std::uint32_t>(std::size(stages)),
+        .pStages                      = stages,
+        .groupCount                   = static_cast<std::uint32_t>(std::size(groups)),
+        .pGroups                      = groups,
+        .maxPipelineRayRecursionDepth = 1,
+        .layout                       = m_DDGIPipelineLayout,
+    };
+    vkCreateRayTracingPipelinesKHR(m_device, VK_NULL_HANDLE, VK_NULL_HANDLE, 1, &rtInfo, nullptr,
+                                   &m_DDGIPipeline) >> chk;
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
+                               reinterpret_cast<uint64_t>(m_DDGIPipeline), "DDGI Probe Pipeline");
+
+    vkDestroyShaderModule(m_device, rgenShader, nullptr);
+    vkDestroyShaderModule(m_device, missShader, nullptr);
+    vkDestroyShaderModule(m_device, chitShader, nullptr);
+    vkDestroyShaderModule(m_device, ahitShader, nullptr);
+
+    const std::uint32_t handleSize  = m_RTProperties.shaderGroupHandleSize;
+    const std::uint32_t handleAlign = m_RTProperties.shaderGroupHandleAlignment;
+    const std::uint32_t baseAlign   = m_RTProperties.shaderGroupBaseAlignment;
+
+    const std::uint32_t entryStride =
+        static_cast<std::uint32_t>((handleSize + handleAlign - 1u) & ~(handleAlign - 1u));
+    const VkDeviceSize regionSize =
+        static_cast<VkDeviceSize>((entryStride + baseAlign - 1u) & ~(baseAlign - 1u));
+
+    constexpr std::uint32_t kGroupCount = 3u;
+    m_ShaderHandles.resize(kGroupCount * handleSize);
+    vkGetRayTracingShaderGroupHandlesKHR(m_device, m_DDGIPipeline, 0, kGroupCount,
+                                         m_ShaderHandles.size(), m_ShaderHandles.data()) >> chk;
+
+    m_SBTBuffer = create_buffer(regionSize * kGroupCount,
+                                VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR |
+                                    VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                                VMA_MEMORY_USAGE_CPU_TO_GPU);
+
+    auto *sbt = static_cast<std::uint8_t *>(m_SBTBuffer.allocationInfo.pMappedData);
+    std::memcpy(sbt + regionSize * 0, m_ShaderHandles.data() + handleSize * 0, handleSize);
+    std::memcpy(sbt + regionSize * 1, m_ShaderHandles.data() + handleSize * 1, handleSize);
+    std::memcpy(sbt + regionSize * 2, m_ShaderHandles.data() + handleSize * 2, handleSize);
+
+    const VkDeviceAddress base = m_SBTBuffer.get_buffer_device_address(m_device);
+    m_RaygenRegion   = {.deviceAddress = base,                  .stride = regionSize, .size = regionSize};
+    m_MissRegion     = {.deviceAddress = base + regionSize,     .stride = entryStride, .size = regionSize};
+    m_HitRegion      = {.deviceAddress = base + regionSize * 2, .stride = entryStride, .size = regionSize};
+    m_CallableRegion = {};
+
+    {
+        const DDGIVolume defaultVolume{
+            .origin              = {0.f, 0.f, 0.f},
+            .probeNumRays        = static_cast<int>(kDDGIDefaultRays),
+            .rotation            = {0.f, 0.f, 0.f, 1.f},
+            .probeSpacing        = {2.f, 2.f, 2.f},
+            .probeMaxRayDistance = 20.f,
+            .probeCounts         = {static_cast<int>(kDDGIDefaultProbesX),
+                                    static_cast<int>(kDDGIDefaultProbesY),
+                                    static_cast<int>(kDDGIDefaultProbesZ)},
+            .probeRayRotation    = {0.f, 0.f, 0.f, 1.f},
+        };
+        m_DDGIVolumesBuffer = create_buffer(
+            sizeof(DDGIVolume),
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+            VMA_MEMORY_USAGE_CPU_TO_GPU);
+        std::memcpy(m_DDGIVolumesBuffer.allocationInfo.pMappedData, &defaultVolume, sizeof(DDGIVolume));
+        m_DDGIVolumesAddr = m_DDGIVolumesBuffer.get_buffer_device_address(m_device);
+    }
+
+    m_mainDeletionQueue.push_function([this] {
+        vkDestroyPipeline(m_device, m_DDGIPipeline, nullptr);
+        vkDestroyPipelineLayout(m_device, m_DDGIPipelineLayout, nullptr);
+        destroy_buffer(m_SBTBuffer);
+        destroy_buffer(m_DDGIVolumesBuffer);
+    });
+}
+
 void Engine::init_populate_commands_with_cascade_count()
 {
     const VkPushConstantRange constantRange{
@@ -1578,6 +1738,53 @@ void Engine::init_frames_data()
         mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_BUFFER,
                                    reinterpret_cast<uint64_t>(frame.countBuffer.buffer),
                                    std::format("Count Buffer [{}]", i).c_str());
+
+        {
+            const VkImageCreateInfo rayDataInfo{
+                .sType       = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+                .imageType   = VK_IMAGE_TYPE_2D,
+                .format      = VK_FORMAT_R32G32B32A32_SFLOAT,
+                .extent      = {kDDGIDefaultRays, kDDGIDefaultProbesX * kDDGIDefaultProbesZ, 1},
+                .mipLevels   = 1,
+                .arrayLayers = kDDGIDefaultProbesY,
+                .samples     = VK_SAMPLE_COUNT_1_BIT,
+                .tiling      = VK_IMAGE_TILING_OPTIMAL,
+                .usage       = VK_IMAGE_USAGE_STORAGE_BIT,
+            };
+            constexpr VmaAllocationCreateInfo rayDataAllocInfo{
+                .usage         = VMA_MEMORY_USAGE_GPU_ONLY,
+                .requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            };
+            vmaCreateImage(m_allocator, &rayDataInfo, &rayDataAllocInfo,
+                           &frame.rayData.image, &frame.rayData.allocation, nullptr) >> chk;
+            frame.rayData.imageFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
+            frame.rayData.imageExtent = {kDDGIDefaultRays, kDDGIDefaultProbesX * kDDGIDefaultProbesZ, 1};
+
+            const VkImageViewCreateInfo viewInfo{
+                .sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+                .image    = frame.rayData.image,
+                .viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY,
+                .format   = VK_FORMAT_R32G32B32A32_SFLOAT,
+                .subresourceRange = {
+                    .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .baseMipLevel   = 0,
+                    .levelCount     = 1,
+                    .baseArrayLayer = 0,
+                    .layerCount     = kDDGIDefaultProbesY,
+                },
+            };
+            vkCreateImageView(m_device, &viewInfo, nullptr, &frame.rayData.imageView) >> chk;
+            mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
+                                       reinterpret_cast<uint64_t>(frame.rayData.image),
+                                       std::format("DDGI RayData [{}]", i).c_str());
+        }
+
+        frame.ddgiDescBuffer =
+            DescriptorBuffer(m_device, m_DDGIDescriptorSetLayout, DescriptorBufferProperties::query(m_chosenGpu));
+        frame.ddgiDescBuffer.create_buffer([this](const std::size_t allocSize, const VkBufferUsageFlags bufferUsage) {
+            return create_buffer(allocSize, bufferUsage, VMA_MEMORY_USAGE_CPU_ONLY);
+        });
+        frame.ddgiDescBuffer.write_storage_image(1, 0, frame.rayData.imageView, VK_IMAGE_LAYOUT_GENERAL);
     }
 
     m_mainDeletionQueue.push_function([this] {
@@ -1601,6 +1808,9 @@ void Engine::init_frames_data()
             destroy_buffer(frame.splitsAABBBuffer);
             destroy_buffer(frame.histogramBuffer);
             destroy_buffer(frame.cascadeDepthDescBuffer.get_buffer());
+            vkDestroyImageView(m_device, frame.rayData.imageView, nullptr);
+            vmaDestroyImage(m_allocator, frame.rayData.image, frame.rayData.allocation);
+            destroy_buffer(frame.ddgiDescBuffer.get_buffer());
         }
     });
 
@@ -1906,6 +2116,11 @@ void Engine::init_mesh_data()
     m_scene.draw(glm::mat4(1.0f), m_mainDrawContext);
     create_BLAS();
     create_TLAS();
+
+    for (auto &frame : m_frameData)
+    {
+        frame.ddgiDescBuffer.write_acceleration_structure(0, 0, m_TlasAccel.address);
+    }
 
     m_mainDeletionQueue.push_function([this] {
         destroy_buffer(m_globalPositionBuffer);

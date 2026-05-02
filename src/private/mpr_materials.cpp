@@ -33,15 +33,14 @@ void GLTFMetallicRoughness::build_pipelines(Engine& engine) {
   }
 
   {
+    constexpr VkShaderStageFlags kMaterialStages =
+        VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
+        VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
     materialLayout =
         DescriptorSetLayoutBuilder()
-            .add_binding(
-                0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 10000,
-                VK_SHADER_STAGE_FRAGMENT_BIT)
-            .add_binding(1, VK_DESCRIPTOR_TYPE_SAMPLER, 10000,
-                         VK_SHADER_STAGE_FRAGMENT_BIT)
-            .add_binding(2, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 10000,
-                         VK_SHADER_STAGE_FRAGMENT_BIT)
+            .add_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 10000, kMaterialStages)
+            .add_binding(1, VK_DESCRIPTOR_TYPE_SAMPLER, 10000, kMaterialStages)
+            .add_binding(2, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 10000, kMaterialStages)
             .build(engine.m_device,
                    VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
   }

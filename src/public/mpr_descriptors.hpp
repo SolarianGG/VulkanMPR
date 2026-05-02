@@ -62,6 +62,7 @@ class DescriptorBuffer {
     VkDeviceSize sampledImageDescriptorSize;
     VkDeviceSize storageImageDescriptorSize;
     VkDeviceSize samplerDescriptorSize;
+    VkDeviceSize accelerationStructureDescriptorSize;
     VkDeviceSize descriptorBufferOffsetAlignment;
   };
 
@@ -180,6 +181,19 @@ class DescriptorBuffer {
                      m_props.storageImageDescriptorSize);
   }
 
+  void write_acceleration_structure(const uint32_t binding,
+                                    const uint32_t arrayIndex,
+                                    const VkDeviceAddress accelAddress,
+                                    const uint32_t setIndex = 0) {
+    const VkDescriptorGetInfoEXT getInfo{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT,
+        .type  = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
+        .data  = {.accelerationStructure = accelAddress},
+    };
+    write_descriptor(binding, arrayIndex, setIndex, getInfo,
+                     m_props.accelerationStructureDescriptorSize);
+  }
+
   [[nodiscard]]
   VkDeviceAddress get_device_address(const uint32_t setIndex = 0) const {
     return m_deviceAddress + (m_layoutSize * setIndex);
@@ -278,6 +292,8 @@ class DescriptorBufferProperties {
         .sampledImageDescriptorSize = bufferProps.sampledImageDescriptorSize,
         .storageImageDescriptorSize = bufferProps.storageImageDescriptorSize,
         .samplerDescriptorSize = bufferProps.samplerDescriptorSize,
+        .accelerationStructureDescriptorSize =
+            bufferProps.accelerationStructureDescriptorSize,
         .descriptorBufferOffsetAlignment =
             bufferProps.descriptorBufferOffsetAlignment,
     };
