@@ -12,6 +12,7 @@
 #include <imgui.h>
 
 #include "mpr_engine.hpp"
+#include "mpr_math.hpp"
 
 // clang-format on
 
@@ -71,6 +72,7 @@ void DrawContext::clear()
     transparentMeshes.clear();
     dirLight = std::nullopt;
     pointLights.clear();
+    ddgiVolumes.clear();
     renderObjects.clear();
     opaqueInstances.clear();
     alphaTestedInstances.clear();
@@ -181,10 +183,10 @@ void PointLightNode::edit()
 
 void DDGIVolumeNode::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
 {
-    if (m_bVisualize)
-    {
-        // TODO: Add volume to draw context
-    }
+    m_Data.origin = glm::vec3{worldTransform[3]};
+    m_Data.probeRayRotation = mp::math::random_rotation_quaternion();
+    if (ctx.ddgiVolumes.size() < kMaxDDGIVolumes)
+        ctx.ddgiVolumes.push_back(m_Data);
 
     Node::draw(topMatrix, ctx);
 }
@@ -193,7 +195,13 @@ void DDGIVolumeNode::edit()
 {
     Node::edit();
 
-    
+    ImGui::Text("DDGI Volume");
+    ImGui::DragFloat3("Probe Spacing", glm::value_ptr(m_Data.probeSpacing), 0.05f, 0.01f, 10.0f);
+    ImGui::DragFloat("Max Ray Dist", &m_Data.probeMaxRayDistance, 0.1f, 0.1f, 1000.0f);
+    ImGui::DragInt("Rays per Probe", &m_Data.probeNumRays, 1, 1, static_cast<int>(kMaxDDGIRays));
+    int counts[3] = {m_Data.probeCounts.x, m_Data.probeCounts.y, m_Data.probeCounts.z};
+    if (ImGui::DragInt3("Probe Counts", counts, 1, 1, static_cast<int>(kMaxDDGIProbesX)))
+        m_Data.probeCounts = {counts[0], counts[1], counts[2]};
 }
 
 void Scene::draw(const glm::mat4 &topMatrix, DrawContext &ctx)

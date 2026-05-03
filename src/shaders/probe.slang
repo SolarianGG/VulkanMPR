@@ -9,7 +9,7 @@ RaytracingAccelerationStructure SceneTLAS;
 
 [[vk::binding(1, 0)]]
 [[vk::image_format("rgba32f")]]
-RWTexture2DArray<float4> RayData;
+RWTexture2DArray<float4> RayDatas[];
 
 [[vk::binding(0, 1)]] ConstantBuffer<GLTFMaterialData> materials[];
 [[vk::binding(1, 1)]] SamplerState samplers[];
@@ -45,6 +45,7 @@ struct Payload {
 void RGSMain()
 {
     DDGIVolume volume = pushConstants.volumes[pushConstants.currentVolumeIndex];
+    RWTexture2DArray<float4> RayData = RayDatas[pushConstants.currentVolumeIndex];
 
     // Compute the probe index for this thread
     int rayIndex = DispatchRaysIndex().x;        // index of the ray to trace for this probe

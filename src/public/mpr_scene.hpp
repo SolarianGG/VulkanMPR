@@ -56,6 +56,7 @@ struct DrawContext
     std::unordered_map<RenderObject, std::uint32_t, RenderObjectHash> transparentMeshes;
     std::optional<DirectionalLightData> dirLight;
     std::vector<PointLightData> pointLights;
+    std::vector<DDGIVolume> ddgiVolumes;
 
     glm::vec3 min{FLT_MAX};
     glm::vec3 max{-FLT_MAX};

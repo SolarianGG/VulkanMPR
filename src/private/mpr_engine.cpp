@@ -284,6 +284,25 @@ void Engine::run()
                 node->nodeIndex = nodeIndex;
                 m_scene.topNodes.push_back(node);
             }
+            if (m_mainDrawContext.ddgiVolumes.size() < kMaxDDGIVolumes && ImGui::Button("Add DDGI Volume"))
+            {
+                const glm::vec3 center = (m_mainDrawContext.max + m_mainDrawContext.min) * 0.5f;
+                const auto nodeIndex = m_scene.add_node(std::make_shared<DDGIVolumeNode>(DDGIVolume{
+                    .origin = center,
+                    .probeNumRays = 64,
+                    .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
+                    .probeSpacing = {1.0f, 1.0f, 1.0f},
+                    .probeMaxRayDistance = 10.0f,
+                    .probeCounts = {8, 8, 8},
+                    .probeRayRotation = {0.0f, 0.0f, 0.0f, 1.0f},
+                }));
+                auto &node = m_scene.nodes.find(nodeIndex)->second;
+                node->worldTransform = glm::mat4(1.0f);
+                node->localTransform = glm::mat4(1.0f);
+                node->name = "DDGI Volume";
+                node->nodeIndex = nodeIndex;
+                m_scene.topNodes.push_back(node);
+            }
             ImGui::End();
         }
 
@@ -381,6 +400,13 @@ void Engine::update_scene()
     }
     std::memcpy(frame.pointLightBuffer.allocationInfo.pMappedData, m_mainDrawContext.pointLights.data(),
                 m_mainDrawContext.pointLights.size() * sizeof(PointLightData));
+
+    m_DDGIVolumeCount = static_cast<std::uint32_t>(m_mainDrawContext.ddgiVolumes.size());
+    if (m_DDGIVolumeCount > 0)
+    {
+        std::memcpy(m_DDGIVolumesBuffer.allocationInfo.pMappedData, m_mainDrawContext.ddgiVolumes.data(),
+                    m_DDGIVolumeCount * sizeof(DDGIVolume));
+    }
 
     m_LightPassConstants.sceneData = frame.sceneDataBufferAddr;
     m_LightPassConstants.directionalLight =

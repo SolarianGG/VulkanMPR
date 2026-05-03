@@ -97,7 +97,7 @@ struct FrameData
     AllocatedBuffer countBuffer;
     VkDeviceAddress countBufferAddr;
 
-    AllocatedImage   rayData;
+    std::array<AllocatedImage, kMaxDDGIVolumes> rayDatas;
     DescriptorBuffer ddgiDescBuffer;
 };
 
@@ -322,6 +322,7 @@ class Engine final
 
     AllocatedBuffer m_DDGIVolumesBuffer{};
     VkDeviceAddress m_DDGIVolumesAddr{};
+    std::uint32_t   m_DDGIVolumeCount{0};
 
     VkPhysicalDeviceRayTracingPipelinePropertiesKHR m_RTProperties{
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR};

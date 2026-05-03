@@ -513,7 +513,7 @@ void Engine::init_descriptors()
         m_DDGIDescriptorSetLayout =
             DescriptorSetLayoutBuilder()
                 .add_binding(0, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR)
-                .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR)
+                .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, kMaxDDGIVolumes, VK_SHADER_STAGE_RAYGEN_BIT_KHR)
                 .build(m_device, VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
     }
     for (auto &frame : m_frameData)
@@ -1332,22 +1332,10 @@ void Engine::init_ddgi_probe_pipeline()
     m_CallableRegion = {};
 
     {
-        const DDGIVolume defaultVolume{
-            .origin              = {0.f, 0.f, 0.f},
-            .probeNumRays        = static_cast<int>(kDDGIDefaultRays),
-            .rotation            = {0.f, 0.f, 0.f, 1.f},
-            .probeSpacing        = {2.f, 2.f, 2.f},
-            .probeMaxRayDistance = 20.f,
-            .probeCounts         = {static_cast<int>(kDDGIDefaultProbesX),
-                                    static_cast<int>(kDDGIDefaultProbesY),
-                                    static_cast<int>(kDDGIDefaultProbesZ)},
-            .probeRayRotation    = {0.f, 0.f, 0.f, 1.f},
-        };
         m_DDGIVolumesBuffer = create_buffer(
-            sizeof(DDGIVolume),
+            sizeof(DDGIVolume) * kMaxDDGIVolumes,
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
             VMA_MEMORY_USAGE_CPU_TO_GPU);
-        std::memcpy(m_DDGIVolumesBuffer.allocationInfo.pMappedData, &defaultVolume, sizeof(DDGIVolume));
         m_DDGIVolumesAddr = m_DDGIVolumesBuffer.get_buffer_device_address(m_device);
     }
 
@@ -1739,14 +1727,20 @@ void Engine::init_frames_data()
                                    reinterpret_cast<uint64_t>(frame.countBuffer.buffer),
                                    std::format("Count Buffer [{}]", i).c_str());
 
+        frame.ddgiDescBuffer =
+            DescriptorBuffer(m_device, m_DDGIDescriptorSetLayout, DescriptorBufferProperties::query(m_chosenGpu));
+        frame.ddgiDescBuffer.create_buffer([this](const std::size_t allocSize, const VkBufferUsageFlags bufferUsage) {
+            return create_buffer(allocSize, bufferUsage, VMA_MEMORY_USAGE_CPU_ONLY);
+        });
+        for (std::uint32_t j = 0; j < kMaxDDGIVolumes; ++j)
         {
             const VkImageCreateInfo rayDataInfo{
                 .sType       = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
                 .imageType   = VK_IMAGE_TYPE_2D,
                 .format      = VK_FORMAT_R32G32B32A32_SFLOAT,
-                .extent      = {kDDGIDefaultRays, kDDGIDefaultProbesX * kDDGIDefaultProbesZ, 1},
+                .extent      = {kMaxDDGIRays, kMaxDDGIProbesX * kMaxDDGIProbesZ, 1},
                 .mipLevels   = 1,
-                .arrayLayers = kDDGIDefaultProbesY,
+                .arrayLayers = kMaxDDGIProbesY,
                 .samples     = VK_SAMPLE_COUNT_1_BIT,
                 .tiling      = VK_IMAGE_TILING_OPTIMAL,
                 .usage       = VK_IMAGE_USAGE_STORAGE_BIT,
@@ -1756,13 +1750,13 @@ void Engine::init_frames_data()
                 .requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             };
             vmaCreateImage(m_allocator, &rayDataInfo, &rayDataAllocInfo,
-                           &frame.rayData.image, &frame.rayData.allocation, nullptr) >> chk;
-            frame.rayData.imageFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
-            frame.rayData.imageExtent = {kDDGIDefaultRays, kDDGIDefaultProbesX * kDDGIDefaultProbesZ, 1};
+                           &frame.rayDatas[j].image, &frame.rayDatas[j].allocation, nullptr) >> chk;
+            frame.rayDatas[j].imageFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
+            frame.rayDatas[j].imageExtent = {kMaxDDGIRays, kMaxDDGIProbesX * kMaxDDGIProbesZ, 1};
 
             const VkImageViewCreateInfo viewInfo{
                 .sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-                .image    = frame.rayData.image,
+                .image    = frame.rayDatas[j].image,
                 .viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY,
                 .format   = VK_FORMAT_R32G32B32A32_SFLOAT,
                 .subresourceRange = {
@@ -1770,21 +1764,16 @@ void Engine::init_frames_data()
                     .baseMipLevel   = 0,
                     .levelCount     = 1,
                     .baseArrayLayer = 0,
-                    .layerCount     = kDDGIDefaultProbesY,
+                    .layerCount     = kMaxDDGIProbesY,
                 },
             };
-            vkCreateImageView(m_device, &viewInfo, nullptr, &frame.rayData.imageView) >> chk;
+            vkCreateImageView(m_device, &viewInfo, nullptr, &frame.rayDatas[j].imageView) >> chk;
             mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
-                                       reinterpret_cast<uint64_t>(frame.rayData.image),
-                                       std::format("DDGI RayData [{}]", i).c_str());
+                                       reinterpret_cast<uint64_t>(frame.rayDatas[j].image),
+                                       std::format("DDGI RayData [{}]", j).c_str());
+            frame.ddgiDescBuffer.write_storage_image(1, j, frame.rayDatas[j].imageView, VK_IMAGE_LAYOUT_GENERAL);
         }
 
-        frame.ddgiDescBuffer =
-            DescriptorBuffer(m_device, m_DDGIDescriptorSetLayout, DescriptorBufferProperties::query(m_chosenGpu));
-        frame.ddgiDescBuffer.create_buffer([this](const std::size_t allocSize, const VkBufferUsageFlags bufferUsage) {
-            return create_buffer(allocSize, bufferUsage, VMA_MEMORY_USAGE_CPU_ONLY);
-        });
-        frame.ddgiDescBuffer.write_storage_image(1, 0, frame.rayData.imageView, VK_IMAGE_LAYOUT_GENERAL);
     }
 
     m_mainDeletionQueue.push_function([this] {
@@ -1808,8 +1797,11 @@ void Engine::init_frames_data()
             destroy_buffer(frame.splitsAABBBuffer);
             destroy_buffer(frame.histogramBuffer);
             destroy_buffer(frame.cascadeDepthDescBuffer.get_buffer());
-            vkDestroyImageView(m_device, frame.rayData.imageView, nullptr);
-            vmaDestroyImage(m_allocator, frame.rayData.image, frame.rayData.allocation);
+            for (auto& rayData : frame.rayDatas)
+            {
+                vkDestroyImageView(m_device, rayData.imageView, nullptr);
+                vmaDestroyImage(m_allocator, rayData.image, rayData.allocation);
+            }
             destroy_buffer(frame.ddgiDescBuffer.get_buffer());
         }
     });

@@ -32,10 +32,11 @@ constexpr int MAX_CASCADES = kMaxCascadeCount;
 
 constexpr std::uint32_t kDirectionalShadowMapSize = 2048u;
 
-constexpr std::uint32_t kDDGIDefaultRays    = 64u;
-constexpr std::uint32_t kDDGIDefaultProbesX = 8u;
-constexpr std::uint32_t kDDGIDefaultProbesY = 4u;
-constexpr std::uint32_t kDDGIDefaultProbesZ = 16u;
+constexpr std::uint32_t kMaxDDGIVolumes = 4u;
+constexpr std::uint32_t kMaxDDGIRays    = 512u;
+constexpr std::uint32_t kMaxDDGIProbesX = 22u;
+constexpr std::uint32_t kMaxDDGIProbesY = 22u;
+constexpr std::uint32_t kMaxDDGIProbesZ = 22u;
 
 constexpr std::uint32_t kPointLightsShadowMapSize = 8192u;
 constexpr std::uint32_t kPointLightTileSize = 1024u;
@@ -92,11 +93,6 @@ inline std::pair<float, float> compute_alpha_beta()
     const float dilatedFovX = glm::degrees(glm::acos(glm::dot(v[0], v[1])));
     const float dilatedFovY = glm::degrees(glm::acos(glm::dot(v[2], v[3])));
     return {dilatedFovX - hFOV_orig, dilatedFovY - vFOV_orig};
-}
-
-inline bool is_nearly_zero(const float value)
-{
-    return FP_ZERO == fpclassify(value);
 }
 
 struct ImageResource
