@@ -404,8 +404,9 @@ void Engine::update_scene()
     m_DDGIVolumeCount = static_cast<std::uint32_t>(m_mainDrawContext.ddgiVolumes.size());
     if (m_DDGIVolumeCount > 0)
     {
-        std::memcpy(m_DDGIVolumesBuffer.allocationInfo.pMappedData, m_mainDrawContext.ddgiVolumes.data(),
-                    m_DDGIVolumeCount * sizeof(DDGIVolume));
+        auto *dst = static_cast<DDGIVolume *>(m_DDGIVolumesBuffer.allocationInfo.pMappedData);
+        for (std::uint32_t i = 0; i < m_DDGIVolumeCount; ++i)
+            dst[i] = m_mainDrawContext.ddgiVolumes[i].volume;
     }
 
     m_LightPassConstants.sceneData = frame.sceneDataBufferAddr;

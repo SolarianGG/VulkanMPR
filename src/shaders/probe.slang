@@ -2,6 +2,7 @@ import types;
 import ddgi_common;
 import utils;
 import raytracing;
+import lights;
 
 
 [[vk::binding(0, 0)]]
@@ -18,6 +19,11 @@ RWTexture2DArray<float4> RayDatas[];
 struct PushConstants {
     DDGIVolume *volumes;
     uint currentVolumeIndex;
+    DirectionalLight *dirLight;
+    PointLight *pointLights;
+    uint pointLightsCount;
+    float rayNormalBias;
+    float rayViewBias;
     VertexPosition *vPositions;
     VertexAttributes *vAttributes;
     uint32_t *indices;
@@ -27,19 +33,6 @@ struct PushConstants {
 
 [[vk::push_constant]]
 PushConstants pushConstants;
-
-struct Payload {
-    float3 worldPosition;
-    float hitT;
-    float3 normal;
-    uint hitKind;
-    float3 albedo;
-    float opacity;
-    float3 shadingNormal;
-    float metallic;
-    float3 _padding0;
-    float roughness;
-};
 
 [shader("raygeneration")]
 void RGSMain()
@@ -91,10 +84,14 @@ void RGSMain()
         return;
     }
 
-    // TODO: Direct + indirect light evaluation
+    float3 diffuse = DirectDiffuseLighting(payl, pushConstants.rayNormalBias, pushConstants.rayViewBias, SceneTLAS, pushConstants.dirLight, pushConstants.pointLights, pushConstants.pointLightsCount);
 
+    // TODO: Add irradiance evalution
+    float irradiance = 0.5f;
 
-    RayData[outputCoords] = float4(payl.albedo, payl.hitT);
+    float maxAlbedo = 0.9f;
+    float3 radiance = diffuse + ((min(payl.albedo, float3(maxAlbedo, maxAlbedo, maxAlbedo)) / float ::getPi()) * irradiance);
+    RayData[outputCoords] = float4(saturate(radiance), payl.hitT);
 }
 
 [shader("anyhit")]

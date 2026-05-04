@@ -132,3 +132,16 @@ public struct DDGIVolume {
     public float _padding1;
     public float4 probeRayRotation;
 };
+
+public struct Payload {
+    public float3 worldPosition;
+    public float hitT;
+    public float3 normal;
+    public uint hitKind;
+    public float3 albedo;
+    public float opacity;
+    public float3 shadingNormal;
+    public float metallic;
+    public float3 _padding0;
+    public float roughness;
+};

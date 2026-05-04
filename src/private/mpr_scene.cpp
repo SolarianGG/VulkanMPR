@@ -198,7 +198,7 @@ void DDGIVolumeNode::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
     if (ctx.ddgiVolumes.size() < kMaxDDGIVolumes)
     {
         const auto volumeIdx = static_cast<std::uint32_t>(ctx.ddgiVolumes.size());
-        ctx.ddgiVolumes.push_back(m_Data);
+        ctx.ddgiVolumes.push_back(DDGIVolumeDrawData{m_Data, m_RayNormalBias, m_RayViewBias});
         if (m_bVisualize)
             ctx.ddgiVolumesVis.emplace_back(m_Data, volumeIdx);
     }
@@ -218,6 +218,8 @@ void DDGIVolumeNode::edit()
     int counts[3] = {m_Data.probeCounts.x, m_Data.probeCounts.y, m_Data.probeCounts.z};
     if (ImGui::DragInt3("Probe Counts", counts, 1, 1, static_cast<int>(kMaxDDGIProbesX)))
         m_Data.probeCounts = {counts[0], counts[1], counts[2]};
+    ImGui::DragFloat("Ray Normal Bias", &m_RayNormalBias, 0.0001f, 0.0001f, 0.5f, "%.4f");
+    ImGui::DragFloat("Ray View Bias",   &m_RayViewBias,   0.0001f, 0.0001f, 0.5f, "%.4f");
 }
 
 void Scene::draw(const glm::mat4 &topMatrix, DrawContext &ctx)

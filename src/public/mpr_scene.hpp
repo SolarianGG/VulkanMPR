@@ -56,7 +56,7 @@ struct DrawContext
     std::unordered_map<RenderObject, std::uint32_t, RenderObjectHash> transparentMeshes;
     std::optional<DirectionalLightData> dirLight;
     std::vector<PointLightData> pointLights;
-    std::vector<DDGIVolume> ddgiVolumes;
+    std::vector<DDGIVolumeDrawData> ddgiVolumes;
     std::vector<std::pair<DDGIVolume, std::uint32_t>> ddgiVolumesVis;
 
     glm::vec3 min{FLT_MAX};
@@ -148,8 +148,11 @@ struct DDGIVolumeNode : public Node
 {
   public:
     DDGIVolume m_Data{};
-    bool m_bVisualize = false;
-public:
+    bool  m_bVisualize    = false;
+    float m_RayNormalBias{0.01f};
+    float m_RayViewBias{0.01f};
+
+  public:
     DDGIVolumeNode() = default;
     explicit DDGIVolumeNode(const DDGIVolume& volume, bool bVisualize = false) : m_Data(volume), m_bVisualize(bVisualize){}
 

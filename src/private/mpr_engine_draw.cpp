@@ -1661,25 +1661,35 @@ void Engine::draw_ddgi_probe_pass(VkCommandBuffer cmd)
     vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_DDGIPipelineLayout, 0,
                                        std::size(setIndices), setIndices, setOffsets);
 
+    const VkDeviceAddress dirLightAddr =
+        m_mainDrawContext.dirLight.has_value() ? currentFrame.dirLightBufferAddr : VkDeviceAddress{0};
+
     DDGIProbePushConstants pc{
-        .volumes = m_DDGIVolumesAddr,
-        .vPositions = m_globalPositionBufferAddress,
-        .vAttributes = m_globalAttributesBufferAddress,
-        .indices = m_globalIndexBufferDeviceAddress,
-        .instances = currentFrame.instanceBufferAddr,
-        .meshes = currentFrame.meshBufferAddr,
+        .volumes          = m_DDGIVolumesAddr,
+        .dirLight         = dirLightAddr,
+        .pointLights      = currentFrame.pointLightBufferAddr,
+        .pointLightsCount = static_cast<std::uint32_t>(m_mainDrawContext.pointLights.size()),
+        .vPositions       = m_globalPositionBufferAddress,
+        .vAttributes      = m_globalAttributesBufferAddress,
+        .indices          = m_globalIndexBufferDeviceAddress,
+        .instances        = currentFrame.instanceBufferAddr,
+        .meshes           = currentFrame.meshBufferAddr,
     };
     for (std::uint32_t i = 0; i < m_DDGIVolumeCount; ++i)
     {
-        const auto volume = m_mainDrawContext.ddgiVolumes[i];
+        const auto &volData = m_mainDrawContext.ddgiVolumes[i];
         pc.currentVolumeIndex = i;
+        pc.rayNormalBias      = volData.rayNormalBias;
+        pc.rayViewBias        = volData.rayViewBias;
         vkCmdPushConstants(cmd, m_DDGIPipelineLayout,
                            VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
                                VK_SHADER_STAGE_ANY_HIT_BIT_KHR,
                            0, sizeof(DDGIProbePushConstants), &pc);
 
-        vkCmdTraceRaysKHR(cmd, &m_RaygenRegion, &m_MissRegion, &m_HitRegion, &m_CallableRegion, volume.probeNumRays,
-                          volume.probeCounts.x * volume.probeCounts.z, volume.probeCounts.y);
+        vkCmdTraceRaysKHR(cmd, &m_RaygenRegion, &m_MissRegion, &m_HitRegion, &m_CallableRegion,
+                          volData.volume.probeNumRays,
+                          volData.volume.probeCounts.x * volData.volume.probeCounts.z,
+                          volData.volume.probeCounts.y);
     }
 
     mp::debug::cmd_end_label(cmd);

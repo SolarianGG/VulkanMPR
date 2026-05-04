@@ -39,5 +39,8 @@ VSOutput VSMain(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
 [shader("fragment")]
 float4 FSMain(VSOutput input) : SV_Target
 {
+    // TODO: Add color depending on condition
+    // Irradiance -> irradiance
+    // Distance -> distance
     return float4(input.color, 1.0f);
 }

@@ -24,6 +24,121 @@ float3 F_Schlick(float3 F0, float HdotV)
     return F0 + (1.0f - F0) * pow(1.0f - HdotV, 5.0f);
 }
 
+float LightWindowing(float distanceToLight, float maxDistance) 
+{ 
+    return pow(saturate(1.f - pow((distanceToLight / maxDistance), 4)), 2); 
+}
+
+float LightFalloff(float distanceToLight)
+{ 
+    return 1.f / pow(max(distanceToLight, 1.f), 2);
+}
+
+float LightVisibility(
+    Payload payload,
+    float3 lightVector,
+    float tmax,
+    float normalBias,
+    float viewBias,
+    RaytracingAccelerationStructure bvh)
+{
+    RayDesc ray;
+    ray.Origin = payload.worldPosition + (payload.normal * normalBias); // TODO: not using viewBias!
+    ray.Direction = normalize(lightVector);
+    ray.TMin = 0.f;
+    ray.TMax = tmax;
+
+    // Trace a visibility ray
+    // Skip the CHS to avoid evaluating materials
+    Payload packedPayload = (Payload)0;
+    TraceRay(
+        bvh,
+        RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER,
+        0xFF,
+        0,
+        0,
+        0,
+        ray,
+        packedPayload);
+
+    return (packedPayload.hitT < 0.f);
+}
+
+float3 EvaluateDirectionalLight(
+    Payload payload,
+    float normalBias,
+    float viewBias,
+    RaytracingAccelerationStructure bvh,
+                                DirectionalLight light)
+{
+    float visibility = LightVisibility(payload, -light.direction, 1e27f, normalBias, viewBias, bvh);
+
+    // Early out, the light isn't visible from the surface
+    if (visibility <= 0.f) return float3(0.f, 0.f, 0.f);
+
+    // Compute lighting
+    float3 lightDirection = -normalize(light.direction);
+    float nol = max(dot(payload.shadingNormal, lightDirection), 0.f);
+
+    return light.color.w * light.color.xyz * nol * visibility;
+}
+
+/**
+ * Evaluate direct lighting for the current surface and all influential point lights.
+ */
+float3 EvaluatePointLight(
+    Payload payload,
+    float normalBias,
+    float viewBias,
+    RaytracingAccelerationStructure bvh,
+                          PointLight light)
+{
+    float3 color = 0;
+
+    float3 lightVector = (light.position - payload.worldPosition);
+    float lightDistance = length(lightVector);
+
+    // Early out, light energy doesn't reach the surface
+    if (lightDistance > light.range) return float3(0.f, 0.f, 0.f);
+
+    float tmax = (lightDistance - viewBias);
+    float visibility = LightVisibility(payload, lightVector, tmax, normalBias, viewBias, bvh);
+
+    // Early out, this light isn't visible from the surface
+    if (visibility <= 0.f) return float3(0.f, 0.f, 0.f);
+
+    // Compute lighting
+    float3 lightDirection = normalize(lightVector);
+    float nol = max(dot(payload.shadingNormal, lightDirection), 0.f);
+    float falloff = LightFalloff(lightDistance);
+    float window = LightWindowing(lightDistance, light.range);
+
+    color += light.intensity * light.color * nol * falloff * window * visibility;
+    return color;
+}
+
+
+public float3 DirectDiffuseLighting(
+    Payload payload,
+    float normalBias,
+    float viewBias,
+    RaytracingAccelerationStructure bvh,
+                             DirectionalLight* dirLight, PointLight *pointLights, uint pointLightsCount)
+{
+    float3 brdf = (payload.albedo / float::getPi());
+    float3 lighting = 0.f;
+
+    if (dirLight != nullptr)
+    {
+        lighting += EvaluateDirectionalLight(payload, normalBias, viewBias, bvh, *dirLight);
+    }
+
+    for (uint i = 0; i < pointLightsCount; ++i)
+        lighting += EvaluatePointLight(payload, normalBias, viewBias, bvh, pointLights[i]);
+
+    return (brdf * lighting);
+}
+
 public float3 CalculateDirLightPBR(
     float3 worldPos,
     float3 cameraPos,
@@ -75,7 +190,7 @@ public float3 CalculatePointLightPBR(
     float3 viewDir = normalize(cameraPos - worldPos);
     float3 halfDir = normalize(lightDir + viewDir);
 
-    float attenuation = pow(max(0.0, 1.0 - pow(distance / light.range, 2)), 2);
+    float attenuation = LightFalloff(distance) * LightWindowing(distance, light.range);
 
     float NdotL = max(dot(normal, lightDir), 0.0f);
     float NdotV = max(dot(normal, viewDir), 0.001f);

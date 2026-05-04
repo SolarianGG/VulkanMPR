@@ -518,17 +518,29 @@ struct DDGIVolume {
 };
 static_assert(sizeof(DDGIVolume) == 80);
 
-struct DDGIProbePushConstants {
-    VkDeviceAddress volumes;
-    std::uint32_t   currentVolumeIndex;
-    std::uint32_t   _pad0{};
-    VkDeviceAddress vPositions;
-    VkDeviceAddress vAttributes;
-    VkDeviceAddress indices;
-    VkDeviceAddress instances;
-    VkDeviceAddress meshes;
+struct DDGIVolumeDrawData {
+    DDGIVolume volume;
+    float      rayNormalBias{0.01f};
+    float      rayViewBias{0.01f};
 };
-static_assert(sizeof(DDGIProbePushConstants) == 56);
+
+struct DDGIProbePushConstants {
+    VkDeviceAddress volumes;            // [0-7]
+    std::uint32_t   currentVolumeIndex; // [8-11]
+    std::uint32_t   _pad0{};           // [12-15]
+    VkDeviceAddress dirLight;           // [16-23]
+    VkDeviceAddress pointLights;        // [24-31]
+    std::uint32_t   pointLightsCount;   // [32-35]
+    float           rayNormalBias;      // [36-39]
+    float           rayViewBias;        // [40-43]
+    std::uint32_t   _pad1{};           // [44-47]
+    VkDeviceAddress vPositions;         // [48-55]
+    VkDeviceAddress vAttributes;        // [56-63]
+    VkDeviceAddress indices;            // [64-71]
+    VkDeviceAddress instances;          // [72-79]
+    VkDeviceAddress meshes;            // [80-87]
+};
+static_assert(sizeof(DDGIProbePushConstants) == 88);
 
 struct DDGIProbeVisPushConstants {
     VkDeviceAddress volumes;
