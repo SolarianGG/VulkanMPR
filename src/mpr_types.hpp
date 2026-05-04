@@ -530,4 +530,13 @@ struct DDGIProbePushConstants {
 };
 static_assert(sizeof(DDGIProbePushConstants) == 56);
 
+struct DDGIProbeVisPushConstants {
+    VkDeviceAddress volumes;
+    VkDeviceAddress sphereVertices;
+    VkDeviceAddress sceneData;
+    std::uint32_t   volumeIndex;
+    float           probeRadius;
+};
+static_assert(sizeof(DDGIProbeVisPushConstants) == 32);
+
 } // namespace mp

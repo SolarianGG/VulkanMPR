@@ -57,6 +57,7 @@ struct DrawContext
     std::optional<DirectionalLightData> dirLight;
     std::vector<PointLightData> pointLights;
     std::vector<DDGIVolume> ddgiVolumes;
+    std::vector<std::pair<DDGIVolume, std::uint32_t>> ddgiVolumesVis;
 
     glm::vec3 min{FLT_MAX};
     glm::vec3 max{-FLT_MAX};

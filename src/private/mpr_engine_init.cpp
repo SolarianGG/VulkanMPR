@@ -584,6 +584,7 @@ void Engine::init_pipelines()
     init_alpha_tested_directional_shadow_pass();
     init_alpha_tested_point_shadow_pass();
     init_ddgi_probe_pipeline();
+    init_ddgi_probe_vis_pipeline();
 }
 
 void Engine::init_light_pass_pipeline()
@@ -2311,6 +2312,136 @@ void Engine::init_alpha_tested_point_shadow_pass()
     m_mainDeletionQueue.push_function([this]() {
         vkDestroyPipeline(m_device, m_AlphaTestedPointLightShadowPassPipeline, nullptr);
         vkDestroyPipelineLayout(m_device, m_AlphaTestedPointLightShadowPassPipelineLayout, nullptr);
+    });
+}
+
+void Engine::init_ddgi_probe_vis_pipeline()
+{
+    // --- Sphere mesh (UV sphere, 8x8) ---
+    {
+        constexpr int rings = 8;
+        constexpr int sectors = 8;
+
+        std::vector<glm::vec3> vertices;
+        std::vector<std::uint32_t> indices;
+        vertices.reserve(rings * sectors);
+        indices.reserve((rings - 1) * (sectors - 1) * 6);
+
+        for (int r = 0; r < rings; ++r)
+        {
+            for (int s = 0; s < sectors; ++s)
+            {
+                const float y = std::sin(-glm::half_pi<float>() + glm::pi<float>() * r / (rings - 1));
+                const float x = std::cos(2.f * glm::pi<float>() * s / (sectors - 1)) *
+                                std::sin(glm::pi<float>() * r / (rings - 1));
+                const float z = std::sin(2.f * glm::pi<float>() * s / (sectors - 1)) *
+                                std::sin(glm::pi<float>() * r / (rings - 1));
+                vertices.push_back({x, y, z});
+            }
+        }
+        for (int r = 0; r < rings - 1; ++r)
+        {
+            for (int s = 0; s < sectors - 1; ++s)
+            {
+                indices.push_back(r * sectors + s);
+                indices.push_back(r * sectors + (s + 1));
+                indices.push_back((r + 1) * sectors + (s + 1));
+                indices.push_back(r * sectors + s);
+                indices.push_back((r + 1) * sectors + (s + 1));
+                indices.push_back((r + 1) * sectors + s);
+            }
+        }
+        m_probeSphereIndexCount = static_cast<std::uint32_t>(indices.size());
+
+        const auto vbSize = vertices.size() * sizeof(glm::vec3);
+        const auto ibSize = indices.size() * sizeof(std::uint32_t);
+
+        m_probeSphereVertexBuffer =
+            create_buffer(vbSize,
+                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+                              VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                          VMA_MEMORY_USAGE_GPU_ONLY);
+        m_probeSphereIndexBuffer = create_buffer(
+            ibSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+
+        AllocatedBuffer stagingVB =
+            create_buffer(vbSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+        AllocatedBuffer stagingIB =
+            create_buffer(ibSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+
+        std::memcpy(stagingVB.allocationInfo.pMappedData, vertices.data(), vbSize);
+        std::memcpy(stagingIB.allocationInfo.pMappedData, indices.data(), ibSize);
+
+        immediate_submit([&](VkCommandBuffer cmd) {
+            VkBufferCopy vCopy{.srcOffset = 0, .dstOffset = 0, .size = vbSize};
+            vkCmdCopyBuffer(cmd, stagingVB.buffer, m_probeSphereVertexBuffer.buffer, 1, &vCopy);
+            VkBufferCopy iCopy{.srcOffset = 0, .dstOffset = 0, .size = ibSize};
+            vkCmdCopyBuffer(cmd, stagingIB.buffer, m_probeSphereIndexBuffer.buffer, 1, &iCopy);
+        });
+
+        destroy_buffer(stagingVB);
+        destroy_buffer(stagingIB);
+
+        m_probeSphereVerticesAddr = m_probeSphereVertexBuffer.get_buffer_device_address(m_device);
+
+        m_mainDeletionQueue.push_function([this] {
+            destroy_buffer(m_probeSphereVertexBuffer);
+            destroy_buffer(m_probeSphereIndexBuffer);
+        });
+    }
+
+    // --- Pipeline layout (push constants only, no descriptor sets) ---
+    {
+        const VkPushConstantRange pcRange{
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+            .offset = 0,
+            .size = sizeof(DDGIProbeVisPushConstants),
+        };
+        const VkPipelineLayoutCreateInfo layoutInfo{
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+            .setLayoutCount = 0,
+            .pSetLayouts = nullptr,
+            .pushConstantRangeCount = 1,
+            .pPushConstantRanges = &pcRange,
+        };
+        vkCreatePipelineLayout(m_device, &layoutInfo, nullptr, &m_DDGIProbeVisPipelineLayout) >> chk;
+    }
+
+    // --- Shaders ---
+    VkShaderModule vertShader;
+    if (!load_shader_module("../../src/compiled_shaders/probe_vis.vertex.spv", m_device, &vertShader))
+        throw std::runtime_error("Failed to load probe_vis.vertex.spv");
+
+    VkShaderModule fragShader;
+    if (!load_shader_module("../../src/compiled_shaders/probe_vis.fragment.spv", m_device, &fragShader))
+        throw std::runtime_error("Failed to load probe_vis.fragment.spv");
+
+    // --- Graphics pipeline ---
+    {
+        PipelineBuilder builder;
+        builder.pipelineLayout = m_DDGIProbeVisPipelineLayout;
+        builder.add_shader(vertShader, VK_SHADER_STAGE_VERTEX_BIT);
+        builder.add_shader(fragShader, VK_SHADER_STAGE_FRAGMENT_BIT);
+        builder.disable_depth_test();
+        builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+        builder.set_polygon_mode(VK_POLYGON_MODE_FILL);
+        builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+        builder.set_multisampling_none();
+        builder.add_color_attachment_format(m_swapchainImageFormat);
+        builder.colorBlends.push_back({.blendEnable = VK_FALSE,
+                                       .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                                         VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT});
+        m_DDGIProbeVisPipeline = builder.build_pipeline(m_device, VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT);
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
+                                   reinterpret_cast<uint64_t>(m_DDGIProbeVisPipeline), "DDGI Probe Vis Pipeline");
+    }
+
+    vkDestroyShaderModule(m_device, vertShader, nullptr);
+    vkDestroyShaderModule(m_device, fragShader, nullptr);
+
+    m_mainDeletionQueue.push_function([this] {
+        vkDestroyPipeline(m_device, m_DDGIProbeVisPipeline, nullptr);
+        vkDestroyPipelineLayout(m_device, m_DDGIProbeVisPipelineLayout, nullptr);
     });
 }
 

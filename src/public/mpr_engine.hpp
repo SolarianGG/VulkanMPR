@@ -324,6 +324,13 @@ class Engine final
     VkDeviceAddress m_DDGIVolumesAddr{};
     std::uint32_t   m_DDGIVolumeCount{0};
 
+    VkPipeline       m_DDGIProbeVisPipeline{};
+    VkPipelineLayout m_DDGIProbeVisPipelineLayout{};
+    AllocatedBuffer  m_probeSphereVertexBuffer{};
+    AllocatedBuffer  m_probeSphereIndexBuffer{};
+    VkDeviceAddress  m_probeSphereVerticesAddr{};
+    std::uint32_t    m_probeSphereIndexCount{0};
+
     VkPhysicalDeviceRayTracingPipelinePropertiesKHR m_RTProperties{
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR};
     VkPhysicalDeviceAccelerationStructurePropertiesKHR m_ASProperties{
@@ -352,6 +359,7 @@ class Engine final
     void init_cull_meshes_pipeline();
     void init_cull_point_lights_pipeline();
     void init_ddgi_probe_pipeline();
+    void init_ddgi_probe_vis_pipeline();
     void init_populate_commands_with_cascade_count();
     void init_generate_point_light_commands_pipeline();
     void init_imgui();
@@ -370,6 +378,7 @@ class Engine final
     void draw_average_luminance(VkCommandBuffer cmd);
     void draw_prepass(VkCommandBuffer cmd);
     void draw_ddgi_probe_pass(VkCommandBuffer cmd);
+    void draw_ddgi_probe_vis(VkCommandBuffer cmd, VkImageView swapchainImageView);
     void compute_depth_reduction(VkCommandBuffer cmd);
     void compute_depth_partition(VkCommandBuffer cmd);
     void compute_dir_lights_vp(VkCommandBuffer cmd);

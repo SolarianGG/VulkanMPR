@@ -1,5 +1,22 @@
 module utils;
 
+public float3 QuaternionRotate(float3 v, float4 q)
+{
+    float3 b = q.xyz;
+    float b2 = dot(b, b);
+    return (v * (q.w * q.w - b2) + b * (dot(v, b) * 2.f) + cross(b, v) * (q.w * 2.f));
+}
+
+/**
+ * Quaternion conjugate.
+ * For unit quaternions, conjugate equals inverse.
+ * Use this to create a quaternion that rotates in the opposite direction.
+ */
+public float4 QuaternionConjugate(float4 q)
+{
+    return float4(-q.xyz, q.w);
+}
+
 public float3 ReconstructWorldPos(
     uint2 pixel,
     uint2 resolution,

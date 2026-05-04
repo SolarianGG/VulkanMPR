@@ -73,6 +73,7 @@ void DrawContext::clear()
     dirLight = std::nullopt;
     pointLights.clear();
     ddgiVolumes.clear();
+    ddgiVolumesVis.clear();
     renderObjects.clear();
     opaqueInstances.clear();
     alphaTestedInstances.clear();
@@ -93,12 +94,12 @@ void MeshNode::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
                                    .min = s.min,
                                    .max = s.max};
 
-        auto &instanceVec = (passType == MaterialPass::Opaque)     ? ctx.opaqueInstances
-                          : (passType == MaterialPass::AlphaTested) ? ctx.alphaTestedInstances
-                                                                    : ctx.transparentInstances;
-        auto &submeshMap = (passType == MaterialPass::Opaque)     ? ctx.opaqueMeshes
-                         : (passType == MaterialPass::AlphaTested) ? ctx.alphaTestedMeshes
-                                                                   : ctx.transparentMeshes;
+        auto &instanceVec = (passType == MaterialPass::Opaque)        ? ctx.opaqueInstances
+                            : (passType == MaterialPass::AlphaTested) ? ctx.alphaTestedInstances
+                                                                      : ctx.transparentInstances;
+        auto &submeshMap = (passType == MaterialPass::Opaque)        ? ctx.opaqueMeshes
+                           : (passType == MaterialPass::AlphaTested) ? ctx.alphaTestedMeshes
+                                                                     : ctx.transparentMeshes;
 
         auto it = submeshMap.find(rObject);
         uint32_t submeshIndex;
@@ -184,9 +185,23 @@ void PointLightNode::edit()
 void DDGIVolumeNode::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
 {
     m_Data.origin = glm::vec3{worldTransform[3]};
+    {
+        glm::mat3 R(worldTransform);
+        R[0] = normalize(R[0]);
+        R[1] = normalize(R[1]);
+        R[2] = normalize(R[2]);
+
+        const glm::quat q = glm::quat_cast(R);
+        m_Data.rotation = glm::vec4{q.x, q.y, q.z, q.w};
+    }
     m_Data.probeRayRotation = mp::math::random_rotation_quaternion();
     if (ctx.ddgiVolumes.size() < kMaxDDGIVolumes)
+    {
+        const auto volumeIdx = static_cast<std::uint32_t>(ctx.ddgiVolumes.size());
         ctx.ddgiVolumes.push_back(m_Data);
+        if (m_bVisualize)
+            ctx.ddgiVolumesVis.emplace_back(m_Data, volumeIdx);
+    }
 
     Node::draw(topMatrix, ctx);
 }
@@ -196,6 +211,7 @@ void DDGIVolumeNode::edit()
     Node::edit();
 
     ImGui::Text("DDGI Volume");
+    ImGui::Checkbox("Visualize Probes", &m_bVisualize);
     ImGui::DragFloat3("Probe Spacing", glm::value_ptr(m_Data.probeSpacing), 0.05f, 0.01f, 10.0f);
     ImGui::DragFloat("Max Ray Dist", &m_Data.probeMaxRayDistance, 0.1f, 0.1f, 1000.0f);
     ImGui::DragInt("Rays per Probe", &m_Data.probeNumRays, 1, 1, static_cast<int>(kMaxDDGIRays));

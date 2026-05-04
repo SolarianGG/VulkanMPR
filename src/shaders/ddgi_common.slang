@@ -1,23 +1,9 @@
 module ddgi_common;
 
 import types;
+import utils;
 
-public float3 QuaternionRotate(float3 v, float4 q)
-{
-    float3 b = q.xyz;
-    float b2 = dot(b, b);
-    return (v * (q.w * q.w - b2) + b * (dot(v, b) * 2.f) + cross(b, v) * (q.w * 2.f));
-}
 
-/**
- * Quaternion conjugate.
- * For unit quaternions, conjugate equals inverse.
- * Use this to create a quaternion that rotates in the opposite direction.
- */
-public float4 QuaternionConjugate(float4 q)
-{
-    return float4(-q.xyz, q.w);
-}
 
 public int DDGIGetProbesPerPlane(int3 probeCounts)
 {
@@ -50,7 +36,7 @@ public float3 DDGIGetProbeWorldPosition(int3 probeCoords, DDGIVolume volume)
     probeWorldPosition = QuaternionRotate(probeWorldPosition, volume.rotation);
 
     // Translate the grid to the volume's center
-    probeWorldPosition += volume.origin + (volume.probeSpacing);
+    probeWorldPosition += volume.origin;
 
     return probeWorldPosition;
 }

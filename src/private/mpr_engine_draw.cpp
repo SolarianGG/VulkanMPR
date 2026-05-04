@@ -397,6 +397,7 @@ void Engine::draw()
         barrierBuilder.barrier(cmd);
     }
 
+    draw_ddgi_probe_vis(cmd, m_swapchainImageViews[swapchainImageIndex]);
     draw_imgui(cmd, m_swapchainImageViews[swapchainImageIndex]);
 
     {
@@ -1681,6 +1682,55 @@ void Engine::draw_ddgi_probe_pass(VkCommandBuffer cmd)
                           volume.probeCounts.x * volume.probeCounts.z, volume.probeCounts.y);
     }
 
+    mp::debug::cmd_end_label(cmd);
+}
+
+void Engine::draw_ddgi_probe_vis(VkCommandBuffer cmd, VkImageView swapchainImageView)
+{
+    if (m_mainDrawContext.ddgiVolumesVis.empty())
+        return;
+
+    mp::debug::cmd_begin_label(cmd, "DDGI Probe Visualization", {0.3f, 0.9f, 0.3f, 1.f});
+
+    const auto colorAttachment =
+        utils::attachment_info(swapchainImageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    const auto renderingInfo = utils::rendering_info(m_swapchainExtent, 1, &colorAttachment, nullptr);
+
+    vkCmdBeginRendering(cmd, &renderingInfo);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_DDGIProbeVisPipeline);
+
+    const VkViewport viewport{.x = 0.f,
+                              .y = static_cast<float>(m_swapchainExtent.height),
+                              .width = static_cast<float>(m_swapchainExtent.width),
+                              .height = -static_cast<float>(m_swapchainExtent.height),
+                              .minDepth = 0.f,
+                              .maxDepth = 1.f};
+    vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+    const VkRect2D scissor{.offset = {0, 0}, .extent = m_swapchainExtent};
+    vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+    vkCmdBindIndexBuffer(cmd, m_probeSphereIndexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+
+    for (const auto &[volume, volumeIdx] : m_mainDrawContext.ddgiVolumesVis)
+    {
+        const auto probeCount =
+            static_cast<std::uint32_t>(volume.probeCounts.x * volume.probeCounts.y * volume.probeCounts.z);
+
+        const DDGIProbeVisPushConstants pc{
+            .volumes = m_DDGIVolumesAddr,
+            .sphereVertices = m_probeSphereVerticesAddr,
+            .sceneData = get_current_frame().sceneDataBufferAddr,
+            .volumeIndex = volumeIdx,
+            .probeRadius = 0.05f,
+        };
+        vkCmdPushConstants(cmd, m_DDGIProbeVisPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+                           sizeof(DDGIProbeVisPushConstants), &pc);
+
+        vkCmdDrawIndexed(cmd, m_probeSphereIndexCount, probeCount, 0, 0, 0);
+    }
+
+    vkCmdEndRendering(cmd);
     mp::debug::cmd_end_label(cmd);
 }
 
