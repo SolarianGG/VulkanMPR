@@ -131,8 +131,10 @@ public struct DDGIVolume {
     public int3 probeCounts;
     public float rayNormalBias;
     public float4 probeRayRotation;
-    float3 _padding0;
     public float rayViewBias;
+    public int probeIrradianceTexels;
+    public int probeDistanceTexels; 
+    float _padding0;
 };
 
 public struct Payload {

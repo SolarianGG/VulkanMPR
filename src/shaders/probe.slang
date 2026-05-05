@@ -12,6 +12,14 @@ RaytracingAccelerationStructure SceneTLAS;
 [[vk::image_format("rgba32f")]]
 RWTexture2DArray<float4> RayDatas[];
 
+[[vk::binding(2, 0)]]
+[[vk::image_format("rgba16f")]]
+RWTexture2DArray<float4> Irradiance;
+
+[[vk::binding(3, 0)]]
+[[vk::image_format("rg32f")]]
+RWTexture2DArray<float2> Distance;
+
 [[vk::binding(0, 1)]] ConstantBuffer<GLTFMaterialData> materials[];
 [[vk::binding(1, 1)]] SamplerState samplers[];
 [[vk::binding(2, 1)]] Texture2D textures[];

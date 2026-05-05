@@ -215,6 +215,8 @@ void DDGIVolumeNode::edit()
     ImGui::DragFloat3("Probe Spacing", glm::value_ptr(m_Data.probeSpacing), 0.05f, 0.01f, 10.0f);
     ImGui::DragFloat("Max Ray Dist", &m_Data.probeMaxRayDistance, 0.1f, 0.1f, 1000.0f);
     ImGui::DragInt("Rays per Probe", &m_Data.probeNumRays, 1, 1, static_cast<int>(kMaxDDGIRays));
+    ImGui::DragInt("Probe irradiance texels", &m_Data.probeIrradianceTexels, 1, 1, static_cast<int>(kMaxIrradianceTexels));
+    ImGui::DragInt("Probe distance texels", &m_Data.probeDistanceTexels, 1, 1, static_cast<int>(kMaxDistanceTexels));
     int counts[3] = {m_Data.probeCounts.x, m_Data.probeCounts.y, m_Data.probeCounts.z};
     if (ImGui::DragInt3("Probe Counts", counts, 1, 1, static_cast<int>(kMaxDDGIProbesX)))
         m_Data.probeCounts = {counts[0], counts[1], counts[2]};

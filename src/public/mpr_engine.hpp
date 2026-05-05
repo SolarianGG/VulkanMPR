@@ -97,7 +97,11 @@ struct FrameData
     AllocatedBuffer countBuffer;
     VkDeviceAddress countBufferAddr;
 
+    // DDGI Data 
     std::array<AllocatedImage, kMaxDDGIVolumes> rayDatas;
+    AllocatedImage irradianceData;
+    AllocatedImage distanceData;
+    AllocatedImage ddgiOutput;
     DescriptorBuffer ddgiDescBuffer;
 };
 
@@ -124,6 +128,8 @@ class Engine final
     AllocatedImage create_image(void *data, VkExtent3D extent, VkFormat format, VkImageUsageFlags imageUsage,
                                 bool mipMapped = false);
     AllocatedImage create_image(dds::Image *ddsImage, VkImageUsageFlags imageUsage);
+    AllocatedImage create_image_array(VkExtent3D extent, VkFormat format, VkImageUsageFlags imageUsage,
+                                      std::uint32_t arrayLayers);
     void destroy_image(const AllocatedImage &image);
     FrameData &get_current_frame();
 
@@ -396,6 +402,7 @@ class Engine final
     void copy_staging_buffers(VkCommandBuffer cmd);
 
     void init_frames_data();
+    void write_frame_descriptors();
     AccelerationStructure allocate_acceleration_structure(VkAccelerationStructureCreateInfoKHR &createInfo);
     void create_acceleration_structure(VkAccelerationStructureTypeKHR asType,
                                        VkBuildAccelerationStructureFlagsKHR flags,

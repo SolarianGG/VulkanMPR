@@ -238,6 +238,43 @@ AllocatedImage Engine::create_image(dds::Image *ddsImage, const VkImageUsageFlag
     return image;
 }
 
+AllocatedImage Engine::create_image_array(const VkExtent3D extent, const VkFormat format,
+                                           const VkImageUsageFlags imageUsage, const std::uint32_t arrayLayers)
+{
+    AllocatedImage image;
+    image.imageFormat = format;
+    image.imageExtent = extent;
+
+    VkImageCreateInfo imageCreateInfo = utils::image_create_info(format, imageUsage, extent);
+    imageCreateInfo.arrayLayers = arrayLayers;
+
+    const VmaAllocationCreateInfo allocationCreateInfo{
+        .usage = VMA_MEMORY_USAGE_GPU_ONLY,
+        .requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+    };
+    vmaCreateImage(m_allocator, &imageCreateInfo, &allocationCreateInfo, &image.image, &image.allocation, nullptr) >>
+        chk;
+
+    const VkImageAspectFlags aspectFlags =
+        vkuFormatIsDepthOnly(format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+    const VkImageViewCreateInfo imageViewCreateInfo{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .image = image.image,
+        .viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY,
+        .format = format,
+        .subresourceRange = {
+            .aspectMask = aspectFlags,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = arrayLayers,
+        },
+    };
+    vkCreateImageView(m_device, &imageViewCreateInfo, nullptr, &image.imageView) >> chk;
+
+    return image;
+}
+
 void Engine::destroy_image(const AllocatedImage &image)
 {
     vkDestroyImageView(m_device, image.imageView, nullptr);

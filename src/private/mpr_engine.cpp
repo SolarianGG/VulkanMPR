@@ -129,9 +129,10 @@ Engine::Engine()
     init_commands();
     init_sync();
     init_descriptors();
+    init_frames_data();
     init_pipelines();
     init_imgui();
-    init_frames_data();
+    write_frame_descriptors();
     init_default_data();
     init_mesh_data();
 

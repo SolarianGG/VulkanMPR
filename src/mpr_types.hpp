@@ -37,6 +37,8 @@ constexpr std::uint32_t kMaxDDGIRays    = 512u;
 constexpr std::uint32_t kMaxDDGIProbesX = 22u;
 constexpr std::uint32_t kMaxDDGIProbesY = 22u;
 constexpr std::uint32_t kMaxDDGIProbesZ = 22u;
+constexpr std::uint32_t kMaxIrradianceTexels = 8u;
+constexpr std::uint32_t kMaxDistanceTexels = 16u;
 
 constexpr std::uint32_t kPointLightsShadowMapSize = 8192u;
 constexpr std::uint32_t kPointLightTileSize = 1024u;
@@ -508,16 +510,17 @@ struct MeshAsset
 
 struct DDGIVolume {
     glm::vec3  origin;
-    int        probeNumRays;
+    std::int32_t        probeNumRays;
     glm::vec4  rotation;
     glm::vec3  probeSpacing;
     float      probeMaxRayDistance;
     glm::ivec3 probeCounts;
     float rayNormalBias{0.01f};
     glm::vec4  probeRayRotation;
-    glm::vec3 _padding0;
     float rayViewBias{0.01f};
-
+    std::int32_t probeIrradianceTexels{8};
+    std::int32_t probeDistanceTexels{16};
+    float _padding0;
 };
 
 struct DDGIProbePushConstants {
