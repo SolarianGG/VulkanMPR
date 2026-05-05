@@ -401,13 +401,9 @@ void Engine::update_scene()
     std::memcpy(frame.pointLightBuffer.allocationInfo.pMappedData, m_mainDrawContext.pointLights.data(),
                 m_mainDrawContext.pointLights.size() * sizeof(PointLightData));
 
+    auto *dst = static_cast<DDGIVolume *>(m_DDGIVolumesBuffer.allocationInfo.pMappedData);
+    std::memcpy(dst, m_mainDrawContext.ddgiVolumes.data(), m_mainDrawContext.ddgiVolumes.size() * sizeof(DDGIVolume));
     m_DDGIVolumeCount = static_cast<std::uint32_t>(m_mainDrawContext.ddgiVolumes.size());
-    if (m_DDGIVolumeCount > 0)
-    {
-        auto *dst = static_cast<DDGIVolume *>(m_DDGIVolumesBuffer.allocationInfo.pMappedData);
-        for (std::uint32_t i = 0; i < m_DDGIVolumeCount; ++i)
-            dst[i] = m_mainDrawContext.ddgiVolumes[i].volume;
-    }
 
     m_LightPassConstants.sceneData = frame.sceneDataBufferAddr;
     m_LightPassConstants.directionalLight =

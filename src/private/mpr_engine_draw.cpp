@@ -1679,17 +1679,15 @@ void Engine::draw_ddgi_probe_pass(VkCommandBuffer cmd)
     {
         const auto &volData = m_mainDrawContext.ddgiVolumes[i];
         pc.currentVolumeIndex = i;
-        pc.rayNormalBias      = volData.rayNormalBias;
-        pc.rayViewBias        = volData.rayViewBias;
         vkCmdPushConstants(cmd, m_DDGIPipelineLayout,
                            VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
                                VK_SHADER_STAGE_ANY_HIT_BIT_KHR,
                            0, sizeof(DDGIProbePushConstants), &pc);
 
         vkCmdTraceRaysKHR(cmd, &m_RaygenRegion, &m_MissRegion, &m_HitRegion, &m_CallableRegion,
-                          volData.volume.probeNumRays,
-                          volData.volume.probeCounts.x * volData.volume.probeCounts.z,
-                          volData.volume.probeCounts.y);
+                          volData.probeNumRays,
+                          volData.probeCounts.x * volData.probeCounts.z,
+                          volData.probeCounts.y);
     }
 
     mp::debug::cmd_end_label(cmd);

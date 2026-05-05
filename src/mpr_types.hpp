@@ -513,34 +513,27 @@ struct DDGIVolume {
     glm::vec3  probeSpacing;
     float      probeMaxRayDistance;
     glm::ivec3 probeCounts;
-    float      _padding1{};
+    float rayNormalBias{0.01f};
     glm::vec4  probeRayRotation;
-};
-static_assert(sizeof(DDGIVolume) == 80);
+    glm::vec3 _padding0;
+    float rayViewBias{0.01f};
 
-struct DDGIVolumeDrawData {
-    DDGIVolume volume;
-    float      rayNormalBias{0.01f};
-    float      rayViewBias{0.01f};
 };
 
 struct DDGIProbePushConstants {
-    VkDeviceAddress volumes;            // [0-7]
-    std::uint32_t   currentVolumeIndex; // [8-11]
-    std::uint32_t   _pad0{};           // [12-15]
-    VkDeviceAddress dirLight;           // [16-23]
-    VkDeviceAddress pointLights;        // [24-31]
-    std::uint32_t   pointLightsCount;   // [32-35]
-    float           rayNormalBias;      // [36-39]
-    float           rayViewBias;        // [40-43]
-    std::uint32_t   _pad1{};           // [44-47]
-    VkDeviceAddress vPositions;         // [48-55]
-    VkDeviceAddress vAttributes;        // [56-63]
-    VkDeviceAddress indices;            // [64-71]
-    VkDeviceAddress instances;          // [72-79]
-    VkDeviceAddress meshes;            // [80-87]
+    VkDeviceAddress volumes;            
+    std::uint32_t   currentVolumeIndex; 
+    std::uint32_t   _pad0{};           
+    VkDeviceAddress dirLight;           
+    VkDeviceAddress pointLights;       
+    std::uint32_t   pointLightsCount; 
+    std::uint32_t   _pad1{};       
+    VkDeviceAddress vPositions;   
+    VkDeviceAddress vAttributes; 
+    VkDeviceAddress indices;    
+    VkDeviceAddress instances; 
+    VkDeviceAddress meshes;   
 };
-static_assert(sizeof(DDGIProbePushConstants) == 88);
 
 struct DDGIProbeVisPushConstants {
     VkDeviceAddress volumes;

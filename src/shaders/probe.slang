@@ -22,8 +22,6 @@ struct PushConstants {
     DirectionalLight *dirLight;
     PointLight *pointLights;
     uint pointLightsCount;
-    float rayNormalBias;
-    float rayViewBias;
     VertexPosition *vPositions;
     VertexAttributes *vAttributes;
     uint32_t *indices;
@@ -84,7 +82,7 @@ void RGSMain()
         return;
     }
 
-    float3 diffuse = DirectDiffuseLighting(payl, pushConstants.rayNormalBias, pushConstants.rayViewBias, SceneTLAS, pushConstants.dirLight, pushConstants.pointLights, pushConstants.pointLightsCount);
+    float3 diffuse = DirectDiffuseLighting(payl, volume.rayNormalBias, volume.rayViewBias, SceneTLAS, pushConstants.dirLight, pushConstants.pointLights, pushConstants.pointLightsCount);
 
     // TODO: Add irradiance evalution
     float irradiance = 0.5f;
