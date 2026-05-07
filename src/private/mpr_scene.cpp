@@ -220,8 +220,9 @@ void DDGIVolumeNode::edit()
     int counts[3] = {m_Data.probeCounts.x, m_Data.probeCounts.y, m_Data.probeCounts.z};
     if (ImGui::DragInt3("Probe Counts", counts, 1, 1, static_cast<int>(kMaxDDGIProbesX)))
         m_Data.probeCounts = {counts[0], counts[1], counts[2]};
-    ImGui::DragFloat("Ray Normal Bias", &m_Data.rayNormalBias, 0.0001f, 0.0001f, 0.5f, "%.4f");
-    ImGui::DragFloat("Ray View Bias",   &m_Data.rayViewBias,   0.0001f, 0.0001f, 0.5f, "%.4f");
+    ImGui::DragFloat("Probe Normal Bias", &m_Data.probeNormalBias, 0.0001f, 0.0001f, 0.5f, "%.4f");
+    ImGui::DragFloat("Probe View Bias",   &m_Data.probeViewBias,   0.0001f, 0.0001f, 0.5f, "%.4f");
+    ImGui::DragFloat("Irradiance gamma",   &m_Data.probeIrradianceEncodingGamma,   0.1f, 0.1f, 10.0f);
 }
 
 void Scene::draw(const glm::mat4 &topMatrix, DrawContext &ctx)

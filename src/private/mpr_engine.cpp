@@ -210,6 +210,8 @@ void Engine::run()
         if (ImGui::Begin("Other"))
         {
             ImGui::DragFloat("Camera speed", &m_camera.cameraSpeed, 0.01f, 0.01f, 100.0f);
+            ImGui::DragFloat("DDGI Ray normal bias", &m_DDGIRayNormalBias, 0.0001f, 0.0001f, 0.02f, "%.4f");
+            ImGui::DragFloat("DDGI Ray View bias", &m_DDGIRayViewBias, 0.0001f, 0.0001f, 0.02f, "%.4f");
             if (ImGui::CollapsingHeader("Auto Exposure"))
             {
                 ImGui::DragFloat("Adaptation speed", &m_autoExposureAdaptationSpeed, 0.1f, 0.1f, 10.0f);

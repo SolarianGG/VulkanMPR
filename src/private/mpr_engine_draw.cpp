@@ -182,6 +182,18 @@ void Engine::draw()
                  .layout = VK_IMAGE_LAYOUT_GENERAL,
                  .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                  .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
+            barrierBuilder.add_image_barrier(currentFrame.irradianceDatas[i].transition(
+                {.stageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
+                 .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
+                 .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                 .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                 .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
+            barrierBuilder.add_image_barrier(currentFrame.distanceDatas[i].transition(
+                {.stageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
+                 .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
+                 .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                 .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                 .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
         }
         barrierBuilder.barrier(cmd);
     }
@@ -1665,15 +1677,17 @@ void Engine::draw_ddgi_probe_pass(VkCommandBuffer cmd)
         m_mainDrawContext.dirLight.has_value() ? currentFrame.dirLightBufferAddr : VkDeviceAddress{0};
 
     DDGIProbePushConstants pc{
-        .volumes          = m_DDGIVolumesAddr,
-        .dirLight         = dirLightAddr,
-        .pointLights      = currentFrame.pointLightBufferAddr,
+        .volumes = m_DDGIVolumesAddr,
+        .dirLight = dirLightAddr,
+        .pointLights = currentFrame.pointLightBufferAddr,
         .pointLightsCount = static_cast<std::uint32_t>(m_mainDrawContext.pointLights.size()),
-        .vPositions       = m_globalPositionBufferAddress,
-        .vAttributes      = m_globalAttributesBufferAddress,
-        .indices          = m_globalIndexBufferDeviceAddress,
-        .instances        = currentFrame.instanceBufferAddr,
-        .meshes           = currentFrame.meshBufferAddr,
+        .vPositions = m_globalPositionBufferAddress,
+        .vAttributes = m_globalAttributesBufferAddress,
+        .indices = m_globalIndexBufferDeviceAddress,
+        .instances = currentFrame.instanceBufferAddr,
+        .meshes = currentFrame.meshBufferAddr,
+        .rayNormalBias = m_DDGIRayNormalBias,
+        .rayViewBias = m_DDGIRayViewBias,
     };
     for (std::uint32_t i = 0; i < m_DDGIVolumeCount; ++i)
     {
@@ -1684,10 +1698,8 @@ void Engine::draw_ddgi_probe_pass(VkCommandBuffer cmd)
                                VK_SHADER_STAGE_ANY_HIT_BIT_KHR,
                            0, sizeof(DDGIProbePushConstants), &pc);
 
-        vkCmdTraceRaysKHR(cmd, &m_RaygenRegion, &m_MissRegion, &m_HitRegion, &m_CallableRegion,
-                          volData.probeNumRays,
-                          volData.probeCounts.x * volData.probeCounts.z,
-                          volData.probeCounts.y);
+        vkCmdTraceRaysKHR(cmd, &m_RaygenRegion, &m_MissRegion, &m_HitRegion, &m_CallableRegion, volData.probeNumRays,
+                          volData.probeCounts.x * volData.probeCounts.z, volData.probeCounts.y);
     }
 
     mp::debug::cmd_end_label(cmd);

@@ -1,5 +1,10 @@
 module utils;
 
+public float SignNotZero(float v)
+{
+    return (v >= 0.f) ? 1.f : -1.f;
+}
+
 public float3 QuaternionRotate(float3 v, float4 q)
 {
     float3 b = q.xyz;

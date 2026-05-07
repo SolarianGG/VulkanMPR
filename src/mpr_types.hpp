@@ -33,7 +33,7 @@ constexpr int MAX_CASCADES = kMaxCascadeCount;
 constexpr std::uint32_t kDirectionalShadowMapSize = 2048u;
 
 constexpr std::uint32_t kMaxDDGIVolumes = 4u;
-constexpr std::uint32_t kMaxDDGIRays    = 512u;
+constexpr std::uint32_t kMaxDDGIRays = 512u;
 constexpr std::uint32_t kMaxDDGIProbesX = 22u;
 constexpr std::uint32_t kMaxDDGIProbesY = 22u;
 constexpr std::uint32_t kMaxDDGIProbesZ = 22u;
@@ -121,29 +121,26 @@ struct AllocatedImage
     VkExtent3D imageExtent;
     VkFormat imageFormat;
     ImageResource resource{
-    .stageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
-    .accessMask = 0,
-    .layout = VK_IMAGE_LAYOUT_UNDEFINED,
-    .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .stageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
+        .accessMask = 0,
+        .layout = VK_IMAGE_LAYOUT_UNDEFINED,
+        .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
     };
 
-
-    VkImageMemoryBarrier2 transition(const ImageResource& newResource)
+    VkImageMemoryBarrier2 transition(const ImageResource &newResource)
     {
-        const VkImageMemoryBarrier2 barrier{
-            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-            .pNext = nullptr,
-            .srcStageMask = resource.stageMask,
-            .srcAccessMask = resource.accessMask,
-            .dstStageMask = newResource.stageMask,
-            .dstAccessMask = newResource.accessMask,
-            .oldLayout = resource.layout,
-            .newLayout = newResource.layout,
-            .srcQueueFamilyIndex = resource.queueFamilyIndex,
-            .dstQueueFamilyIndex = newResource.queueFamilyIndex,
-            .image = image,
-            .subresourceRange = newResource.subresourceRange 
-        };
+        const VkImageMemoryBarrier2 barrier{.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                                            .pNext = nullptr,
+                                            .srcStageMask = resource.stageMask,
+                                            .srcAccessMask = resource.accessMask,
+                                            .dstStageMask = newResource.stageMask,
+                                            .dstAccessMask = newResource.accessMask,
+                                            .oldLayout = resource.layout,
+                                            .newLayout = newResource.layout,
+                                            .srcQueueFamilyIndex = resource.queueFamilyIndex,
+                                            .dstQueueFamilyIndex = newResource.queueFamilyIndex,
+                                            .image = image,
+                                            .subresourceRange = newResource.subresourceRange};
         resource = newResource;
         return barrier;
     }
@@ -508,42 +505,47 @@ struct MeshAsset
     std::vector<GeoSurface> geoSurfaces;
 };
 
-struct DDGIVolume {
-    glm::vec3  origin;
-    std::int32_t        probeNumRays;
-    glm::vec4  rotation;
-    glm::vec3  probeSpacing;
-    float      probeMaxRayDistance;
+struct DDGIVolume
+{
+    glm::vec3 origin;
+    std::int32_t probeNumRays;
+    glm::vec4 rotation;
+    glm::vec3 probeSpacing;
+    float probeMaxRayDistance;
     glm::ivec3 probeCounts;
-    float rayNormalBias{0.01f};
-    glm::vec4  probeRayRotation;
-    float rayViewBias{0.01f};
+    float probeNormalBias{0.1f};
+    glm::vec4 probeRayRotation;
+    float probeViewBias{0.1f};
     std::int32_t probeIrradianceTexels{8};
     std::int32_t probeDistanceTexels{16};
-    float _padding0;
+    float probeIrradianceEncodingGamma{5.0f};
 };
 
-struct DDGIProbePushConstants {
-    VkDeviceAddress volumes;            
-    std::uint32_t   currentVolumeIndex; 
-    std::uint32_t   _pad0{};           
-    VkDeviceAddress dirLight;           
-    VkDeviceAddress pointLights;       
-    std::uint32_t   pointLightsCount; 
-    std::uint32_t   _pad1{};       
-    VkDeviceAddress vPositions;   
-    VkDeviceAddress vAttributes; 
-    VkDeviceAddress indices;    
-    VkDeviceAddress instances; 
-    VkDeviceAddress meshes;   
+struct DDGIProbePushConstants
+{
+    VkDeviceAddress volumes;
+    std::uint32_t currentVolumeIndex;
+    std::uint32_t _pad0{};
+    VkDeviceAddress dirLight;
+    VkDeviceAddress pointLights;
+    std::uint32_t pointLightsCount;
+    std::uint32_t _pad1{};
+    VkDeviceAddress vPositions;
+    VkDeviceAddress vAttributes;
+    VkDeviceAddress indices;
+    VkDeviceAddress instances;
+    VkDeviceAddress meshes;
+    float rayNormalBias;
+    float rayViewBias;
 };
 
-struct DDGIProbeVisPushConstants {
+struct DDGIProbeVisPushConstants
+{
     VkDeviceAddress volumes;
     VkDeviceAddress sphereVertices;
     VkDeviceAddress sceneData;
-    std::uint32_t   volumeIndex;
-    float           probeRadius;
+    std::uint32_t volumeIndex;
+    float probeRadius;
 };
 static_assert(sizeof(DDGIProbeVisPushConstants) == 32);
 

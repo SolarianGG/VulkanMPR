@@ -34,7 +34,7 @@ void GLTFMetallicRoughness::build_pipelines(Engine& engine) {
 
   {
     constexpr VkShaderStageFlags kMaterialStages =
-        VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
+        VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
         VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
     materialLayout =
         DescriptorSetLayoutBuilder()

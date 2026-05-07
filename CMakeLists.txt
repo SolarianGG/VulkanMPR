@@ -19,6 +19,7 @@ set(IMGUI_PATH "${PROJECT_SOURCE_DIR}/external/imgui")
 set(IMGUIZMO_PATH "${PROJECT_SOURCE_DIR}/external/imguizmo")
 set(DDSIMAGE_PATH "${PROJECT_SOURCE_DIR}/external/dds_image")
 
+
 find_package(Vulkan REQUIRED)
 find_package(volk CONFIG REQUIRED)
 find_package(VulkanMemoryAllocator CONFIG REQUIRED)

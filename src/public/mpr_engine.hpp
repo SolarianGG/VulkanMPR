@@ -99,8 +99,8 @@ struct FrameData
 
     // DDGI Data 
     std::array<AllocatedImage, kMaxDDGIVolumes> rayDatas;
-    AllocatedImage irradianceData;
-    AllocatedImage distanceData;
+    std::array<AllocatedImage, kMaxDDGIVolumes> irradianceDatas;
+    std::array<AllocatedImage, kMaxDDGIVolumes> distanceDatas;
     AllocatedImage ddgiOutput;
     DescriptorBuffer ddgiDescBuffer;
 };
@@ -194,8 +194,6 @@ class Engine final
 
     AllocatedImage m_whiteImage{};
     AllocatedImage m_blackImage{};
-    AllocatedImage m_greyImage{};
-    AllocatedImage m_errorImage{};
     AllocatedImage m_normalFallback{};
 
     VkSampler m_defaultSamplerLinear{};
@@ -341,6 +339,9 @@ class Engine final
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR};
     VkPhysicalDeviceAccelerationStructurePropertiesKHR m_ASProperties{
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR};
+
+    float m_DDGIRayNormalBias{0.001f};
+    float m_DDGIRayViewBias{0.001f};
 
   private:
     void init_window();

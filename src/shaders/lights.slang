@@ -61,7 +61,7 @@ float LightVisibility(
         ray,
         packedPayload);
 
-    return (packedPayload.hitT < 0.f);
+    return (packedPayload.hitT < 0.f) ? 1.0f : 0.0f;
 }
 
 float3 EvaluateDirectionalLight(

@@ -389,8 +389,8 @@ void Engine::init_descriptors()
             DescriptorSetLayoutBuilder()
                 .add_binding(0, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR)
                 .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, kMaxDDGIVolumes, VK_SHADER_STAGE_RAYGEN_BIT_KHR)
-                .add_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR)
-                .add_binding(3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR)
+                .add_binding(2, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, kMaxDDGIVolumes, VK_SHADER_STAGE_RAYGEN_BIT_KHR)
+                .add_binding(3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, kMaxDDGIVolumes, VK_SHADER_STAGE_RAYGEN_BIT_KHR)
                 .build(m_device, VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
     }
     {
@@ -399,10 +399,9 @@ void Engine::init_descriptors()
                 .add_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_FRAGMENT_BIT)
                 .add_binding(1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_FRAGMENT_BIT)
                 .build(m_device, VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
-        m_DepthPassDescSetLayout =
-            DescriptorSetLayoutBuilder()
-                .add_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT)
-                .build(m_device, VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
+        m_DepthPassDescSetLayout = DescriptorSetLayoutBuilder()
+                                       .add_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT)
+                                       .build(m_device, VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
 #if 0
         m_CullPassDescriptorSetLayout =
             DescriptorSetLayoutBuilder()
@@ -426,7 +425,6 @@ void Engine::init_descriptors()
             [&](const std::size_t allocSize, const VkBufferUsageFlags bufferUsage) {
                 return create_buffer(allocSize, bufferUsage, VMA_MEMORY_USAGE_CPU_ONLY);
             });
-
     }
 
     m_mainDeletionQueue.push_function([&]() mutable {
@@ -540,7 +538,6 @@ void Engine::init_wboit_composite_pass_pipeline()
             [this](const std::size_t allocSize, const VkBufferUsageFlags bufferUsage) {
                 return create_buffer(allocSize, bufferUsage, VMA_MEMORY_USAGE_CPU_ONLY);
             });
-
     }
     const VkDescriptorSetLayout layouts[]{m_WboitCompositePassDescriptorSetLayout};
 
@@ -1656,23 +1653,26 @@ void Engine::init_frames_data()
             mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
                                        reinterpret_cast<uint64_t>(frame.rayDatas[j].image),
                                        std::format("DDGI RayData [{}]", j).c_str());
+            // Irradiance
+            frame.irradianceDatas[j] =
+                create_image_array({.width = (kMaxIrradianceTexels + 2) * kMaxDDGIProbesX,
+                                    .height = (kMaxIrradianceTexels + 2) * kMaxDDGIProbesZ,
+                                    .depth = 1},
+                                   VK_FORMAT_R16G16B16A16_SFLOAT,
+                                   VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, kMaxDDGIVolumes);
+            mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
+                                       reinterpret_cast<uint64_t>(frame.irradianceDatas[j].image),
+                                       std::format("DDGI Irradiance Data [{}]", j).c_str());
+            // Distance
+            frame.distanceDatas[j] = create_image_array(
+                {.width = (kMaxDistanceTexels + 2) * kMaxDDGIProbesX,
+                 .height = (kMaxDistanceTexels + 2) * kMaxDDGIProbesZ,
+                 .depth = 1},
+                VK_FORMAT_R32G32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, kMaxDDGIVolumes);
+            mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
+                                       reinterpret_cast<uint64_t>(frame.distanceDatas[j].image),
+                                       std::format("DDGI Distance Data [{}]", j).c_str());
         }
-        // Irradiance
-        frame.irradianceData =
-            create_image_array({.width = (kMaxIrradianceTexels + 2) * kMaxDDGIProbesX,
-                                .height = (kMaxIrradianceTexels + 2) * kMaxDDGIProbesZ,
-                                .depth = 1},
-                               VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT, kMaxDDGIVolumes);
-        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
-                                   reinterpret_cast<uint64_t>(frame.irradianceData.image),
-                                   std::format("DDGI Irradiance Data [{}]", i).c_str());
-        // Distance
-        frame.distanceData = create_image_array({.width = (kMaxDistanceTexels + 2) * kMaxDDGIProbesX,
-                                                 .height = (kMaxDistanceTexels + 2) * kMaxDDGIProbesZ,
-                                                 .depth = 1},
-                                                VK_FORMAT_R32G32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT, kMaxDDGIVolumes);
-        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(frame.distanceData.image),
-                                   std::format("DDGI Distance Data [{}]", i).c_str());
         frame.ddgiOutput =
             create_image(m_CommonImageExtent3D, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT);
         mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(frame.ddgiOutput.image),
@@ -1712,15 +1712,18 @@ void Engine::init_frames_data()
             destroy_buffer(frame.splitsAABBBuffer);
             destroy_buffer(frame.histogramBuffer);
             destroy_buffer(frame.cascadeDepthDescBuffer.get_buffer());
-            for (auto &rayData : frame.rayDatas)
+            for (std::uint32_t j = 0; j < kMaxDDGIVolumes; ++j)
             {
+                auto &rayData = frame.rayDatas[j];
+                auto &distanceData = frame.distanceDatas[j];
+                auto &irradianceData = frame.irradianceDatas[j];
                 vkDestroyImageView(m_device, rayData.imageView, nullptr);
                 vmaDestroyImage(m_allocator, rayData.image, rayData.allocation);
+                vkDestroyImageView(m_device, distanceData.imageView, nullptr);
+                vmaDestroyImage(m_allocator, distanceData.image, distanceData.allocation);
+                vkDestroyImageView(m_device, irradianceData.imageView, nullptr);
+                vmaDestroyImage(m_allocator, irradianceData.image, irradianceData.allocation);
             }
-            vkDestroyImageView(m_device, frame.irradianceData.imageView, nullptr);
-            vmaDestroyImage(m_allocator, frame.irradianceData.image, frame.irradianceData.allocation);
-            vkDestroyImageView(m_device, frame.distanceData.imageView, nullptr);
-            vmaDestroyImage(m_allocator, frame.distanceData.image, frame.distanceData.allocation);
             destroy_image(frame.ddgiOutput);
             destroy_buffer(frame.ddgiDescBuffer.get_buffer());
         }
@@ -1942,29 +1945,11 @@ void Engine::init_default_data()
     m_blackImage = create_image(&blackColor, VkExtent3D{1, 1, 1}, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
     mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(m_blackImage.image),
                                "Default Black Image");
-    std::uint32_t greyColor = glm::packUnorm4x8(glm::vec4(0.5f, 0.5f, 0.5f, 1.0f));
-    m_greyImage = create_image(&greyColor, VkExtent3D{1, 1, 1}, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
-    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(m_greyImage.image),
-                               "Default Grey Image");
     std::uint32_t normalFallback = glm::packUnorm4x8(glm::vec4(0.5f, 0.5f, 1.0f, 1.0f));
     m_normalFallback =
         create_image(&normalFallback, VkExtent3D{1, 1, 1}, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
     mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(m_normalFallback.image),
                                "Default Normal Fallback Image");
-
-    const std::uint32_t magentaColor = glm::packUnorm4x8(glm::vec4(1.0f, 0.0f, 1.0f, 1.0f));
-    std::array<std::uint32_t, 16 * 16> errorPixels;
-    for (int i = 0; i < 16; ++i)
-    {
-        for (int j = 0; j < 16; ++j)
-        {
-            errorPixels[i * 16 + j] = ((i % 2) ^ (j % 2)) ? magentaColor : blackColor;
-        }
-    }
-    m_errorImage =
-        create_image(errorPixels.data(), VkExtent3D{16, 16, 1}, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
-    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(m_errorImage.image),
-                               "Default Error Image");
 
     VkSamplerCreateInfo samplerCreateInfo{
         .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
@@ -1999,8 +1984,6 @@ void Engine::init_default_data()
 
         destroy_image(m_whiteImage);
         destroy_image(m_blackImage);
-        destroy_image(m_greyImage);
-        destroy_image(m_errorImage);
         destroy_image(m_normalFallback);
 
         vkDestroySampler(m_device, m_defaultSamplerLinear, nullptr);
@@ -2465,9 +2448,13 @@ void Engine::write_frame_descriptors()
                                                          VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL);
 
         for (std::uint32_t j = 0; j < kMaxDDGIVolumes; ++j)
+        {
             frame.ddgiDescBuffer.write_storage_image(1, j, frame.rayDatas[j].imageView, VK_IMAGE_LAYOUT_GENERAL);
-        frame.ddgiDescBuffer.write_storage_image(2, 0, frame.irradianceData.imageView, VK_IMAGE_LAYOUT_GENERAL);
-        frame.ddgiDescBuffer.write_storage_image(3, 0, frame.distanceData.imageView, VK_IMAGE_LAYOUT_GENERAL);
+            frame.ddgiDescBuffer.write_sampled_image(2, j, frame.irradianceDatas[j].imageView,
+                                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            frame.ddgiDescBuffer.write_sampled_image(3, j, frame.distanceDatas[j].imageView,
+                                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
     }
 }
 

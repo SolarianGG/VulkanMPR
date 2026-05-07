@@ -14,11 +14,11 @@ RWTexture2DArray<float4> RayDatas[];
 
 [[vk::binding(2, 0)]]
 [[vk::image_format("rgba16f")]]
-RWTexture2DArray<float4> Irradiance;
+Texture2DArray<float4> Irradiance[];
 
 [[vk::binding(3, 0)]]
 [[vk::image_format("rg32f")]]
-RWTexture2DArray<float2> Distance;
+Texture2DArray<float2> Distance[];
 
 [[vk::binding(0, 1)]] ConstantBuffer<GLTFMaterialData> materials[];
 [[vk::binding(1, 1)]] SamplerState samplers[];
@@ -35,6 +35,8 @@ struct PushConstants {
     uint32_t *indices;
     Instance *instances;
     Mesh *meshes;
+    float rayNormalBias;
+    float rayViewBias;
 };
 
 [[vk::push_constant]]
@@ -90,10 +92,23 @@ void RGSMain()
         return;
     }
 
-    float3 diffuse = DirectDiffuseLighting(payl, volume.rayNormalBias, volume.rayViewBias, SceneTLAS, pushConstants.dirLight, pushConstants.pointLights, pushConstants.pointLightsCount);
+    float3 diffuse = DirectDiffuseLighting(payl, pushConstants.rayNormalBias, pushConstants.rayViewBias, SceneTLAS, pushConstants.dirLight, pushConstants.pointLights, pushConstants.pointLightsCount);
 
     // TODO: Add irradiance evalution
-    float irradiance = 0.5f;
+    float3 irradiance = 0.5f;
+    float3 surfaceBias = DDGIGetSurfaceBias(payl.normal, ray.Direction, volume);
+
+    float volumeBlendWeight = DDGIGetVolumeBlendWeight(payl.worldPosition, volume);
+
+    // Default trillinear samplers that works as billinear because irradiance and distance textures have only 1 mip
+    SamplerState defaultSampler = samplers[0];
+    Texture2DArray<float4> irradianceTexture = Irradiance[pushConstants.currentVolumeIndex];
+    Texture2DArray<float2> distanceTexture = Distance[pushConstants.currentVolumeIndex];
+    if (volumeBlendWeight > 0.f)
+    {
+        irradiance = DDGIGetVolumeIrradiance(payl.worldPosition, surfaceBias, payl.normal, volume, defaultSampler, irradianceTexture, distanceTexture);
+        irradiance *= volumeBlendWeight;
+    }
 
     float maxAlbedo = 0.9f;
     float3 radiance = diffuse + ((min(payl.albedo, float3(maxAlbedo, maxAlbedo, maxAlbedo)) / float ::getPi()) * irradiance);
