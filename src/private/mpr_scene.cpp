@@ -139,7 +139,12 @@ void MeshNode::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
 
 void DirectionalLightNode::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
 {
-    m_Data.direction = glm::normalize(glm::vec3(worldTransform[2]));
+    glm::mat3 R(worldTransform);
+    R[0] = normalize(R[0]);
+    R[1] = normalize(R[1]);
+    R[2] = normalize(R[2]);
+    const glm::quat q = glm::quat_cast(R);
+    m_Data.direction = glm::rotate(q, glm::vec3{0.0f, -1.0f, 0.0f});
     ctx.dirLight = m_Data;
 
     Node::draw(topMatrix, ctx);
@@ -200,7 +205,7 @@ void DDGIVolumeNode::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
         const auto volumeIdx = static_cast<std::uint32_t>(ctx.ddgiVolumes.size());
         ctx.ddgiVolumes.push_back(m_Data);
         if (m_bVisualize)
-            ctx.ddgiVolumesVis.emplace_back(m_Data, volumeIdx);
+            ctx.ddgiVolumesVis.emplace_back(DDGIVolumeVisEntry{m_Data, volumeIdx, m_visMode});
     }
 
     Node::draw(topMatrix, ctx);
@@ -212,8 +217,15 @@ void DDGIVolumeNode::edit()
 
     ImGui::Text("DDGI Volume");
     ImGui::Checkbox("Visualize Probes", &m_bVisualize);
+    if (m_bVisualize)
+    {
+        static const char *kModes[] = {"Grid Position", "Irradiance", "Distance"};
+        int idx                     = static_cast<int>(m_visMode);
+        if (ImGui::Combo("Vis Mode", &idx, kModes, IM_ARRAYSIZE(kModes)))
+            m_visMode = static_cast<DDGIProbeVisMode>(idx);
+    }
     ImGui::DragFloat3("Probe Spacing", glm::value_ptr(m_Data.probeSpacing), 0.05f, 0.01f, 10.0f);
-    ImGui::DragFloat("Max Ray Dist", &m_Data.probeMaxRayDistance, 0.1f, 0.1f, 1000.0f);
+    ImGui::DragFloat("Max Ray Dist", &m_Data.probeMaxRayDistance, 0.1f, 0.1f, 100000.0f);
     ImGui::DragInt("Rays per Probe", &m_Data.probeNumRays, 1, 1, static_cast<int>(kMaxDDGIRays));
     ImGui::DragInt("Probe irradiance texels", &m_Data.probeIrradianceTexels, 1, 1, static_cast<int>(kMaxIrradianceTexels));
     ImGui::DragInt("Probe distance texels", &m_Data.probeDistanceTexels, 1, 1, static_cast<int>(kMaxDistanceTexels));
@@ -223,6 +235,8 @@ void DDGIVolumeNode::edit()
     ImGui::DragFloat("Probe Normal Bias", &m_Data.probeNormalBias, 0.0001f, 0.0001f, 0.5f, "%.4f");
     ImGui::DragFloat("Probe View Bias",   &m_Data.probeViewBias,   0.0001f, 0.0001f, 0.5f, "%.4f");
     ImGui::DragFloat("Irradiance gamma",   &m_Data.probeIrradianceEncodingGamma,   0.1f, 0.1f, 10.0f);
+    ImGui::DragFloat("Irradiance Threshold",   &m_Data.probeIrradianceThreshold,   0.1f, 0.1f, 10.0f);
+    ImGui::DragFloat("Brightness Threshold",   &m_Data.probeBrightnessThreshold,   0.1f, 0.1f, 10.0f);
 }
 
 void Scene::draw(const glm::mat4 &topMatrix, DrawContext &ctx)

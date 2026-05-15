@@ -14,13 +14,11 @@ struct PushConstants
 [[vk::push_constant]]
 PushConstants pushConstants;
 
-static const float3 RGB_TO_LUM = float3(0.2126f, 0.7152f, 0.0722f);
-
 groupshared uint histogramShared[256];
 
 uint luminanceToBin(float3 color, float minLogLum, float invLogLumRange)
 {
-    float lum = dot(color, RGB_TO_LUM);
+    float lum = LinearRGBToLuminance(color);
     if (lum < 1e-5f)
         return 0;
     float logLum = clamp((log2(lum) - minLogLum) * invLogLumRange, 0.0f, 1.0f);

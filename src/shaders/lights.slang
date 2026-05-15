@@ -34,6 +34,7 @@ float LightFalloff(float distanceToLight)
     return 1.f / pow(max(distanceToLight, 1.f), 2);
 }
 
+public
 float LightVisibility(
     Payload payload,
     float3 lightVector,
@@ -43,9 +44,9 @@ float LightVisibility(
     RaytracingAccelerationStructure bvh)
 {
     RayDesc ray;
-    ray.Origin = payload.worldPosition + (payload.normal * normalBias); // TODO: not using viewBias!
+    ray.Origin = payload.worldPosition + (payload.normal * normalBias);
     ray.Direction = normalize(lightVector);
-    ray.TMin = 0.f;
+    ray.TMin = 0.0f;
     ray.TMax = tmax;
 
     // Trace a visibility ray
@@ -71,13 +72,13 @@ float3 EvaluateDirectionalLight(
     RaytracingAccelerationStructure bvh,
                                 DirectionalLight light)
 {
-    float visibility = LightVisibility(payload, -light.direction, 1e27f, normalBias, viewBias, bvh);
+    float visibility = LightVisibility(payload, -light.direction.xyz, 1e27f, normalBias, viewBias, bvh);
 
     // Early out, the light isn't visible from the surface
     if (visibility <= 0.f) return float3(0.f, 0.f, 0.f);
 
     // Compute lighting
-    float3 lightDirection = -normalize(light.direction);
+    float3 lightDirection = -normalize(light.direction.xyz);
     float nol = max(dot(payload.shadingNormal, lightDirection), 0.f);
 
     return light.color.w * light.color.xyz * nol * visibility;

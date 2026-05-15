@@ -42,12 +42,11 @@ namespace
 {
 mp::Engine *gLoadedEngine = nullptr;
 
-
 mp::TetrahedronData compute_tetrahedron_data()
 {
     const auto [alpha, beta] = mp::compute_alpha_beta();
 
-    constexpr glm::vec3 faceVecs[4] {
+    constexpr glm::vec3 faceVecs[4]{
         {0.0f, -0.57735026f, 0.81649661f},
         {0.0f, -0.57735026f, -0.81649661f},
         {-0.81649661f, 0.57735026f, 0.0f},
@@ -132,9 +131,9 @@ Engine::Engine()
     init_frames_data();
     init_pipelines();
     init_imgui();
-    write_frame_descriptors();
     init_default_data();
     init_mesh_data();
+    write_frame_descriptors();
 
     // Create tetrahedron data buffer for point light shadows
     {
@@ -152,7 +151,6 @@ Engine::Engine()
     m_camera.pitch = 0;
     m_camera.yaw = 0;
     m_isInitialized = true;
-
 }
 
 Engine &Engine::get()
@@ -210,8 +208,13 @@ void Engine::run()
         if (ImGui::Begin("Other"))
         {
             ImGui::DragFloat("Camera speed", &m_camera.cameraSpeed, 0.01f, 0.01f, 100.0f);
-            ImGui::DragFloat("DDGI Ray normal bias", &m_DDGIRayNormalBias, 0.0001f, 0.0001f, 0.02f, "%.4f");
-            ImGui::DragFloat("DDGI Ray View bias", &m_DDGIRayViewBias, 0.0001f, 0.0001f, 0.02f, "%.4f");
+            ImGui::DragFloat("DDGI Ray normal bias", &m_DDGIRayNormalBias, 0.0001f, 0.0001f, 1.0f, "%.4f");
+            ImGui::DragFloat("DDGI Ray View bias", &m_DDGIRayViewBias, 0.0001f, 0.0001f, 1.0f, "%.4f");
+            if (ImGui::CollapsingHeader("Sky"))
+            {
+                ImGui::ColorPicker3("Sky radiance", reinterpret_cast<float *>(&m_SkyRadiance));
+                ImGui::DragFloat("Sky intensity", &m_SkyRadiance.a, 0.01f, 0.0f, 10.0f);
+            }
             if (ImGui::CollapsingHeader("Auto Exposure"))
             {
                 ImGui::DragFloat("Adaptation speed", &m_autoExposureAdaptationSpeed, 0.1f, 0.1f, 10.0f);
@@ -292,11 +295,11 @@ void Engine::run()
                 const glm::vec3 center = (m_mainDrawContext.max + m_mainDrawContext.min) * 0.5f;
                 const auto nodeIndex = m_scene.add_node(std::make_shared<DDGIVolumeNode>(DDGIVolume{
                     .origin = center,
-                    .probeNumRays = 64,
+                    .probeNumRays = kMaxDDGIRays,
                     .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
                     .probeSpacing = {1.0f, 1.0f, 1.0f},
-                    .probeMaxRayDistance = 10.0f,
-                    .probeCounts = {8, 8, 8},
+                    .probeMaxRayDistance = 10000.0f,
+                    .probeCounts = {kMaxDDGIProbesX, kMaxDDGIProbesY, kMaxDDGIProbesZ},
                     .probeRayRotation = {0.0f, 0.0f, 0.0f, 1.0f},
                 }));
                 auto &node = m_scene.nodes.find(nodeIndex)->second;
@@ -358,6 +361,7 @@ void Engine::update_scene()
     m_sceneData.padding0 = 0.0f;
 
     const auto inverseViewProj = glm::inverse(m_sceneData.projView);
+    m_sceneData.inverseProjView = inverseViewProj;
 
     m_mainDrawContext.max += 1.0f;
     m_mainDrawContext.min -= 1.0f;
@@ -388,8 +392,7 @@ void Engine::update_scene()
                     lsMax = glm::max(lsMax, worldPt);
                 }
 
-        m_DirLightCullMatrix =
-            glm::orthoRH_ZO(lsMin.x, lsMax.x, lsMin.y, lsMax.y, -lsMax.z, -lsMin.z);
+        m_DirLightCullMatrix = glm::orthoRH_ZO(lsMin.x, lsMax.x, lsMin.y, lsMax.y, -lsMax.z, -lsMin.z);
     }
 
     auto &frame = get_current_frame();
@@ -409,13 +412,13 @@ void Engine::update_scene()
     m_DDGIVolumeCount = static_cast<std::uint32_t>(m_mainDrawContext.ddgiVolumes.size());
 
     m_LightPassConstants.sceneData = frame.sceneDataBufferAddr;
-    m_LightPassConstants.directionalLight =
-        m_mainDrawContext.dirLight.has_value() ? frame.dirLightBufferAddr : 0;
+    m_LightPassConstants.directionalLight = m_mainDrawContext.dirLight.has_value() ? frame.dirLightBufferAddr : 0;
     m_LightPassConstants.visiblePointLights = frame.visiblePointLightsBufferAddr;
     m_LightPassConstants.visiblePointLightsCount = frame.visiblePointLightsCountBufferAddr;
     m_LightPassConstants.tetrahedronDataAddr = m_tetrahedronBuffer.get_buffer_device_address(m_device);
     m_LightPassConstants.cameraNear = cameraNear, m_LightPassConstants.cameraFar = cameraFar;
     m_LightPassConstants.inverseCameraViewProj = inverseViewProj;
+    m_LightPassConstants.skyRadiance = m_SkyRadiance;
 
     m_GBufferMeshPushConstants = {
         .positionBufferAddr = m_globalPositionBufferAddress,

@@ -1,8 +1,3 @@
-struct Vertex {
-    float2 pos;
-    float2 uv;
-};
-
 struct VSOutput {
     float4 pos : SV_Position;
 };

@@ -25,6 +25,9 @@ Texture2D<float> pointLightsTiledShadowMap;
 [[vk::binding(7, 1)]]
 Texture2D<float4> emissiveTexture;
 
+[[vk::binding(8, 1)]]
+Texture2D<float4> DDGIOutput;
+
 struct PushConstants {
     SceneData *sceneData;
     DirectionalLight *directionalLight;
@@ -33,6 +36,7 @@ struct PushConstants {
     TetrahedronData *tetraData;
     float cameraNear;
     float cameraFar;
+    float4 skyRadiance;
 
     float4x4 inverseCameraViewProj;
 };
@@ -58,8 +62,7 @@ void computeMain(uint3 threadID : SV_DispatchThreadID, uint localID : SV_GroupIn
 
     float depth = depthTexture[uv];
     if (depth >= 1.0f || depth <= 0.0f) {
-        // TODO: sample skybox texture
-        outputTexture[uv] = float4(0.33f, 0.66f, 0.99f, 1.0f);
+        outputTexture[uv] = float4(pushConstants.skyRadiance.xyz * pushConstants.skyRadiance.a, 1.0f);
         return;
     }
     float3 normal = DecodeGBufferNormal(normalTexture[uv]);
@@ -96,5 +99,9 @@ void computeMain(uint3 threadID : SV_DispatchThreadID, uint localID : SV_GroupIn
             pushConstants.sceneData.cameraPos, normalWS, baseColor, metallic, roughness, pointLight);
     }
     color += emissiveTexture[uv].rgb;
+
+    // DDGI Indirect
+    color += DDGIOutput[uv].rgb;
+
     outputTexture[uv] = float4(color, 1.0f);
 }

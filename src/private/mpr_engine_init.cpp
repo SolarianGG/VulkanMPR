@@ -19,6 +19,7 @@
 #include "mpr_loader.hpp"
 #include "mpr_pipelines.hpp"
 #include "mpr_debug_utils.hpp"
+#include "mpr_image.hpp"
 // clang-format on
 
 namespace
@@ -336,37 +337,7 @@ void Engine::init_sync()
 
 void Engine::init_descriptors()
 {
-    {
-        const VkSamplerCreateInfo shadowSamplerInfo{
-            .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-            .magFilter = VK_FILTER_LINEAR,
-            .minFilter = VK_FILTER_LINEAR,
-            .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
-            .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
-            .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
-            .compareEnable = VK_TRUE,
-            .compareOp = VK_COMPARE_OP_LESS_OR_EQUAL,
-            .borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
-        };
-        vkCreateSampler(m_device, &shadowSamplerInfo, nullptr, &m_shadowSampler);
-        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_SAMPLER, reinterpret_cast<uint64_t>(m_shadowSampler),
-                                   "Shadow Sampler");
-        m_mainDeletionQueue.push_function([&] { vkDestroySampler(m_device, m_shadowSampler, nullptr); });
-    }
-    {
-        const VkSamplerCreateInfo debugSamplerInfo{
-            .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-            .magFilter = VK_FILTER_LINEAR,
-            .minFilter = VK_FILTER_LINEAR,
-            .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-            .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-            .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-        };
-        vkCreateSampler(m_device, &debugSamplerInfo, nullptr, &m_debugSampler);
-        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_SAMPLER, reinterpret_cast<uint64_t>(m_debugSampler),
-                                   "Debug Sampler");
-        m_mainDeletionQueue.push_function([&] { vkDestroySampler(m_device, m_debugSampler, nullptr); });
-    }
+
     {
         m_DrawImageDescriptorSetLayout =
             DescriptorSetLayoutBuilder()
@@ -382,15 +353,38 @@ void Engine::init_descriptors()
                 .add_binding(5, VK_DESCRIPTOR_TYPE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT)
                 .add_binding(6, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT)
                 .add_binding(7, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT)
+                .add_binding(8, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT)
                 .build(m_device, VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
     }
     {
-        m_DDGIDescriptorSetLayout =
+        m_DDGITLASDescSetLayout =
             DescriptorSetLayoutBuilder()
                 .add_binding(0, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR)
-                .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, kMaxDDGIVolumes, VK_SHADER_STAGE_RAYGEN_BIT_KHR)
-                .add_binding(2, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, kMaxDDGIVolumes, VK_SHADER_STAGE_RAYGEN_BIT_KHR)
-                .add_binding(3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, kMaxDDGIVolumes, VK_SHADER_STAGE_RAYGEN_BIT_KHR)
+                .build(m_device, VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
+        m_DDGIRayDataDescSetLayout = DescriptorSetLayoutBuilder()
+                                         .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, kMaxDDGIVolumes,
+                                                      VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT)
+                                         .build(m_device, VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
+        m_DDGIResourcesDescSetLayout = DescriptorSetLayoutBuilder()
+                                           .add_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, kMaxDDGIVolumes,
+                                                        VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT |
+                                                            VK_SHADER_STAGE_FRAGMENT_BIT)
+                                           .add_binding(1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, kMaxDDGIVolumes,
+                                                        VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT |
+                                                            VK_SHADER_STAGE_FRAGMENT_BIT)
+                                           .add_binding(2, VK_DESCRIPTOR_TYPE_SAMPLER, 1,
+                                                        VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT |
+                                                            VK_SHADER_STAGE_FRAGMENT_BIT)
+                                           .build(m_device, VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
+        m_DDGIProbeStorageDescSetLayout =
+            DescriptorSetLayoutBuilder()
+                .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, kMaxDDGIVolumes, VK_SHADER_STAGE_COMPUTE_BIT)
+                .build(m_device, VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
+        m_DDGIGBufferReadDescSetLayout =
+            DescriptorSetLayoutBuilder()
+                .add_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT)
+                .add_binding(1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT)
+                .add_binding(2, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT)
                 .build(m_device, VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
     }
     {
@@ -408,36 +402,17 @@ void Engine::init_descriptors()
                 .build(m_device, VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
 #endif
     }
-    for (auto &frame : m_frameData)
-    {
-        frame.lightPassDescriptorBuffer =
-            DescriptorBuffer(m_device, m_LightPassDescriptorSetLayout, DescriptorBufferProperties::query(m_chosenGpu));
-
-        frame.lightPassDescriptorBuffer.create_buffer(
-            [&](const std::size_t allocSize, const VkBufferUsageFlags bufferUsage) {
-                return create_buffer(allocSize, bufferUsage, VMA_MEMORY_USAGE_CPU_ONLY);
-            });
-
-        frame.drawImageDescriptorBuffer =
-            DescriptorBuffer(m_device, m_DrawImageDescriptorSetLayout, DescriptorBufferProperties::query(m_chosenGpu));
-
-        frame.drawImageDescriptorBuffer.create_buffer(
-            [&](const std::size_t allocSize, const VkBufferUsageFlags bufferUsage) {
-                return create_buffer(allocSize, bufferUsage, VMA_MEMORY_USAGE_CPU_ONLY);
-            });
-    }
 
     m_mainDeletionQueue.push_function([&]() mutable {
         vkDestroyDescriptorSetLayout(m_device, m_LightPassDescriptorSetLayout, nullptr);
         vkDestroyDescriptorSetLayout(m_device, m_DrawImageDescriptorSetLayout, nullptr);
-        vkDestroyDescriptorSetLayout(m_device, m_DDGIDescriptorSetLayout, nullptr);
+        vkDestroyDescriptorSetLayout(m_device, m_DDGITLASDescSetLayout, nullptr);
+        vkDestroyDescriptorSetLayout(m_device, m_DDGIRayDataDescSetLayout, nullptr);
+        vkDestroyDescriptorSetLayout(m_device, m_DDGIResourcesDescSetLayout, nullptr);
+        vkDestroyDescriptorSetLayout(m_device, m_DDGIProbeStorageDescSetLayout, nullptr);
+        vkDestroyDescriptorSetLayout(m_device, m_DDGIGBufferReadDescSetLayout, nullptr);
         vkDestroyDescriptorSetLayout(m_device, m_WboitCompositePassDescriptorSetLayout, nullptr);
         vkDestroyDescriptorSetLayout(m_device, m_DepthPassDescSetLayout, nullptr);
-        for (auto &frame : m_frameData)
-        {
-            destroy_buffer(frame.lightPassDescriptorBuffer.get_buffer());
-            destroy_buffer(frame.drawImageDescriptorBuffer.get_buffer());
-        }
     });
 }
 
@@ -461,6 +436,8 @@ void Engine::init_pipelines()
     init_alpha_tested_directional_shadow_pass();
     init_alpha_tested_point_shadow_pass();
     init_ddgi_probe_pipeline();
+    init_ddgi_probe_blending_pipeline();
+    init_ddgi_indirect_pipeline();
     init_ddgi_probe_vis_pipeline();
 }
 
@@ -530,15 +507,6 @@ void Engine::init_wboit_composite_pass_pipeline()
         throw std::runtime_error("Failed to load wboit_composite.pixel.spv");
     }
 
-    for (auto &frame : m_frameData)
-    {
-        frame.wboitCompositePassDescBuffer = DescriptorBuffer(m_device, m_WboitCompositePassDescriptorSetLayout,
-                                                              DescriptorBufferProperties::query(m_chosenGpu));
-        frame.wboitCompositePassDescBuffer.create_buffer(
-            [this](const std::size_t allocSize, const VkBufferUsageFlags bufferUsage) {
-                return create_buffer(allocSize, bufferUsage, VMA_MEMORY_USAGE_CPU_ONLY);
-            });
-    }
     const VkDescriptorSetLayout layouts[]{m_WboitCompositePassDescriptorSetLayout};
 
     {
@@ -584,10 +552,6 @@ void Engine::init_wboit_composite_pass_pipeline()
     m_mainDeletionQueue.push_function([this] {
         vkDestroyPipeline(m_device, m_WBOITCompositePassPipeline, nullptr);
         vkDestroyPipelineLayout(m_device, m_WBOITCompositePassPipelineLayout, nullptr);
-        for (auto &frame : m_frameData)
-        {
-            destroy_buffer(frame.wboitCompositePassDescBuffer.get_buffer());
-        }
     });
 }
 
@@ -1070,7 +1034,9 @@ void Engine::init_cull_point_lights_pipeline()
 void Engine::init_ddgi_probe_pipeline()
 {
     const VkDescriptorSetLayout layouts[]{
-        m_DDGIDescriptorSetLayout,
+        m_DDGITLASDescSetLayout,
+        m_DDGIRayDataDescSetLayout,
+        m_DDGIResourcesDescSetLayout,
         m_metalRoughness.materialLayout,
     };
     const VkPushConstantRange pcRange{
@@ -1200,6 +1166,126 @@ void Engine::init_ddgi_probe_pipeline()
         vkDestroyPipelineLayout(m_device, m_DDGIPipelineLayout, nullptr);
         destroy_buffer(m_SBTBuffer);
         destroy_buffer(m_DDGIVolumesBuffer);
+    });
+}
+
+void Engine::init_ddgi_probe_blending_pipeline()
+{
+    const VkDescriptorSetLayout setLayouts[]{m_DDGIRayDataDescSetLayout, m_DDGIProbeStorageDescSetLayout};
+    const VkPushConstantRange pcRange{
+        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+        .offset = 0,
+        .size = sizeof(DDGIProbeBlendingPushConstants),
+    };
+    const VkPipelineLayoutCreateInfo layoutInfo{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = static_cast<std::uint32_t>(std::size(setLayouts)),
+        .pSetLayouts = setLayouts,
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &pcRange,
+    };
+    vkCreatePipelineLayout(m_device, &layoutInfo, nullptr, &m_DDGIProbeBlendingPipelineLayout) >> chk;
+
+    VkShaderModule irradianceShader, distanceShader;
+    if (!load_shader_module("../../src/compiled_shaders/probe_irradiance_blending.compute.spv", m_device,
+                            &irradianceShader))
+        throw std::runtime_error("Failed to load probe_irradiance_blending.compute.spv");
+    if (!load_shader_module("../../src/compiled_shaders/probe_distance_blending.compute.spv", m_device,
+                            &distanceShader))
+        throw std::runtime_error("Failed to load probe_distance_blending.compute.spv");
+
+    const VkComputePipelineCreateInfo irradiancePipelineInfo{
+        .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT,
+        .stage =
+            {
+                .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+                .module = irradianceShader,
+                .pName = "main",
+            },
+        .layout = m_DDGIProbeBlendingPipelineLayout,
+    };
+    const VkComputePipelineCreateInfo distancePipelineInfo{
+        .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT,
+        .stage =
+            {
+                .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+                .module = distanceShader,
+                .pName = "main",
+            },
+        .layout = m_DDGIProbeBlendingPipelineLayout,
+    };
+    vkCreateComputePipelines(m_device, nullptr, 1, &irradiancePipelineInfo, nullptr,
+                             &m_DDGIIrradianceBlendingPipeline) >>
+        chk;
+    vkCreateComputePipelines(m_device, nullptr, 1, &distancePipelineInfo, nullptr, &m_DDGIDistanceBlendingPipeline) >>
+        chk;
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
+                               reinterpret_cast<uint64_t>(m_DDGIIrradianceBlendingPipeline),
+                               "DDGI Irradiance Blending Pipeline");
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
+                               reinterpret_cast<uint64_t>(m_DDGIDistanceBlendingPipeline),
+                               "DDGI Distance Blending Pipeline");
+
+    vkDestroyShaderModule(m_device, irradianceShader, nullptr);
+    vkDestroyShaderModule(m_device, distanceShader, nullptr);
+
+    m_mainDeletionQueue.push_function([this] {
+        vkDestroyPipeline(m_device, m_DDGIIrradianceBlendingPipeline, nullptr);
+        vkDestroyPipeline(m_device, m_DDGIDistanceBlendingPipeline, nullptr);
+        vkDestroyPipelineLayout(m_device, m_DDGIProbeBlendingPipelineLayout, nullptr);
+    });
+}
+
+void Engine::init_ddgi_indirect_pipeline()
+{
+    const VkDescriptorSetLayout setLayouts[]{m_DrawImageDescriptorSetLayout, m_DDGIGBufferReadDescSetLayout,
+                                             m_DDGIResourcesDescSetLayout};
+    const VkPushConstantRange pcRange{
+        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+        .offset = 0,
+        .size = sizeof(DDGIIndirectPushConstants),
+    };
+    const VkPipelineLayoutCreateInfo layoutInfo{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = static_cast<std::uint32_t>(std::size(setLayouts)),
+        .pSetLayouts = setLayouts,
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &pcRange,
+    };
+    vkCreatePipelineLayout(m_device, &layoutInfo, nullptr, &m_DDGIIndirectPipelineLayout) >> chk;
+
+    VkShaderModule shader;
+    if (!load_shader_module("../../src/compiled_shaders/ddgi_indirect.compute.spv", m_device, &shader))
+        throw std::runtime_error("Failed to load ddgi_indirect.compute.spv");
+
+    const VkComputePipelineCreateInfo pipelineInfo{
+        .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT,
+        .stage =
+            {
+                .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+                .module = shader,
+                .pName = "main",
+            },
+        .layout = m_DDGIIndirectPipelineLayout,
+    };
+    vkCreateComputePipelines(m_device, nullptr, 1, &pipelineInfo, nullptr, &m_DDGIIndirectPipeline) >> chk;
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE, reinterpret_cast<uint64_t>(m_DDGIIndirectPipeline),
+                               "DDGI Indirect Pipeline");
+
+    vkDestroyShaderModule(m_device, shader, nullptr);
+
+    m_mainDeletionQueue.push_function([this] {
+        vkDestroyPipeline(m_device, m_DDGIIndirectPipeline, nullptr);
+        vkDestroyPipelineLayout(m_device, m_DDGIIndirectPipelineLayout, nullptr);
     });
 }
 
@@ -1441,6 +1527,99 @@ void Engine::init_frames_data()
         .width = m_windowExtent.width,
         .height = m_windowExtent.height,
     };
+
+    {
+        const VkSamplerCreateInfo shadowSamplerInfo{
+            .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+            .magFilter = VK_FILTER_LINEAR,
+            .minFilter = VK_FILTER_LINEAR,
+            .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
+            .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
+            .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
+            .compareEnable = VK_TRUE,
+            .compareOp = VK_COMPARE_OP_LESS_OR_EQUAL,
+            .borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
+        };
+        vkCreateSampler(m_device, &shadowSamplerInfo, nullptr, &m_shadowSampler);
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_SAMPLER, reinterpret_cast<uint64_t>(m_shadowSampler),
+                                   "Shadow Sampler");
+    }
+    ddgiRayDataDescBuffer =
+        DescriptorBuffer(m_device, m_DDGIRayDataDescSetLayout, DescriptorBufferProperties::query(m_chosenGpu));
+    ddgiRayDataDescBuffer.create_buffer([this](const std::size_t allocSize, const VkBufferUsageFlags bufferUsage) {
+        return create_buffer(allocSize, bufferUsage, VMA_MEMORY_USAGE_CPU_ONLY);
+    });
+
+    ddgiResourcesDescBuffer =
+        DescriptorBuffer(m_device, m_DDGIResourcesDescSetLayout, DescriptorBufferProperties::query(m_chosenGpu));
+    ddgiResourcesDescBuffer.create_buffer([this](const std::size_t allocSize, const VkBufferUsageFlags bufferUsage) {
+        return create_buffer(allocSize, bufferUsage, VMA_MEMORY_USAGE_CPU_ONLY);
+    });
+    ddgiIrradianceStorageDescBuffer =
+        DescriptorBuffer(m_device, m_DDGIProbeStorageDescSetLayout, DescriptorBufferProperties::query(m_chosenGpu));
+    ddgiIrradianceStorageDescBuffer.create_buffer(
+        [this](const std::size_t allocSize, const VkBufferUsageFlags bufferUsage) {
+            return create_buffer(allocSize, bufferUsage, VMA_MEMORY_USAGE_CPU_ONLY);
+        });
+    ddgiDistanceStorageDescBuffer =
+        DescriptorBuffer(m_device, m_DDGIProbeStorageDescSetLayout, DescriptorBufferProperties::query(m_chosenGpu));
+    ddgiDistanceStorageDescBuffer.create_buffer(
+        [this](const std::size_t allocSize, const VkBufferUsageFlags bufferUsage) {
+            return create_buffer(allocSize, bufferUsage, VMA_MEMORY_USAGE_CPU_ONLY);
+        });
+    for (std::uint32_t j = 0; j < kMaxDDGIVolumes; ++j)
+    {
+        // RayData
+        rayDatas[j] = create_image_array({kMaxDDGIRays, kMaxDDGIProbesX * kMaxDDGIProbesZ, 1},
+                                         VK_FORMAT_R32G32B32A32_SFLOAT,
+                                         VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, kMaxDDGIProbesY);
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(rayDatas[j].image),
+                                   std::format("DDGI RayData [{}]", j).c_str());
+        // Irradiance
+        irradianceDatas[j] = create_image_array(
+            {.width = (kMaxIrradianceTexels)*kMaxDDGIProbesX,
+             .height = (kMaxIrradianceTexels)*kMaxDDGIProbesZ,
+             .depth = 1},
+            VK_FORMAT_R16G16B16A16_SFLOAT,
+            VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, kMaxDDGIProbesY);
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(irradianceDatas[j].image),
+                                   std::format("DDGI Irradiance Data [{}]", j).c_str());
+        // Distance
+        distanceDatas[j] = create_image_array(
+            {.width = (kMaxDistanceTexels)*kMaxDDGIProbesX, .height = (kMaxDistanceTexels)*kMaxDDGIProbesZ, .depth = 1},
+            VK_FORMAT_R32G32_SFLOAT,
+            VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, kMaxDDGIProbesY);
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(distanceDatas[j].image),
+                                   std::format("DDGI Distance Data [{}]", j).c_str());
+
+        immediate_submit([this, j](VkCommandBuffer cmd) {
+            mp::utils::BarrierBuilder barrierBuilder;
+            barrierBuilder.add_image_barrier(irradianceDatas[j].transition(
+                {.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                 .accessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                 .layout = VK_IMAGE_LAYOUT_GENERAL,
+                 .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                 .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
+            barrierBuilder.add_image_barrier(distanceDatas[j].transition(
+                {.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                 .accessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                 .layout = VK_IMAGE_LAYOUT_GENERAL,
+                 .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                 .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
+            barrierBuilder.barrier(cmd);
+
+            const VkClearColorValue color{{0.f, 0.f, 0.f, 1.f}};
+            VkImageSubresourceRange range;
+            range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            range.baseMipLevel = 0;
+            range.levelCount = 1;
+            range.baseArrayLayer = 0;
+            range.layerCount = kMaxDDGIProbesY;
+
+            vkCmdClearColorImage(cmd, irradianceDatas[j].image, VK_IMAGE_LAYOUT_GENERAL, &color, 1, &range);
+            vkCmdClearColorImage(cmd, distanceDatas[j].image, VK_IMAGE_LAYOUT_GENERAL, &color, 1, &range);
+        });
+    }
     for (std::size_t i = 0; i < m_frameData.size(); ++i)
     {
         auto &frame = m_frameData[i];
@@ -1639,49 +1818,75 @@ void Engine::init_frames_data()
                                    reinterpret_cast<uint64_t>(frame.countBuffer.buffer),
                                    std::format("Count Buffer [{}]", i).c_str());
 
-        frame.ddgiDescBuffer =
-            DescriptorBuffer(m_device, m_DDGIDescriptorSetLayout, DescriptorBufferProperties::query(m_chosenGpu));
-        frame.ddgiDescBuffer.create_buffer([this](const std::size_t allocSize, const VkBufferUsageFlags bufferUsage) {
-            return create_buffer(allocSize, bufferUsage, VMA_MEMORY_USAGE_CPU_ONLY);
-        });
-        for (std::uint32_t j = 0; j < kMaxDDGIVolumes; ++j)
-        {
-            // RayData
-            frame.rayDatas[j] =
-                create_image_array({kMaxDDGIRays, kMaxDDGIProbesX * kMaxDDGIProbesZ, 1}, VK_FORMAT_R32G32B32A32_SFLOAT,
-                                   VK_IMAGE_USAGE_STORAGE_BIT, kMaxDDGIProbesY);
-            mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
-                                       reinterpret_cast<uint64_t>(frame.rayDatas[j].image),
-                                       std::format("DDGI RayData [{}]", j).c_str());
-            // Irradiance
-            frame.irradianceDatas[j] =
-                create_image_array({.width = (kMaxIrradianceTexels + 2) * kMaxDDGIProbesX,
-                                    .height = (kMaxIrradianceTexels + 2) * kMaxDDGIProbesZ,
-                                    .depth = 1},
-                                   VK_FORMAT_R16G16B16A16_SFLOAT,
-                                   VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, kMaxDDGIVolumes);
-            mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
-                                       reinterpret_cast<uint64_t>(frame.irradianceDatas[j].image),
-                                       std::format("DDGI Irradiance Data [{}]", j).c_str());
-            // Distance
-            frame.distanceDatas[j] = create_image_array(
-                {.width = (kMaxDistanceTexels + 2) * kMaxDDGIProbesX,
-                 .height = (kMaxDistanceTexels + 2) * kMaxDDGIProbesZ,
-                 .depth = 1},
-                VK_FORMAT_R32G32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, kMaxDDGIVolumes);
-            mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
-                                       reinterpret_cast<uint64_t>(frame.distanceDatas[j].image),
-                                       std::format("DDGI Distance Data [{}]", j).c_str());
-        }
-        frame.ddgiOutput =
-            create_image(m_CommonImageExtent3D, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT);
+        frame.lightPassDescriptorBuffer =
+            DescriptorBuffer(m_device, m_LightPassDescriptorSetLayout, DescriptorBufferProperties::query(m_chosenGpu));
+
+        frame.lightPassDescriptorBuffer.create_buffer(
+            [&](const std::size_t allocSize, const VkBufferUsageFlags bufferUsage) {
+                return create_buffer(allocSize, bufferUsage, VMA_MEMORY_USAGE_CPU_ONLY);
+            });
+
+        frame.wboitCompositePassDescBuffer = DescriptorBuffer(m_device, m_WboitCompositePassDescriptorSetLayout,
+                                                              DescriptorBufferProperties::query(m_chosenGpu));
+        frame.wboitCompositePassDescBuffer.create_buffer(
+            [this](const std::size_t allocSize, const VkBufferUsageFlags bufferUsage) {
+                return create_buffer(allocSize, bufferUsage, VMA_MEMORY_USAGE_CPU_ONLY);
+            });
+
+        frame.drawImageDescriptorBuffer =
+            DescriptorBuffer(m_device, m_DrawImageDescriptorSetLayout, DescriptorBufferProperties::query(m_chosenGpu));
+
+        frame.drawImageDescriptorBuffer.create_buffer(
+            [&](const std::size_t allocSize, const VkBufferUsageFlags bufferUsage) {
+                return create_buffer(allocSize, bufferUsage, VMA_MEMORY_USAGE_CPU_ONLY);
+            });
+
+        frame.ddgiTLASDescBuffer =
+            DescriptorBuffer(m_device, m_DDGITLASDescSetLayout, DescriptorBufferProperties::query(m_chosenGpu));
+        frame.ddgiTLASDescBuffer.create_buffer(
+            [this](const std::size_t allocSize, const VkBufferUsageFlags bufferUsage) {
+                return create_buffer(allocSize, bufferUsage, VMA_MEMORY_USAGE_CPU_ONLY);
+            });
+        frame.ddgiOutputStorageDescBuffer =
+            DescriptorBuffer(m_device, m_DrawImageDescriptorSetLayout, DescriptorBufferProperties::query(m_chosenGpu));
+        frame.ddgiOutputStorageDescBuffer.create_buffer(
+            [this](const std::size_t allocSize, const VkBufferUsageFlags bufferUsage) {
+                return create_buffer(allocSize, bufferUsage, VMA_MEMORY_USAGE_CPU_ONLY);
+            });
+        frame.ddgiGBufferReadDescBuffer =
+            DescriptorBuffer(m_device, m_DDGIGBufferReadDescSetLayout, DescriptorBufferProperties::query(m_chosenGpu));
+        frame.ddgiGBufferReadDescBuffer.create_buffer(
+            [this](const std::size_t allocSize, const VkBufferUsageFlags bufferUsage) {
+                return create_buffer(allocSize, bufferUsage, VMA_MEMORY_USAGE_CPU_ONLY);
+            });
+        frame.ddgiOutput = create_image(m_CommonImageExtent3D, VK_FORMAT_R16G16B16A16_SFLOAT,
+                                        VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
         mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(frame.ddgiOutput.image),
                                    std::format("DDGI Output [{}]", i).c_str());
     }
 
     m_mainDeletionQueue.push_function([this] {
+        vkDestroySampler(m_device, m_shadowSampler, nullptr);
+
+        for (std::uint32_t j = 0; j < kMaxDDGIVolumes; ++j)
+        {
+            auto &rayData = rayDatas[j];
+            auto &distanceData = distanceDatas[j];
+            auto &irradianceData = irradianceDatas[j];
+            vkDestroyImageView(m_device, rayData.imageView, nullptr);
+            vmaDestroyImage(m_allocator, rayData.image, rayData.allocation);
+            vkDestroyImageView(m_device, distanceData.imageView, nullptr);
+            vmaDestroyImage(m_allocator, distanceData.image, distanceData.allocation);
+            vkDestroyImageView(m_device, irradianceData.imageView, nullptr);
+            vmaDestroyImage(m_allocator, irradianceData.image, irradianceData.allocation);
+        }
+        destroy_buffer(ddgiRayDataDescBuffer.get_buffer());
+        destroy_buffer(ddgiResourcesDescBuffer.get_buffer());
+        destroy_buffer(ddgiIrradianceStorageDescBuffer.get_buffer());
+        destroy_buffer(ddgiDistanceStorageDescBuffer.get_buffer());
         for (auto &frame : m_frameData)
         {
+
             destroy_image(frame.gBuffer.normal);
             destroy_image(frame.gBuffer.diffuse);
             destroy_image(frame.gBuffer.specular);
@@ -1711,21 +1916,14 @@ void Engine::init_frames_data()
             destroy_buffer(frame.minMaxBuffer);
             destroy_buffer(frame.splitsAABBBuffer);
             destroy_buffer(frame.histogramBuffer);
+            destroy_buffer(frame.wboitCompositePassDescBuffer.get_buffer());
+            destroy_buffer(frame.lightPassDescriptorBuffer.get_buffer());
+            destroy_buffer(frame.drawImageDescriptorBuffer.get_buffer());
             destroy_buffer(frame.cascadeDepthDescBuffer.get_buffer());
-            for (std::uint32_t j = 0; j < kMaxDDGIVolumes; ++j)
-            {
-                auto &rayData = frame.rayDatas[j];
-                auto &distanceData = frame.distanceDatas[j];
-                auto &irradianceData = frame.irradianceDatas[j];
-                vkDestroyImageView(m_device, rayData.imageView, nullptr);
-                vmaDestroyImage(m_allocator, rayData.image, rayData.allocation);
-                vkDestroyImageView(m_device, distanceData.imageView, nullptr);
-                vmaDestroyImage(m_allocator, distanceData.image, distanceData.allocation);
-                vkDestroyImageView(m_device, irradianceData.imageView, nullptr);
-                vmaDestroyImage(m_allocator, irradianceData.image, irradianceData.allocation);
-            }
             destroy_image(frame.ddgiOutput);
-            destroy_buffer(frame.ddgiDescBuffer.get_buffer());
+            destroy_buffer(frame.ddgiTLASDescBuffer.get_buffer());
+            destroy_buffer(frame.ddgiOutputStorageDescBuffer.get_buffer());
+            destroy_buffer(frame.ddgiGBufferReadDescBuffer.get_buffer());
         }
     });
 
@@ -2012,11 +2210,6 @@ void Engine::init_mesh_data()
     create_BLAS();
     create_TLAS();
 
-    for (auto &frame : m_frameData)
-    {
-        frame.ddgiDescBuffer.write_acceleration_structure(0, 0, m_TlasAccel.address);
-    }
-
     m_mainDeletionQueue.push_function([this] {
         destroy_buffer(m_globalPositionBuffer);
         destroy_buffer(m_globalAttributesBuffer);
@@ -2219,7 +2412,6 @@ void Engine::init_alpha_tested_point_shadow_pass()
 
 void Engine::init_ddgi_probe_vis_pipeline()
 {
-    // --- Sphere mesh (UV sphere, 8x8) ---
     {
         constexpr int rings = 8;
         constexpr int sectors = 8;
@@ -2238,7 +2430,7 @@ void Engine::init_ddgi_probe_vis_pipeline()
                     std::cos(2.f * glm::pi<float>() * s / (sectors - 1)) * std::sin(glm::pi<float>() * r / (rings - 1));
                 const float z =
                     std::sin(2.f * glm::pi<float>() * s / (sectors - 1)) * std::sin(glm::pi<float>() * r / (rings - 1));
-                vertices.push_back({x, y, z});
+                vertices.emplace_back(x, y, z);
             }
         }
         for (int r = 0; r < rings - 1; ++r)
@@ -2290,24 +2482,24 @@ void Engine::init_ddgi_probe_vis_pipeline()
         });
     }
 
-    // --- Pipeline layout (push constants only, no descriptor sets) ---
+    // --- Pipeline layout ---
     {
+        const VkDescriptorSetLayout setLayouts[]{m_DDGIResourcesDescSetLayout};
         const VkPushConstantRange pcRange{
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
             .offset = 0,
             .size = sizeof(DDGIProbeVisPushConstants),
         };
         const VkPipelineLayoutCreateInfo layoutInfo{
             .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-            .setLayoutCount = 0,
-            .pSetLayouts = nullptr,
+            .setLayoutCount = 1,
+            .pSetLayouts = setLayouts,
             .pushConstantRangeCount = 1,
             .pPushConstantRanges = &pcRange,
         };
         vkCreatePipelineLayout(m_device, &layoutInfo, nullptr, &m_DDGIProbeVisPipelineLayout) >> chk;
     }
 
-    // --- Shaders ---
     VkShaderModule vertShader;
     if (!load_shader_module("../../src/compiled_shaders/probe_vis.vertex.spv", m_device, &vertShader))
         throw std::runtime_error("Failed to load probe_vis.vertex.spv");
@@ -2316,18 +2508,18 @@ void Engine::init_ddgi_probe_vis_pipeline()
     if (!load_shader_module("../../src/compiled_shaders/probe_vis.fragment.spv", m_device, &fragShader))
         throw std::runtime_error("Failed to load probe_vis.fragment.spv");
 
-    // --- Graphics pipeline ---
     {
         PipelineBuilder builder;
         builder.pipelineLayout = m_DDGIProbeVisPipelineLayout;
         builder.add_shader(vertShader, VK_SHADER_STAGE_VERTEX_BIT);
         builder.add_shader(fragShader, VK_SHADER_STAGE_FRAGMENT_BIT);
-        builder.disable_depth_test();
+        builder.enable_depth_test(true, VK_COMPARE_OP_LESS_OR_EQUAL);
+        builder.set_depth_format(m_frameData.at(0).depthImage.imageFormat);
         builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
         builder.set_polygon_mode(VK_POLYGON_MODE_FILL);
         builder.set_cull_mode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
         builder.set_multisampling_none();
-        builder.add_color_attachment_format(m_swapchainImageFormat);
+        builder.add_color_attachment_format(m_frameData.at(0).drawImage.imageFormat);
         builder.colorBlends.push_back({.blendEnable = VK_FALSE,
                                        .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
                                                          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT});
@@ -2419,6 +2611,18 @@ void Engine::resize_swapchain()
 
 void Engine::write_frame_descriptors()
 {
+    for (std::uint32_t j = 0; j < kMaxDDGIVolumes; ++j)
+    {
+        ddgiRayDataDescBuffer.write_storage_image(0, j, rayDatas[j].imageView, VK_IMAGE_LAYOUT_GENERAL);
+        ddgiResourcesDescBuffer.write_sampled_image(0, j, irradianceDatas[j].imageView,
+                                                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        ddgiResourcesDescBuffer.write_sampled_image(1, j, distanceDatas[j].imageView,
+                                                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        ddgiIrradianceStorageDescBuffer.write_storage_image(0, j, irradianceDatas[j].imageView,
+                                                            VK_IMAGE_LAYOUT_GENERAL);
+        ddgiDistanceStorageDescBuffer.write_storage_image(0, j, distanceDatas[j].imageView, VK_IMAGE_LAYOUT_GENERAL);
+    }
+    ddgiResourcesDescBuffer.write_sampler(2, 0, m_defaultSamplerLinear);
     for (auto &frame : m_frameData)
     {
         frame.drawImageDescriptorBuffer.write_storage_image(0, 0, frame.drawImage.imageView, VK_IMAGE_LAYOUT_GENERAL);
@@ -2438,6 +2642,8 @@ void Engine::write_frame_descriptors()
                                                             VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL);
         frame.lightPassDescriptorBuffer.write_sampled_image(7, 0, frame.gBuffer.emissive.imageView,
                                                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        frame.lightPassDescriptorBuffer.write_sampled_image(8, 0, frame.ddgiOutput.imageView,
+                                                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
         frame.wboitCompositePassDescBuffer.write_sampled_image(0, 0, frame.oitAccImage.imageView,
                                                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -2447,14 +2653,15 @@ void Engine::write_frame_descriptors()
         frame.cascadeDepthDescBuffer.write_sampled_image(0, 0, frame.depthImage.imageView,
                                                          VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL);
 
-        for (std::uint32_t j = 0; j < kMaxDDGIVolumes; ++j)
-        {
-            frame.ddgiDescBuffer.write_storage_image(1, j, frame.rayDatas[j].imageView, VK_IMAGE_LAYOUT_GENERAL);
-            frame.ddgiDescBuffer.write_sampled_image(2, j, frame.irradianceDatas[j].imageView,
-                                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            frame.ddgiDescBuffer.write_sampled_image(3, j, frame.distanceDatas[j].imageView,
-                                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        }
+        frame.ddgiTLASDescBuffer.write_acceleration_structure(0, 0, m_TlasAccel.address);
+        frame.ddgiOutputStorageDescBuffer.write_storage_image(0, 0, frame.ddgiOutput.imageView,
+                                                              VK_IMAGE_LAYOUT_GENERAL);
+        frame.ddgiGBufferReadDescBuffer.write_sampled_image(0, 0, frame.depthImage.imageView,
+                                                            VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL);
+        frame.ddgiGBufferReadDescBuffer.write_sampled_image(1, 0, frame.gBuffer.normal.imageView,
+                                                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        frame.ddgiGBufferReadDescBuffer.write_sampled_image(2, 0, frame.gBuffer.diffuse.imageView,
+                                                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
 }
 

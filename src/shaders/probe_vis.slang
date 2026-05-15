@@ -1,20 +1,33 @@
 import types;
 import ddgi_common;
 
+[[vk::binding(0, 0)]]
+Texture2DArray<float4> IrradianceDatas[];
+
+[[vk::binding(1, 0)]]
+Texture2DArray<float2> DistanceDatas[];
+
+[[vk::binding(2, 0)]]
+SamplerState BilinearSampler;
+
 struct PushConstants {
     DDGIVolume*     volumes;
     VertexPosition* sphereVertices;
     SceneData*      sceneData;
     uint            volumeIndex;
     float           probeRadius;
-}
+    uint            visMode;
+    uint            _pad;
+};
 
 [[vk::push_constant]]
 PushConstants pushConstants;
 
 struct VSOutput {
-    float4 position : SV_Position;
-    float3 color    : COLOR0;
+    float4               position    : SV_Position;
+    float3               color       : COLOR0;
+    float3               sphereNormal: TEXCOORD0;
+    nointerpolation uint probeIndex  : TEXCOORD1;
 }
 
 [shader("vertex")]
@@ -31,16 +44,41 @@ VSOutput VSMain(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
     float3 maxCoords = float3(max(volume.probeCounts - int3(1), int3(1)));
 
     VSOutput output;
-    output.position = mul(pushConstants.sceneData.projView, float4(worldPos, 1.0f));
-    output.color = float3(coords) / maxCoords;
+    output.position    = mul(pushConstants.sceneData.projView, float4(worldPos, 1.0f));
+    output.color       = float3(coords) / maxCoords;
+    output.sphereNormal = sphereVtx;
+    output.probeIndex  = instanceId;
     return output;
 }
 
 [shader("fragment")]
 float4 FSMain(VSOutput input) : SV_Target
 {
-    // TODO: Add color depending on condition
-    // Irradiance -> irradiance
-    // Distance -> distance
-    return float4(input.color, 1.0f);
+    if (pushConstants.visMode == 0)
+        return float4(input.color, 1.0f);
+
+    DDGIVolume volume = pushConstants.volumes[pushConstants.volumeIndex];
+
+    float2 octUV = DDGIGetOctahedralCoordinates(input.sphereNormal);
+
+    if (pushConstants.visMode == 1) // Irradiance
+    {
+        float3 probeUV = DDGIGetProbeUV(int(input.probeIndex), octUV,
+                                        volume.probeIrradianceTexels - 2, volume);
+        float3 enc = IrradianceDatas[pushConstants.volumeIndex]
+                         .SampleLevel(BilinearSampler, probeUV, 0).rgb;
+        float3 irr = pow(enc, volume.probeIrradianceEncodingGamma * 0.5f);
+        irr *= irr;
+        return float4(irr, 1.0f);
+    }
+    else // Distance
+    {
+        float3 probeUV = DDGIGetProbeUV(int(input.probeIndex), octUV,
+                                        volume.probeDistanceTexels - 2, volume);
+        float meanDist = 2.0f * DistanceDatas[pushConstants.volumeIndex]
+                                    .SampleLevel(BilinearSampler, probeUV, 0).r;
+        float maxDist = length(volume.probeSpacing) * 1.5f;
+        float t = saturate(meanDist / maxDist);
+        return float4(t, t, t, 1.0f);
+    }
 }

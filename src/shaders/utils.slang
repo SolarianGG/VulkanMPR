@@ -1,5 +1,16 @@
 module utils;
 
+public float LinearRGBToLuminance(float3 rgb)
+{
+    constexpr float3 LuminanceWeights = float3(0.2126, 0.7152, 0.0722);
+    return dot(rgb, LuminanceWeights);
+}
+
+public float MaxComponent(float3 a)
+{
+    return max(a.x, max(a.y, a.z));
+}
+
 public float SignNotZero(float v)
 {
     return (v >= 0.f) ? 1.f : -1.f;

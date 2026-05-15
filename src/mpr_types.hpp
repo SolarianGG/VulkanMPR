@@ -33,7 +33,7 @@ constexpr int MAX_CASCADES = kMaxCascadeCount;
 constexpr std::uint32_t kDirectionalShadowMapSize = 2048u;
 
 constexpr std::uint32_t kMaxDDGIVolumes = 4u;
-constexpr std::uint32_t kMaxDDGIRays = 512u;
+constexpr std::uint32_t kMaxDDGIRays = 256u;
 constexpr std::uint32_t kMaxDDGIProbesX = 22u;
 constexpr std::uint32_t kMaxDDGIProbesY = 22u;
 constexpr std::uint32_t kMaxDDGIProbesZ = 22u;
@@ -254,10 +254,10 @@ struct LightPassPushConstants
     VkDeviceAddress tetrahedronDataAddr;
     float cameraNear;
     float cameraFar;
+    glm::vec4 skyRadiance;
 
     glm::mat4 inverseCameraViewProj;
 };
-static_assert(sizeof(LightPassPushConstants) == 112);
 
 struct PointLightsShadowPassPushConstants
 {
@@ -295,6 +295,7 @@ struct GpuSceneData
     glm::mat4 view;
     glm::mat4 proj;
     glm::mat4 projView;
+    glm::mat4 inverseProjView;
     glm::vec3 cameraPos;
     float padding0;
 };
@@ -425,6 +426,14 @@ struct DirVpPushConstants
     glm::mat4 lightView;
 };
 
+struct TextureVisPushConstants 
+{
+    glm::vec2 size;
+    VkExtent2D windowExtent;
+    std::uint32_t instanceCount;
+    float _padding0;
+};
+
 struct PopulateCommandsWithCascadeCountPushConstants
 {
     VkDeviceAddress commands;
@@ -461,7 +470,7 @@ struct AverageLuminancePushConstants
     VkDeviceAddress avgLum; // float[1], read-write EMA state
     float minLogLum;
     float logLumRange;
-    float timeCoeff; // 1 - exp(-dt * adaptationSpeed), computed in C++
+    float timeCoeff; // 1 - exp(-dt * adaptationSpeed)
     std::uint32_t numPixels;
 };
 
@@ -516,20 +525,39 @@ struct DDGIVolume
     float probeNormalBias{0.1f};
     glm::vec4 probeRayRotation;
     float probeViewBias{0.1f};
-    std::int32_t probeIrradianceTexels{8};
-    std::int32_t probeDistanceTexels{16};
+    std::int32_t probeIrradianceTexels{kMaxIrradianceTexels};
+    std::int32_t probeDistanceTexels{kMaxDistanceTexels};
     float probeIrradianceEncodingGamma{5.0f};
+    float probeHysteresis{0.97f};
+    float probeRandomRayBackfaceThreshold{0.1f};
+    float probeIrradianceThreshold{0.25f};
+    float probeBrightnessThreshold{1.0f};
+    float probeDistanceExponent{50.0f};
+    float _pad[3]{};
+};
+
+struct DDGIProbeBlendingPushConstants
+{
+    VkDeviceAddress volumes;
+    std::uint32_t currentVolumeIndex;
+    std::uint32_t _pad{};
+};
+
+struct DDGIIndirectPushConstants
+{
+    VkDeviceAddress volumes;
+    std::uint32_t volumeCount;
+    std::uint32_t _pad{};
+    VkDeviceAddress sceneData;
 };
 
 struct DDGIProbePushConstants
 {
     VkDeviceAddress volumes;
     std::uint32_t currentVolumeIndex;
-    std::uint32_t _pad0{};
     VkDeviceAddress dirLight;
     VkDeviceAddress pointLights;
     std::uint32_t pointLightsCount;
-    std::uint32_t _pad1{};
     VkDeviceAddress vPositions;
     VkDeviceAddress vAttributes;
     VkDeviceAddress indices;
@@ -537,16 +565,35 @@ struct DDGIProbePushConstants
     VkDeviceAddress meshes;
     float rayNormalBias;
     float rayViewBias;
+    float _pad0{};
+    float _pad1{};
+    glm::vec4 skyRadiance;
+};
+
+enum class DDGIProbeVisMode : std::uint32_t
+{
+    GridPosition = 0,
+    Irradiance   = 1,
+    Distance     = 2,
 };
 
 struct DDGIProbeVisPushConstants
 {
-    VkDeviceAddress volumes;
-    VkDeviceAddress sphereVertices;
-    VkDeviceAddress sceneData;
-    std::uint32_t volumeIndex;
-    float probeRadius;
+    VkDeviceAddress  volumes;
+    VkDeviceAddress  sphereVertices;
+    VkDeviceAddress  sceneData;
+    std::uint32_t    volumeIndex;
+    float            probeRadius;
+    DDGIProbeVisMode visMode;
+    std::uint32_t    _pad{};
 };
-static_assert(sizeof(DDGIProbeVisPushConstants) == 32);
+static_assert(sizeof(DDGIProbeVisPushConstants) == 40);
+
+struct DDGIVolumeVisEntry
+{
+    DDGIVolume       volume;
+    std::uint32_t    volumeIdx;
+    DDGIProbeVisMode mode;
+};
 
 } // namespace mp

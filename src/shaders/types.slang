@@ -72,6 +72,7 @@ public struct SceneData
     public float4x4 view;
     public float4x4 proj;
     public float4x4 projView;
+    public float4x4 inverseCameraViewProj;
     public float3 cameraPos;
     public float padding;
 };
@@ -135,6 +136,12 @@ public struct DDGIVolume {
     public int probeIrradianceTexels;
     public int probeDistanceTexels;
     public float probeIrradianceEncodingGamma;
+    public float probeHysteresis;
+    public float probeRandomRayBackfaceThreshold;
+    public float probeIrradianceThreshold;
+    public float probeBrightnessThreshold;
+    public float probeDistanceExponent;
+    public float _pad[3];
 };
 
 public struct Payload {
@@ -146,6 +153,6 @@ public struct Payload {
     public float opacity;
     public float3 shadingNormal;
     public float metallic;
-    public float3 _padding0;
+    public float3 emissive;
     public float roughness;
 };

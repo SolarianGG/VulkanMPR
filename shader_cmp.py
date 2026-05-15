@@ -52,6 +52,7 @@ def compile_shaders(input_dir="src/shaders", output_dir="src/compiled_shaders", 
                     "-target", "spirv",
                     "-entry", entry_name,
                     "-profile", "spirv_1_6",
+                    "-Wno-41012",
                     "-o", output_path
                 ]
 
@@ -89,7 +90,7 @@ def validate_compiled_shaders(compiled_files):
                     print(f"  Error: {result.stderr.strip()}")
                     validation_errors.append(spv_file)
                 else:
-                    print(f"Validated {spv_file} ✓")
+                    print(f"Validated {spv_file} [OK]")
             except FileNotFoundError:
                 print("spirv-val not found. Please install SPIRV-Tools or add it to PATH.")
                 break
@@ -99,7 +100,7 @@ def validate_compiled_shaders(compiled_files):
     if validation_errors:
         print(f"\nValidation completed with {len(validation_errors)} error(s).")
     else:
-        print(f"\nAll {len(compiled_files)} shaders validated successfully.")
+        print(f"\nAll {len(compiled_files)} shaders validated successfully. [OK]")
 
 def _slang_profile(stage: str) -> str:
     profiles = {

@@ -57,7 +57,7 @@ struct DrawContext
     std::optional<DirectionalLightData> dirLight;
     std::vector<PointLightData> pointLights;
     std::vector<DDGIVolume> ddgiVolumes;
-    std::vector<std::pair<DDGIVolume, std::uint32_t>> ddgiVolumesVis;
+    std::vector<DDGIVolumeVisEntry> ddgiVolumesVis;
 
     glm::vec3 min{FLT_MAX};
     glm::vec3 max{-FLT_MAX};
@@ -147,8 +147,9 @@ struct PointLightNode : public Node
 struct DDGIVolumeNode : public Node
 {
   public:
-    DDGIVolume m_Data{};
-    bool  m_bVisualize    = false;
+    DDGIVolume       m_Data{};
+    bool             m_bVisualize = false;
+    DDGIProbeVisMode m_visMode    = DDGIProbeVisMode::GridPosition;
 
   public:
     DDGIVolumeNode() = default;

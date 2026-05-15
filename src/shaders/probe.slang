@@ -8,21 +8,22 @@ import lights;
 [[vk::binding(0, 0)]]
 RaytracingAccelerationStructure SceneTLAS;
 
-[[vk::binding(1, 0)]]
+[[vk::binding(0, 1)]]
 [[vk::image_format("rgba32f")]]
 RWTexture2DArray<float4> RayDatas[];
 
-[[vk::binding(2, 0)]]
-[[vk::image_format("rgba16f")]]
+[[vk::binding(0, 2)]]
 Texture2DArray<float4> Irradiance[];
 
-[[vk::binding(3, 0)]]
-[[vk::image_format("rg32f")]]
+[[vk::binding(1, 2)]]
 Texture2DArray<float2> Distance[];
 
-[[vk::binding(0, 1)]] ConstantBuffer<GLTFMaterialData> materials[];
-[[vk::binding(1, 1)]] SamplerState samplers[];
-[[vk::binding(2, 1)]] Texture2D textures[];
+[[vk::binding(2, 2)]]
+SamplerState BillinearWrapSampler;
+
+[[vk::binding(0, 3)]] ConstantBuffer<GLTFMaterialData> materials[];
+[[vk::binding(1, 3)]] SamplerState samplers[];
+[[vk::binding(2, 3)]] Texture2D textures[];
 
 struct PushConstants {
     DDGIVolume *volumes;
@@ -37,6 +38,9 @@ struct PushConstants {
     Mesh *meshes;
     float rayNormalBias;
     float rayViewBias;
+    float _pad0;
+    float _pad1;
+    float4 skyRadiance;
 };
 
 [[vk::push_constant]]
@@ -80,38 +84,35 @@ void RGSMain()
     // Miss
     if (payl.hitT < 0.f)
     {
-        // TODO: Sample sky irradiance diffuse map
-        RayData[outputCoords] = float4(0.33f, 0.66f, 0.99f, 1e27f);
+        float3 skyRadiance = pushConstants.skyRadiance.xyz * pushConstants.skyRadiance.a;
+        RayData[outputCoords] = float4(skyRadiance, 1e27f);
         return;
     }
 
     // Probe inside a wall
     if (payl.hitKind == HIT_KIND_TRIANGLE_BACK_FACE)
     {
-        RayData[outputCoords].w = -payl.hitT * 0.2f;
+        RayData[outputCoords] = float4(0.0f, 0.0f, 0.0f, -payl.hitT * 0.2f);
         return;
     }
 
     float3 diffuse = DirectDiffuseLighting(payl, pushConstants.rayNormalBias, pushConstants.rayViewBias, SceneTLAS, pushConstants.dirLight, pushConstants.pointLights, pushConstants.pointLightsCount);
 
-    // TODO: Add irradiance evalution
-    float3 irradiance = 0.5f;
+    float3 irradiance = 0.f;
     float3 surfaceBias = DDGIGetSurfaceBias(payl.normal, ray.Direction, volume);
 
     float volumeBlendWeight = DDGIGetVolumeBlendWeight(payl.worldPosition, volume);
 
-    // Default trillinear samplers that works as billinear because irradiance and distance textures have only 1 mip
-    SamplerState defaultSampler = samplers[0];
     Texture2DArray<float4> irradianceTexture = Irradiance[pushConstants.currentVolumeIndex];
     Texture2DArray<float2> distanceTexture = Distance[pushConstants.currentVolumeIndex];
     if (volumeBlendWeight > 0.f)
     {
-        irradiance = DDGIGetVolumeIrradiance(payl.worldPosition, surfaceBias, payl.normal, volume, defaultSampler, irradianceTexture, distanceTexture);
+        irradiance = DDGIGetVolumeIrradiance(payl.worldPosition, surfaceBias, payl.normal, volume, BillinearWrapSampler, irradianceTexture, distanceTexture);
         irradiance *= volumeBlendWeight;
     }
 
     float maxAlbedo = 0.9f;
-    float3 radiance = diffuse + ((min(payl.albedo, float3(maxAlbedo, maxAlbedo, maxAlbedo)) / float ::getPi()) * irradiance);
+    float3 radiance = payl.emissive + diffuse + ((min(payl.albedo, float3(maxAlbedo, maxAlbedo, maxAlbedo)) / float ::getPi()) * irradiance);
     RayData[outputCoords] = float4(saturate(radiance), payl.hitT);
 }
 
@@ -176,12 +177,17 @@ void CHSMain(inout Payload payload, BuiltInTriangleIntersectionAttributes attr)
     Vertex v = InterpolateVertex(vertices, barycentrics);
 
     // World position
-    payload.worldPosition = v.pos;
-    payload.worldPosition = mul(ObjectToWorld3x4(), float4(payload.worldPosition, 1.f)).xyz; // instance transform
+    payload.worldPosition = WorldRayOrigin() + WorldRayDirection() * RayTCurrent();
 
-    // Geometric normal
-    payload.normal = v.norm;
-    payload.normal = normalize(mul(ObjectToWorld3x4(), float4(payload.normal, 0.f)).xyz);
+    // True geometric face normal (perpendicular to triangle plane)
+    float3 e1 = vertices[1].pos - vertices[0].pos;
+    float3 e2 = vertices[2].pos - vertices[0].pos;
+    float3 geomNormal = normalize(cross(e1, e2));
+    payload.normal = normalize(mul(ObjectToWorld3x4(), float4(geomNormal, 0.f)).xyz);
+
+    // Handle backface case — flip if pointing away from ray
+    if (dot(payload.normal, WorldRayDirection()) > 0.0f)
+        payload.normal = -payload.normal;
     payload.shadingNormal = payload.normal;
 
     // Load the surface material
@@ -189,41 +195,51 @@ void CHSMain(inout Payload payload, BuiltInTriangleIntersectionAttributes attr)
     payload.opacity = material.colorFactors.w;
 
     
-    // TODO: Compute differentials instead of using level 0
-
     // Albedo and Opacity
     {
+        uint width, height, numLevels;
+        textures[NonUniformResourceIndex(instance.colorTextureID)].GetDimensions(0, width, height, numLevels);
+
         float4 bco = textures[NonUniformResourceIndex(instance.colorTextureID)]
-            .SampleLevel(samplers[NonUniformResourceIndex(instance.colorSamplerID)], float2(v.u, v.v), 0);
+            .SampleLevel( samplers[NonUniformResourceIndex(instance.colorSamplerID)], float2(v.u, v.v), numLevels / 2.f);
         payload.albedo *= bco.rgb;
         payload.opacity *= bco.a;
     }
 
     // Shading normal
     {
+        uint width, height, numLevels;
+        textures[NonUniformResourceIndex(instance.normalTextureID)].GetDimensions(0, width, height, numLevels);
+
         float3 tangent = normalize(mul(ObjectToWorld3x4(), float4(v.tangent.xyz, 0.f)).xyz);
         float3 bitangent = cross(payload.normal, tangent) * v.tangent.w;
         float3x3 TBN = { tangent, bitangent, payload.normal };
         payload.shadingNormal = textures[NonUniformResourceIndex(instance.normalTextureID)]
-            .SampleLevel(samplers[NonUniformResourceIndex(instance.normalSamplerID)], float2(v.u, v.v), 0).xyz;
+                                    .SampleLevel(samplers[NonUniformResourceIndex(instance.normalSamplerID)], float2(v.u, v.v), numLevels / 2.f).xyz;
         payload.shadingNormal = (payload.shadingNormal * 2.f) - 1.f; // Transform to [-1, 1]
         payload.shadingNormal = mul(payload.shadingNormal, TBN);     // Transform tangent-space normal to world-space
     }
 
     // Roughness and Metallic
     {
+        uint width, height, numLevels;
+        textures[NonUniformResourceIndex(instance.metalRoughTextureID)].GetDimensions(0, width, height, numLevels);
+
         float3 rm = textures[NonUniformResourceIndex(instance.metalRoughTextureID)]
-            .SampleLevel(samplers[NonUniformResourceIndex(instance.metalRoughSamplerID)], float2(v.u, v.v), 0).xyz;
+                        .SampleLevel(samplers[NonUniformResourceIndex(instance.metalRoughSamplerID)], float2(v.u, v.v), numLevels / 2.0f).xyz;
         payload.metallic = material.metalRoughnessFactors.r * rm.b;
         payload.roughness = material.metalRoughnessFactors.g * rm.g;
     }
 
     // Emissive
     {
-         float3 emissiveSample = textures[NonUniformResourceIndex(instance.emissiveTextureID)]
-            .SampleLevel(samplers[NonUniformResourceIndex(instance.emissiveSamplerID)],float2(v.u, v.v), 0).rgb;
+        uint width, height, numLevels;
+        textures[NonUniformResourceIndex(instance.emissiveTextureID)].GetDimensions(0, width, height, numLevels);
 
-         payload.albedo += emissiveSample * material.emissiveFactors.xyz;
+         float3 emissiveSample = textures[NonUniformResourceIndex(instance.emissiveTextureID)]
+            .SampleLevel(samplers[NonUniformResourceIndex(instance.emissiveSamplerID)], float2(v.u, v.v), numLevels / 2.f).rgb;
+
+         payload.emissive = emissiveSample * material.emissiveFactors.xyz;
     }
 
 }

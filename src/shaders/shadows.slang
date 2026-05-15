@@ -64,11 +64,8 @@ public float CalculatePointShadow(
         if (d > maxDot) { maxDot = d; index = i; }
     }
 
-    // Shadow matrix already includes bias + tile transform
     float4 lsPos = mul(light.lightMatrices[index], float4(offsetPos, 1.0));
     float3 proj = lsPos.xyz / lsPos.w;
-    // lightMatrices map world → tile clip-NDC (not UV space).
-    // Convert clip-NDC to tile UV: x = (NDC+1)/2, y = (1-NDC)/2 (Vulkan y-flip).
     float2 uv;
     uv.x = proj.x * 0.5 + 0.5;
     uv.y = 1.0 - (proj.y * 0.5 + 0.5);

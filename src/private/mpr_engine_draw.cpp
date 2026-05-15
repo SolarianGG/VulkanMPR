@@ -53,6 +53,7 @@ void Engine::draw()
     // Reset command buffer
     VkCommandBuffer &cmd = currentFrame.commandBuffer;
     VkImage &swapchainImage = m_swapchainImages[swapchainImageIndex];
+    VkImageView &swapchainImageView = m_swapchainImageViews[swapchainImageIndex];
 
     constexpr VkCommandBufferBeginInfo beginInfo{
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -172,35 +173,94 @@ void Engine::draw()
 
     draw_gBuffer_pass(cmd);
 
-    // DDGI Probe Pass
+    // DDGI Ray Generation
     {
         for (std::uint32_t i = 0; i < m_DDGIVolumeCount; ++i)
         {
-            barrierBuilder.add_image_barrier(currentFrame.rayDatas[i].transition(
-                {.stageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
-                 .accessMask = VK_ACCESS_2_SHADER_WRITE_BIT,
-                 .layout = VK_IMAGE_LAYOUT_GENERAL,
-                 .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                 .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
-            barrierBuilder.add_image_barrier(currentFrame.irradianceDatas[i].transition(
+            barrierBuilder.add_image_barrier(
+                rayDatas[i].transition({.stageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
+                                        .accessMask = VK_ACCESS_2_SHADER_WRITE_BIT,
+                                        .layout = VK_IMAGE_LAYOUT_GENERAL,
+                                        .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                                        .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
+            barrierBuilder.add_image_barrier(irradianceDatas[i].transition(
                 {.stageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
                  .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
                  .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                  .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                  .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
-            barrierBuilder.add_image_barrier(currentFrame.distanceDatas[i].transition(
+            barrierBuilder.add_image_barrier(distanceDatas[i].transition(
                 {.stageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
                  .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
                  .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                  .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                  .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
         }
+        if (m_mainDrawContext.dirLight.has_value())
+            barrierBuilder.add_buffer_barrier(
+                currentFrame.dirLightBuffer.transition({.stageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
+                                                        .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
+                                                        .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED}));
+        if (!m_mainDrawContext.pointLights.empty())
+            barrierBuilder.add_buffer_barrier(
+                currentFrame.pointLightBuffer.transition({.stageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
+                                                          .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
+                                                          .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED}));
         barrierBuilder.barrier(cmd);
     }
     draw_ddgi_probe_pass(cmd);
 
-    // Light pass
+    // DDGI Probe Blending
     {
+        for (std::uint32_t i = 0; i < m_DDGIVolumeCount; ++i)
+        {
+            barrierBuilder.add_image_barrier(
+                rayDatas[i].transition({.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                        .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
+                                        .layout = VK_IMAGE_LAYOUT_GENERAL,
+                                        .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                                        .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
+            barrierBuilder.add_image_barrier(irradianceDatas[i].transition(
+                {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                 .accessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+                 .layout = VK_IMAGE_LAYOUT_GENERAL,
+                 .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                 .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
+            barrierBuilder.add_image_barrier(distanceDatas[i].transition(
+                {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                 .accessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+                 .layout = VK_IMAGE_LAYOUT_GENERAL,
+                 .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                 .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
+        }
+        barrierBuilder.barrier(cmd);
+    }
+    draw_ddgi_irradiance_blending(cmd);
+    draw_ddgi_distance_blending(cmd);
+
+    // DDGI Indirect
+    {
+        for (std::uint32_t i = 0; i < m_DDGIVolumeCount; ++i)
+        {
+            barrierBuilder.add_image_barrier(irradianceDatas[i].transition(
+                {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                 .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
+                 .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                 .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                 .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
+            barrierBuilder.add_image_barrier(distanceDatas[i].transition(
+                {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                 .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
+                 .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                 .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                 .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
+        }
+        barrierBuilder.add_image_barrier(currentFrame.ddgiOutput.transition(
+            {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+             .accessMask = VK_ACCESS_2_SHADER_WRITE_BIT,
+             .layout = VK_IMAGE_LAYOUT_GENERAL,
+             .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+             .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
         barrierBuilder.add_image_barrier(
             gBuffer.normal.transition({.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                        .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
@@ -213,6 +273,24 @@ void Engine::draw()
                                         .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                                         .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                                         .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
+        barrierBuilder.add_image_barrier(currentDepthImage.transition(
+            {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+             .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
+             .layout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL,
+             .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+             .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_DEPTH_BIT)}));
+        barrierBuilder.barrier(cmd);
+    }
+    draw_ddgi_indirect(cmd);
+
+    // Light pass
+    {
+        barrierBuilder.add_image_barrier(currentFrame.ddgiOutput.transition(
+            {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+             .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
+             .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+             .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+             .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
         barrierBuilder.add_image_barrier(gBuffer.specular.transition(
             {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
              .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
@@ -238,12 +316,6 @@ void Engine::draw()
              .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
              .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_DEPTH_BIT)}));
         barrierBuilder.add_image_barrier(currentFrame.pointLightsShadowTileMap.transition(
-            {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-             .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
-             .layout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL,
-             .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-             .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_DEPTH_BIT)}));
-        barrierBuilder.add_image_barrier(currentDepthImage.transition(
             {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
              .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
              .layout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL,
@@ -310,6 +382,26 @@ void Engine::draw()
 
     draw_wboit_composite(cmd);
 
+    // DDGI probe visualization
+    {
+        barrierBuilder.add_image_barrier(currentDrawingImage.transition(
+            {.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+             .accessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
+             .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+             .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+             .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
+        barrierBuilder.add_image_barrier(currentDepthImage.transition(
+            {.stageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+             .accessMask =
+                 VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+             .layout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+             .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+             .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_DEPTH_BIT)}));
+        barrierBuilder.barrier(cmd);
+    }
+
+    draw_ddgi_probe_vis(cmd);
+
     // Postprocess (gamma + tone)
     {
         barrierBuilder.add_image_barrier(currentDrawingImage.transition(
@@ -331,7 +423,6 @@ void Engine::draw()
     }
     vkCmdFillBuffer(cmd, currentFrame.histogramBuffer.buffer, 0, VK_WHOLE_SIZE, 0);
 
-    // Barrier: fill → compute write
     {
         barrierBuilder.add_buffer_barrier(currentFrame.histogramBuffer.transition(
             {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
@@ -409,8 +500,7 @@ void Engine::draw()
         barrierBuilder.barrier(cmd);
     }
 
-    draw_ddgi_probe_vis(cmd, m_swapchainImageViews[swapchainImageIndex]);
-    draw_imgui(cmd, m_swapchainImageViews[swapchainImageIndex]);
+    draw_imgui(cmd, swapchainImageView);
 
     {
         barrierBuilder.add_image_barrier(VkImageMemoryBarrier2{
@@ -1658,7 +1748,15 @@ void Engine::draw_ddgi_probe_pass(VkCommandBuffer cmd)
 
     const VkDescriptorBufferBindingInfoEXT bindingInfos[]{
         {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-         .address = currentFrame.ddgiDescBuffer.get_device_address(),
+         .address = currentFrame.ddgiTLASDescBuffer.get_device_address(),
+         .usage =
+             VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
+        {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+         .address = ddgiRayDataDescBuffer.get_device_address(),
+         .usage =
+             VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
+        {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+         .address = ddgiResourcesDescBuffer.get_device_address(),
          .usage =
              VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
         {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
@@ -1668,8 +1766,8 @@ void Engine::draw_ddgi_probe_pass(VkCommandBuffer cmd)
     };
     vkCmdBindDescriptorBuffersEXT(cmd, std::size(bindingInfos), bindingInfos);
 
-    const std::uint32_t setIndices[]{0, 1};
-    const VkDeviceSize setOffsets[]{0, 0};
+    const std::uint32_t setIndices[]{0, 1, 2, 3};
+    const VkDeviceSize setOffsets[]{0, 0, 0, 0};
     vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_DDGIPipelineLayout, 0,
                                        std::size(setIndices), setIndices, setOffsets);
 
@@ -1688,6 +1786,7 @@ void Engine::draw_ddgi_probe_pass(VkCommandBuffer cmd)
         .meshes = currentFrame.meshBufferAddr,
         .rayNormalBias = m_DDGIRayNormalBias,
         .rayViewBias = m_DDGIRayViewBias,
+        .skyRadiance = m_SkyRadiance,
     };
     for (std::uint32_t i = 0; i < m_DDGIVolumeCount; ++i)
     {
@@ -1705,47 +1804,189 @@ void Engine::draw_ddgi_probe_pass(VkCommandBuffer cmd)
     mp::debug::cmd_end_label(cmd);
 }
 
-void Engine::draw_ddgi_probe_vis(VkCommandBuffer cmd, VkImageView swapchainImageView)
+void Engine::draw_ddgi_irradiance_blending(VkCommandBuffer cmd)
+{
+    if (m_DDGIVolumeCount == 0)
+        return;
+
+    mp::debug::cmd_begin_label(cmd, "DDGI Irradiance Blending", {0.1f, 0.8f, 0.5f, 1.f});
+    auto &currentFrame = get_current_frame();
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_DDGIIrradianceBlendingPipeline);
+
+    const VkDescriptorBufferBindingInfoEXT bindingInfos[]{
+        {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+         .address = ddgiRayDataDescBuffer.get_device_address(),
+         .usage =
+             VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
+        {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+         .address = ddgiIrradianceStorageDescBuffer.get_device_address(),
+         .usage =
+             VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
+    };
+    vkCmdBindDescriptorBuffersEXT(cmd, std::size(bindingInfos), bindingInfos);
+
+    const std::uint32_t setIndices[]{0, 1};
+    const VkDeviceSize setOffsets[]{0, 0};
+    vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_DDGIProbeBlendingPipelineLayout, 0,
+                                       std::size(setIndices), setIndices, setOffsets);
+
+    for (std::uint32_t i = 0; i < m_DDGIVolumeCount; ++i)
+    {
+        const auto &vol = m_mainDrawContext.ddgiVolumes[i];
+        const DDGIProbeBlendingPushConstants pc{.volumes = m_DDGIVolumesAddr, .currentVolumeIndex = i};
+        vkCmdPushConstants(cmd, m_DDGIProbeBlendingPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                           sizeof(DDGIProbeBlendingPushConstants), &pc);
+        vkCmdDispatch(cmd, static_cast<std::uint32_t>(vol.probeCounts.x), static_cast<std::uint32_t>(vol.probeCounts.z),
+                      static_cast<std::uint32_t>(vol.probeCounts.y));
+    }
+
+    mp::debug::cmd_end_label(cmd);
+}
+
+void Engine::draw_ddgi_distance_blending(VkCommandBuffer cmd)
+{
+    if (m_DDGIVolumeCount == 0)
+        return;
+
+    mp::debug::cmd_begin_label(cmd, "DDGI Distance Blending", {0.1f, 0.6f, 0.8f, 1.f});
+    auto &currentFrame = get_current_frame();
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_DDGIDistanceBlendingPipeline);
+
+    const VkDescriptorBufferBindingInfoEXT bindingInfos[]{
+        {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+         .address = ddgiRayDataDescBuffer.get_device_address(),
+         .usage =
+             VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
+        {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+         .address = ddgiDistanceStorageDescBuffer.get_device_address(),
+         .usage =
+             VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
+    };
+    vkCmdBindDescriptorBuffersEXT(cmd, std::size(bindingInfos), bindingInfos);
+
+    const std::uint32_t setIndices[]{0, 1};
+    const VkDeviceSize setOffsets[]{0, 0};
+    vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_DDGIProbeBlendingPipelineLayout, 0,
+                                       std::size(setIndices), setIndices, setOffsets);
+
+    for (std::uint32_t i = 0; i < m_DDGIVolumeCount; ++i)
+    {
+        const auto &vol = m_mainDrawContext.ddgiVolumes[i];
+        const DDGIProbeBlendingPushConstants pc{.volumes = m_DDGIVolumesAddr, .currentVolumeIndex = i};
+        vkCmdPushConstants(cmd, m_DDGIProbeBlendingPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                           sizeof(DDGIProbeBlendingPushConstants), &pc);
+        vkCmdDispatch(cmd, static_cast<std::uint32_t>(vol.probeCounts.x), static_cast<std::uint32_t>(vol.probeCounts.z),
+                      static_cast<std::uint32_t>(vol.probeCounts.y));
+    }
+
+    mp::debug::cmd_end_label(cmd);
+}
+
+void Engine::draw_ddgi_indirect(VkCommandBuffer cmd)
+{
+    if (m_DDGIVolumeCount == 0)
+        return;
+
+    mp::debug::cmd_begin_label(cmd, "DDGI Indirect", {0.0f, 0.7f, 0.3f, 1.f});
+    auto &currentFrame = get_current_frame();
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_DDGIIndirectPipeline);
+
+    const VkDescriptorBufferBindingInfoEXT bindingInfos[]{
+        {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+         .address = currentFrame.ddgiOutputStorageDescBuffer.get_device_address(),
+         .usage =
+             VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
+        {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+         .address = currentFrame.ddgiGBufferReadDescBuffer.get_device_address(),
+         .usage =
+             VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
+        {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+         .address = ddgiResourcesDescBuffer.get_device_address(),
+         .usage =
+             VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
+    };
+    vkCmdBindDescriptorBuffersEXT(cmd, std::size(bindingInfos), bindingInfos);
+
+    const std::uint32_t setIndices[]{0, 1, 2};
+    const VkDeviceSize setOffsets[]{0, 0, 0};
+    vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_DDGIIndirectPipelineLayout, 0,
+                                       std::size(setIndices), setIndices, setOffsets);
+
+    const DDGIIndirectPushConstants pc{
+        .volumes = m_DDGIVolumesAddr,
+        .volumeCount = m_DDGIVolumeCount,
+        .sceneData = currentFrame.sceneDataBufferAddr,
+    };
+    vkCmdPushConstants(cmd, m_DDGIIndirectPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                       sizeof(DDGIIndirectPushConstants), &pc);
+
+    const std::uint32_t groupsX = (m_drawExtent.width + 15) / 16;
+    const std::uint32_t groupsY = (m_drawExtent.height + 15) / 16;
+    vkCmdDispatch(cmd, groupsX, groupsY, 1);
+
+    mp::debug::cmd_end_label(cmd);
+}
+
+void Engine::draw_ddgi_probe_vis(VkCommandBuffer cmd)
 {
     if (m_mainDrawContext.ddgiVolumesVis.empty())
         return;
 
     mp::debug::cmd_begin_label(cmd, "DDGI Probe Visualization", {0.3f, 0.9f, 0.3f, 1.f});
 
+    auto &currentFrame = get_current_frame();
+
     const auto colorAttachment =
-        utils::attachment_info(swapchainImageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    const auto renderingInfo = utils::rendering_info(m_swapchainExtent, 1, &colorAttachment, nullptr);
+        utils::attachment_info(currentFrame.drawImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    const auto depthAttachment =
+        utils::depth_attachment(currentFrame.depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, false);
+    const auto renderingInfo = utils::rendering_info(m_CommonImageExtent2D, 1, &colorAttachment, &depthAttachment);
 
     vkCmdBeginRendering(cmd, &renderingInfo);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_DDGIProbeVisPipeline);
 
+    const VkDescriptorBufferBindingInfoEXT bindingInfo{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+        .address = ddgiResourcesDescBuffer.get_device_address(),
+        .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT,
+    };
+    vkCmdBindDescriptorBuffersEXT(cmd, 1, &bindingInfo);
+    const std::uint32_t setIndex = 0;
+    const VkDeviceSize setOffset = 0;
+    vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_DDGIProbeVisPipelineLayout, 0, 1,
+                                       &setIndex, &setOffset);
+
     const VkViewport viewport{.x = 0.f,
-                              .y = static_cast<float>(m_swapchainExtent.height),
-                              .width = static_cast<float>(m_swapchainExtent.width),
-                              .height = -static_cast<float>(m_swapchainExtent.height),
+                              .y = static_cast<float>(m_CommonImageExtent2D.height),
+                              .width = static_cast<float>(m_CommonImageExtent2D.width),
+                              .height = -static_cast<float>(m_CommonImageExtent2D.height),
                               .minDepth = 0.f,
                               .maxDepth = 1.f};
     vkCmdSetViewport(cmd, 0, 1, &viewport);
 
-    const VkRect2D scissor{.offset = {0, 0}, .extent = m_swapchainExtent};
+    const VkRect2D scissor{.offset = {0, 0}, .extent = m_CommonImageExtent2D};
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
     vkCmdBindIndexBuffer(cmd, m_probeSphereIndexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 
-    for (const auto &[volume, volumeIdx] : m_mainDrawContext.ddgiVolumesVis)
+    for (const auto &entry : m_mainDrawContext.ddgiVolumesVis)
     {
-        const auto probeCount =
-            static_cast<std::uint32_t>(volume.probeCounts.x * volume.probeCounts.y * volume.probeCounts.z);
+        const auto probeCount = static_cast<std::uint32_t>(entry.volume.probeCounts.x * entry.volume.probeCounts.y *
+                                                           entry.volume.probeCounts.z);
 
         const DDGIProbeVisPushConstants pc{
             .volumes = m_DDGIVolumesAddr,
             .sphereVertices = m_probeSphereVerticesAddr,
-            .sceneData = get_current_frame().sceneDataBufferAddr,
-            .volumeIndex = volumeIdx,
+            .sceneData = currentFrame.sceneDataBufferAddr,
+            .volumeIndex = entry.volumeIdx,
             .probeRadius = 0.05f,
+            .visMode = entry.mode,
         };
-        vkCmdPushConstants(cmd, m_DDGIProbeVisPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0,
-                           sizeof(DDGIProbeVisPushConstants), &pc);
+        vkCmdPushConstants(cmd, m_DDGIProbeVisPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                           0, sizeof(DDGIProbeVisPushConstants), &pc);
 
         vkCmdDrawIndexed(cmd, m_probeSphereIndexCount, probeCount, 0, 0, 0);
     }

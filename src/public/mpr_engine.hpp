@@ -97,12 +97,11 @@ struct FrameData
     AllocatedBuffer countBuffer;
     VkDeviceAddress countBufferAddr;
 
-    // DDGI Data 
-    std::array<AllocatedImage, kMaxDDGIVolumes> rayDatas;
-    std::array<AllocatedImage, kMaxDDGIVolumes> irradianceDatas;
-    std::array<AllocatedImage, kMaxDDGIVolumes> distanceDatas;
+    // DDGI Data (per-frame outputs only — see Engine::m_rayDatas/... for shared DDGI textures)
     AllocatedImage ddgiOutput;
-    DescriptorBuffer ddgiDescBuffer;
+    DescriptorBuffer ddgiTLASDescBuffer;
+    DescriptorBuffer ddgiOutputStorageDescBuffer;
+    DescriptorBuffer ddgiGBufferReadDescBuffer;
 };
 
 class Engine final
@@ -199,7 +198,6 @@ class Engine final
     VkSampler m_defaultSamplerLinear{};
     VkSampler m_defaultSamplerNearest{};
     VkSampler m_shadowSampler{};
-    VkSampler m_debugSampler{};
 
     GLTFMetallicRoughness m_metalRoughness{};
 
@@ -312,7 +310,18 @@ class Engine final
 
     VkPipeline m_DDGIPipeline{};
     VkPipelineLayout m_DDGIPipelineLayout{};
-    VkDescriptorSetLayout m_DDGIDescriptorSetLayout{};
+    VkDescriptorSetLayout m_DDGITLASDescSetLayout{};
+    VkDescriptorSetLayout m_DDGIRayDataDescSetLayout{};
+    VkDescriptorSetLayout m_DDGIResourcesDescSetLayout{};
+
+    VkPipelineLayout m_DDGIProbeBlendingPipelineLayout{};
+    VkPipeline m_DDGIIrradianceBlendingPipeline{};
+    VkPipeline m_DDGIDistanceBlendingPipeline{};
+    VkDescriptorSetLayout m_DDGIProbeStorageDescSetLayout{};
+
+    VkPipeline m_DDGIIndirectPipeline{};
+    VkPipelineLayout m_DDGIIndirectPipelineLayout{};
+    VkDescriptorSetLayout m_DDGIGBufferReadDescSetLayout{};
 
     std::vector<AccelerationStructure> m_BlasAccels{};
     AccelerationStructure m_TlasAccel{};
@@ -343,6 +352,17 @@ class Engine final
     float m_DDGIRayNormalBias{0.001f};
     float m_DDGIRayViewBias{0.001f};
 
+    glm::vec4 m_SkyRadiance{1.0f, 1.0f, 1.0f, 0.1f};
+
+    // DDGI Data
+    std::array<AllocatedImage, kMaxDDGIVolumes> rayDatas;
+    std::array<AllocatedImage, kMaxDDGIVolumes> irradianceDatas;
+    std::array<AllocatedImage, kMaxDDGIVolumes> distanceDatas;
+    DescriptorBuffer ddgiRayDataDescBuffer;
+    DescriptorBuffer ddgiResourcesDescBuffer;
+    DescriptorBuffer ddgiIrradianceStorageDescBuffer;
+    DescriptorBuffer ddgiDistanceStorageDescBuffer;
+
   private:
     void init_window();
     void init_vulkan();
@@ -366,6 +386,8 @@ class Engine final
     void init_cull_meshes_pipeline();
     void init_cull_point_lights_pipeline();
     void init_ddgi_probe_pipeline();
+    void init_ddgi_probe_blending_pipeline();
+    void init_ddgi_indirect_pipeline();
     void init_ddgi_probe_vis_pipeline();
     void init_populate_commands_with_cascade_count();
     void init_generate_point_light_commands_pipeline();
@@ -385,7 +407,10 @@ class Engine final
     void draw_average_luminance(VkCommandBuffer cmd);
     void draw_prepass(VkCommandBuffer cmd);
     void draw_ddgi_probe_pass(VkCommandBuffer cmd);
-    void draw_ddgi_probe_vis(VkCommandBuffer cmd, VkImageView swapchainImageView);
+    void draw_ddgi_irradiance_blending(VkCommandBuffer cmd);
+    void draw_ddgi_distance_blending(VkCommandBuffer cmd);
+    void draw_ddgi_indirect(VkCommandBuffer cmd);
+    void draw_ddgi_probe_vis(VkCommandBuffer cmd);
     void compute_depth_reduction(VkCommandBuffer cmd);
     void compute_depth_partition(VkCommandBuffer cmd);
     void compute_dir_lights_vp(VkCommandBuffer cmd);
