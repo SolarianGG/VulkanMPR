@@ -13,6 +13,7 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
 - Vulkan Memory Allocator
 - Vulkan-bootstrap
 - Stb
+- dds_image
 
 ## Requirements:
 - CMake 3.28 or higher
@@ -60,6 +61,7 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
 - **Vertex quantization**
 - **Auto-exposure** using luminance histogram
 - **ACES tone mapping**
+- **Dynamic Diffuse Global Illumination**
 
 ## Demo
 
@@ -68,7 +70,7 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
 <table>
   <tr>
     <td align="center"><em>Full render pipeline pass structure</em></td>
-    <td align="center"><em>Per-pass GPU frame time breakdown</em></td>
+    <td align="center"><em>Per-pass GPU frame time breakdown (Note: Debug mode ON, Timings were captured on RTX 3070M)</em></td>
   </tr>
   <tr>
     <td><img src="screenshots/pipeline_overview.png" width="600"/></td>
@@ -89,14 +91,69 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
   </tr>
 </table>
 
+
+
+### Global Illumination
+
+#### DDGI
+
 <table>
   <tr>
-    <td align="center"><em>Scene + Imgui</em></td>
+    <td align="center"><em>Without diffuse global illumination - all shadows appear too dark without indirect lighting</em></td>
+    <td align="center"><em>Same scene rendered with DDGI - correct indirect lighting (Note here that direct light appears brighter with ddgi, due to auto-expusore)</em></td>
+    <td align="center"><em>Probe visualization</em></td>
   </tr>
   <tr>
-    <td><img src="screenshots/Full_Scene.png" width="1100"/></td>
+    <td><img src="screenshots/no_ddgi.png" width="600"/></td>
+    <td><img src="screenshots/ddgi.png" width="600"/></td>
+    <td><img src="screenshots/probe_vis.png" width="600"/></td>
   </tr>
 </table>
+
+#### Dynamic Indirect Light Example
+
+<table>
+  <tr>
+    <td align="center"><em>Dynamic indirect light</em></td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/dynamic_indirect.gif" width="1100"/></td>
+  </tr>
+</table>
+
+#### DDGI Resources
+
+<table>
+  <tr>
+    <td align="center"><em>Irradiance Data</em></td>
+    <td align="center"><em>Distance Data</em></td>
+    <td align="center"><em>Ray hit data</em></td>
+    <td align="center"><em>Indirect light only (Note clamped and normalized to distrubution)</em></td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/irradiance_ddgi.png" width="200"/></td>
+    <td><img src="screenshots/distance_ddgi.png" width="200"/></td>
+    <td><img src="screenshots/ray_hit_data_ddgi.png" width="600"/></td>
+    <td><img src="screenshots/indirect_only_normalized.png" width="800"/></td>
+  </tr>
+</table>
+
+
+### Raytracing
+
+#### BLAS & TLAS
+
+<table>
+  <tr>
+    <td align="center"><em>Sponza TLAS</em></td>
+    <td align="center"><em>Bistro TLAS</em></td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/sponza_tlas.png" width="600"/></td>
+    <td><img src="screenshots/bistro_tlas.png" width="600"/></td>
+  </tr>
+</table>
+ 
 
 ### Shadows
 
@@ -280,11 +337,13 @@ Omdirectional tiled tetrahedron shadow mapping (GPU Pro 6)
 
 [Auto-exposure](https://bruop.github.io/exposure/)
 
+[DDGI-01](https://www.gdcvault.com/play/1026182/)
+[DDGI-02](https://arxiv.org/abs/2009.10796)
+
+
 ## Planned rendering feautres
 
-- Switch from Lambert to Burley diffuse BRDF
-- IBL
-- FXAA 3.11 / SMAA
+- TAA + FXAA / SMAA 
 - SSAO
 - SSR
 - Bend studio contact shadows
@@ -294,11 +353,9 @@ Omdirectional tiled tetrahedron shadow mapping (GPU Pro 6)
 - Motion blur
 - Lens flare
 - Chromatic abberation
-- SSGI
 - Clustered deferred
 - Descriptor heaps
 - Frame graph
-- BC texture compression
 - Async compute
 
 

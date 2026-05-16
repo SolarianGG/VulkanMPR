@@ -41,6 +41,38 @@ std::pair<std::uint32_t, char const *const *> get_required_instance_extensions_f
     return {count, requiredExtensions};
 }
 
+
+std::vector<std::filesystem::path> parse_tiny_multiple(const wchar_t* files)
+{
+    std::vector<std::filesystem::path> res;
+    if (!files)
+        return res;
+
+    std::wstring str = files;
+
+    if (str.find(L'|') == std::wstring::npos)
+    {
+        res.emplace_back(std::move(str));
+        return res;
+    }
+
+    std::vector<std::wstring> parts;
+    std::wstring::size_type currentOffset = 0;
+    while (true)
+    {
+        auto newOffset = str.find(L'|');
+        if (newOffset == std::wstring::npos)
+        {
+            parts.emplace_back(str.substr(currentOffset));
+            break;
+        }
+        parts.emplace_back(str.substr(currentOffset, newOffset - currentOffset));
+        currentOffset = newOffset + 1;
+    }
+
+    return res;
+}
+
 } // namespace
 
 namespace mp
@@ -1570,9 +1602,9 @@ void Engine::init_frames_data()
     for (std::uint32_t j = 0; j < kMaxDDGIVolumes; ++j)
     {
         // RayData
-        rayDatas[j] = create_image_array({kMaxDDGIRays, kMaxDDGIProbesX * kMaxDDGIProbesZ, 1},
-                                         VK_FORMAT_R32G32B32A32_SFLOAT,
-                                         VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, kMaxDDGIProbesY);
+        rayDatas[j] =
+            create_image_array({kMaxDDGIRays, kMaxDDGIProbesX * kMaxDDGIProbesZ, 1}, VK_FORMAT_R32G32B32A32_SFLOAT,
+                               VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, kMaxDDGIProbesY);
         mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(rayDatas[j].image),
                                    std::format("DDGI RayData [{}]", j).c_str());
         // Irradiance
@@ -2196,14 +2228,27 @@ void Engine::init_mesh_data()
     ensure_index_capacity(1024);
 
     const wchar_t *filters[]{L"*.gltf", L"*.glb"};
-    const auto *fileName =
+    const auto *fileNames =
         tinyfd_openFileDialogW(L"Load gltf", L"../../assets/gltf-samples/Models/Sponza/glTF/sponza.gltf",
-                               std::size(filters), filters, L"Gltf files", false);
-    const std::wstring path = fileName ? fileName : L"../../assets/gltf-samples/Models/Sponza/glTF/sponza.gltf";
-
-    if (!load_gltf(*this, path))
+                               std::size(filters), filters, L"Gltf files", 1);
+    const auto paths = parse_tiny_multiple(fileNames);
+    if (paths.empty())
     {
-        throw std::runtime_error(std::format("Failed to load gltf"));
+        const auto path = L"../../assets/gltf-samples/Models/Sponza/glTF/sponza.gltf";
+        if (!load_gltf(*this, path))
+        {
+            throw std::runtime_error(std::format("Failed to load gltf"));
+        }
+    }
+    else
+    {
+        for (const auto &path : paths)
+        {
+            if (!load_gltf(*this, path))
+            {
+                throw std::runtime_error(std::format("Failed to load gltf"));
+            }
+        }
     }
 
     m_scene.draw(glm::mat4(1.0f), m_mainDrawContext);

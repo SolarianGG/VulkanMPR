@@ -64,7 +64,7 @@ float4 FSMain(VSOutput input) : SV_Target
     if (pushConstants.visMode == 1) // Irradiance
     {
         float3 probeUV = DDGIGetProbeUV(int(input.probeIndex), octUV,
-                                        volume.probeIrradianceTexels - 2, volume);
+                                        MAX_IRRADIANCE_TEXELS - 2, volume);
         float3 enc = IrradianceDatas[pushConstants.volumeIndex]
                          .SampleLevel(BilinearSampler, probeUV, 0).rgb;
         float3 irr = pow(enc, volume.probeIrradianceEncodingGamma * 0.5f);
@@ -74,7 +74,7 @@ float4 FSMain(VSOutput input) : SV_Target
     else // Distance
     {
         float3 probeUV = DDGIGetProbeUV(int(input.probeIndex), octUV,
-                                        volume.probeDistanceTexels - 2, volume);
+                                        MAX_DISTANCE_TEXELS - 2, volume);
         float meanDist = 2.0f * DistanceDatas[pushConstants.volumeIndex]
                                     .SampleLevel(BilinearSampler, probeUV, 0).r;
         float maxDist = length(volume.probeSpacing) * 1.5f;

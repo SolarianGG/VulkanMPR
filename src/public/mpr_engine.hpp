@@ -55,6 +55,7 @@ struct FrameData
     AllocatedImage depthImage;
     AllocatedImage oitAccImage;
     AllocatedImage oitRevealImage;
+
     AllocatedImage directionalShadowPassDepthArray; // array image view (for sampling)
     AllocatedImage pointLightsShadowTileMap;
 
@@ -97,7 +98,6 @@ struct FrameData
     AllocatedBuffer countBuffer;
     VkDeviceAddress countBufferAddr;
 
-    // DDGI Data (per-frame outputs only — see Engine::m_rayDatas/... for shared DDGI textures)
     AllocatedImage ddgiOutput;
     DescriptorBuffer ddgiTLASDescBuffer;
     DescriptorBuffer ddgiOutputStorageDescBuffer;

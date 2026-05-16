@@ -179,7 +179,6 @@ void CHSMain(inout Payload payload, BuiltInTriangleIntersectionAttributes attr)
     // World position
     payload.worldPosition = WorldRayOrigin() + WorldRayDirection() * RayTCurrent();
 
-    // True geometric face normal (perpendicular to triangle plane)
     float3 e1 = vertices[1].pos - vertices[0].pos;
     float3 e2 = vertices[2].pos - vertices[0].pos;
     float3 geomNormal = normalize(cross(e1, e2));
@@ -197,47 +196,40 @@ void CHSMain(inout Payload payload, BuiltInTriangleIntersectionAttributes attr)
     
     // Albedo and Opacity
     {
-        uint width, height, numLevels;
-        textures[NonUniformResourceIndex(instance.colorTextureID)].GetDimensions(0, width, height, numLevels);
 
         float4 bco = textures[NonUniformResourceIndex(instance.colorTextureID)]
-            .SampleLevel( samplers[NonUniformResourceIndex(instance.colorSamplerID)], float2(v.u, v.v), numLevels / 2.f);
+            .SampleLevel( samplers[NonUniformResourceIndex(instance.colorSamplerID)], float2(v.u, v.v), 0);
         payload.albedo *= bco.rgb;
         payload.opacity *= bco.a;
     }
 
     // Shading normal
     {
-        uint width, height, numLevels;
-        textures[NonUniformResourceIndex(instance.normalTextureID)].GetDimensions(0, width, height, numLevels);
 
         float3 tangent = normalize(mul(ObjectToWorld3x4(), float4(v.tangent.xyz, 0.f)).xyz);
         float3 bitangent = cross(payload.normal, tangent) * v.tangent.w;
         float3x3 TBN = { tangent, bitangent, payload.normal };
-        payload.shadingNormal = textures[NonUniformResourceIndex(instance.normalTextureID)]
-                                    .SampleLevel(samplers[NonUniformResourceIndex(instance.normalSamplerID)], float2(v.u, v.v), numLevels / 2.f).xyz;
-        payload.shadingNormal = (payload.shadingNormal * 2.f) - 1.f; // Transform to [-1, 1]
-        payload.shadingNormal = mul(payload.shadingNormal, TBN);     // Transform tangent-space normal to world-space
+        float2 normalRG = textures[NonUniformResourceIndex(instance.normalTextureID)]
+                              .SampleLevel(samplers[NonUniformResourceIndex(instance.normalSamplerID)], float2(v.u, v.v), 0) .xy;
+        float2 normalXY = normalRG * 2.0f - 1.0f;
+        float normalZ = sqrt(max(0.0f, 1.0f - dot(normalXY, normalXY)));
+        payload.shadingNormal = mul(normalize(float3(normalXY, normalZ)), TBN);     // Transform tangent-space normal to world-space
     }
 
     // Roughness and Metallic
     {
-        uint width, height, numLevels;
-        textures[NonUniformResourceIndex(instance.metalRoughTextureID)].GetDimensions(0, width, height, numLevels);
 
         float3 rm = textures[NonUniformResourceIndex(instance.metalRoughTextureID)]
-                        .SampleLevel(samplers[NonUniformResourceIndex(instance.metalRoughSamplerID)], float2(v.u, v.v), numLevels / 2.0f).xyz;
+                        .SampleLevel(samplers[NonUniformResourceIndex(instance.metalRoughSamplerID)], float2(v.u, v.v), 0).xyz;
         payload.metallic = material.metalRoughnessFactors.r * rm.b;
         payload.roughness = material.metalRoughnessFactors.g * rm.g;
     }
 
     // Emissive
     {
-        uint width, height, numLevels;
-        textures[NonUniformResourceIndex(instance.emissiveTextureID)].GetDimensions(0, width, height, numLevels);
 
          float3 emissiveSample = textures[NonUniformResourceIndex(instance.emissiveTextureID)]
-            .SampleLevel(samplers[NonUniformResourceIndex(instance.emissiveSamplerID)], float2(v.u, v.v), numLevels / 2.f).rgb;
+            .SampleLevel(samplers[NonUniformResourceIndex(instance.emissiveSamplerID)], float2(v.u, v.v), 0).rgb;
 
          payload.emissive = emissiveSample * material.emissiveFactors.xyz;
     }

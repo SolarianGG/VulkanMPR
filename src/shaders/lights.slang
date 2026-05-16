@@ -79,9 +79,9 @@ float3 EvaluateDirectionalLight(
 
     // Compute lighting
     float3 lightDirection = -normalize(light.direction.xyz);
-    float nol = max(dot(payload.shadingNormal, lightDirection), 0.f);
+    float NdotL = max(dot(payload.shadingNormal, lightDirection), 0.f);
 
-    return light.color.w * light.color.xyz * nol * visibility;
+    return light.color.w * light.color.xyz * NdotL * visibility;
 }
 
 /**
@@ -110,11 +110,11 @@ float3 EvaluatePointLight(
 
     // Compute lighting
     float3 lightDirection = normalize(lightVector);
-    float nol = max(dot(payload.shadingNormal, lightDirection), 0.f);
+    float NdotL = max(dot(payload.shadingNormal, lightDirection), 0.f);
     float falloff = LightFalloff(lightDistance);
     float window = LightWindowing(lightDistance, light.range);
 
-    color += light.intensity * light.color * nol * falloff * window * visibility;
+    color += light.intensity * light.color * NdotL * falloff * window * visibility;
     return color;
 }
 

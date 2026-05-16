@@ -426,14 +426,6 @@ struct DirVpPushConstants
     glm::mat4 lightView;
 };
 
-struct TextureVisPushConstants 
-{
-    glm::vec2 size;
-    VkExtent2D windowExtent;
-    std::uint32_t instanceCount;
-    float _padding0;
-};
-
 struct PopulateCommandsWithCascadeCountPushConstants
 {
     VkDeviceAddress commands;
@@ -525,15 +517,13 @@ struct DDGIVolume
     float probeNormalBias{0.1f};
     glm::vec4 probeRayRotation;
     float probeViewBias{0.1f};
-    std::int32_t probeIrradianceTexels{kMaxIrradianceTexels};
-    std::int32_t probeDistanceTexels{kMaxDistanceTexels};
     float probeIrradianceEncodingGamma{5.0f};
     float probeHysteresis{0.97f};
     float probeRandomRayBackfaceThreshold{0.1f};
     float probeIrradianceThreshold{0.25f};
     float probeBrightnessThreshold{1.0f};
     float probeDistanceExponent{50.0f};
-    float _pad[3]{};
+    float _pad[1]{};
 };
 
 struct DDGIProbeBlendingPushConstants

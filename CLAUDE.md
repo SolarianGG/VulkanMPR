@@ -1,6 +1,5 @@
 # Project: VulkanMPR 
-- This is a Vulkan renderer project using C++, Slang shaders (.slang), and CMake. The codebase implements cascaded shadow mapping (CSM/SDSM), glTF loading, and GPU-driven rendering.
-
+- This is a Vulkan renderer project using C++, Slang shaders (.slang), and CMake. 
 
 ## Code Style
 
@@ -19,9 +18,6 @@
 - `/src/private`: Directory containing .cpp files
 - `/src/public`: Directory containint header files
 - `/assets/`: Directory containing glTF assets
-
-## Debugging Guidelines 
-- When debugging rendering issues (shadows, lighting, matrices), ask clarifying questions and request concrete data (screenshots, CSV dumps, debug output) before proposing fixes. Do not guess at root causes.
 
 ## Workflow
 - When asked to analyze code or debug an issue, provide the analysis/diagnosis ONLY. Do not start writing implementation plans or making code changes unless explicitly asked to do so.

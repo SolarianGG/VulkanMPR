@@ -15,9 +15,6 @@ struct PushConstants {
     uint currentVolumeIndex;
 };
 
-static const int MAX_IRRADIANCE_TEXELS = 8;
-static const int BLEND_RAYS_PER_PROBE = 256;
-
 groupshared float3 RayRadiance[BLEND_RAYS_PER_PROBE];
 groupshared float RayDistance[BLEND_RAYS_PER_PROBE];
 groupshared float3 RayDirection[BLEND_RAYS_PER_PROBE];
@@ -88,10 +85,9 @@ void DDGIProbeBlendingCS(
     uint GroupIndex: SV_GroupIndex)
 {
     DDGIVolume volume = pushConstants.volumes[pushConstants.currentVolumeIndex];
-    const int probeIrradianceTexels = volume.probeIrradianceTexels;
+    const int probeIrradianceTexels = MAX_IRRADIANCE_TEXELS;
     const int probeIrradianceInteriorTexels = probeIrradianceTexels - 2;
 
-    if (GroupThreadID.x >= probeIrradianceTexels || GroupThreadID.y >= probeIrradianceTexels) return;
     // Determine if this thread maps to a probe border texel
     bool bIsBorderTexel = (GroupThreadID.x == 0 || GroupThreadID.x == (probeIrradianceTexels - 1)); // Border Columns
     bIsBorderTexel |= (GroupThreadID.y == 0 || GroupThreadID.y == (probeIrradianceTexels - 1)); // Border Rows

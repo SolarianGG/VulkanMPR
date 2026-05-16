@@ -1085,10 +1085,9 @@ void Engine::cull_point_lights(VkCommandBuffer cmd)
 
     vkCmdDispatch(cmd, std::ceil(pointLightsCount / 64.0f), 1, 1);
 
-    // Make visible to light pass (compute) and WBOIT pass (vertex/fragment)
     const VkPipelineStageFlags2 dstStages = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
                                             VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT |
-                                            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+                                            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT;
     barrierBuilder.add_buffer_barrier(
         currentFrame.visiblePointLightsBuffer.transition({.stageMask = dstStages,
                                                           .accessMask = VK_ACCESS_2_SHADER_READ_BIT,

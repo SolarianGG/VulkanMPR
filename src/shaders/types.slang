@@ -7,6 +7,13 @@ public static const int MAX_POINT_LIGHTS =
     (POINT_LIGHT_SHADOW_MAP_SIZE * POINT_LIGHT_SHADOW_MAP_SIZE) / (POINT_LIGHT_TILE_SIZE * POINT_LIGHT_TILE_SIZE);
 public static const int POINT_LIGHT_TILES_PER_ROW = POINT_LIGHT_SHADOW_MAP_SIZE / POINT_LIGHT_TILE_SIZE;
 
+public static const int MAX_DISTANCE_TEXELS = 16;
+public static const int MAX_IRRADIANCE_TEXELS = 8;
+public static const int BLEND_RAYS_PER_PROBE = 256;
+public static const int kMaxDDGIProbesX = 22u;
+public static const int kMaxDDGIProbesY = 22u;
+public static const int kMaxDDGIProbesZ = 22u;
+
 public struct Vertex
 {
     public float3 pos;
@@ -133,15 +140,13 @@ public struct DDGIVolume {
     public float probeNormalBias;
     public float4 probeRayRotation;
     public float probeViewBias;
-    public int probeIrradianceTexels;
-    public int probeDistanceTexels;
     public float probeIrradianceEncodingGamma;
     public float probeHysteresis;
     public float probeRandomRayBackfaceThreshold;
     public float probeIrradianceThreshold;
     public float probeBrightnessThreshold;
     public float probeDistanceExponent;
-    public float _pad[3];
+    public float _pad[1];
 };
 
 public struct Payload {

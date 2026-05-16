@@ -206,8 +206,13 @@ public float3 DDGIGetProbeUV(int probeIndex, float2 octantCoordinates, int numPr
     // Add the border texels to get the total texels per probe
     float numProbeTexels = (numProbeInteriorTexels + 2.f);
 
+    #if 0
     float textureWidth = numProbeTexels * volume.probeCounts.x;
     float textureHeight = numProbeTexels * volume.probeCounts.z;
+    #endif
+
+    float textureWidth = numProbeTexels * kMaxDDGIProbesX;
+    float textureHeight = numProbeTexels * kMaxDDGIProbesZ;
 
     // Move to the center of the probe and move to the octant texel before normalizing
     float2 uv = float2(coords.x * numProbeTexels, coords.y * numProbeTexels) + (numProbeTexels * 0.5f);
@@ -278,7 +283,7 @@ public float3 DDGIGetVolumeIrradiance(float3 worldPosition, float3 surfaceBias, 
         float2 octantCoords = DDGIGetOctahedralCoordinates(-biasedPosToAdjProbe);
 
         // Get the texture array coordinates for the octant of the probe
-        float3 probeTextureUV = DDGIGetProbeUV(adjacentProbeIndex, octantCoords, volume.probeDistanceTexels - 2, volume);
+        float3 probeTextureUV = DDGIGetProbeUV(adjacentProbeIndex, octantCoords, MAX_DISTANCE_TEXELS - 2, volume);
 
         // Sample the probe's distance texture to get the mean distance to nearby surfaces
         float2 filteredDistance = 2.f * Distance.SampleLevel(sampler, probeTextureUV, 0).rg;
@@ -320,7 +325,7 @@ public float3 DDGIGetVolumeIrradiance(float3 worldPosition, float3 surfaceBias, 
         octantCoords = DDGIGetOctahedralCoordinates(direction);
 
         // Get the probe's texture coordinates
-        probeTextureUV = DDGIGetProbeUV(adjacentProbeIndex, octantCoords, volume.probeIrradianceTexels - 2, volume);
+        probeTextureUV = DDGIGetProbeUV(adjacentProbeIndex, octantCoords, MAX_IRRADIANCE_TEXELS - 2, volume);
 
         // Sample the probe's irradiance
         float3 probeIrradiance = Irradiance.SampleLevel(sampler, probeTextureUV, 0).rgb;
