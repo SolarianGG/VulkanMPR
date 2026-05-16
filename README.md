@@ -117,7 +117,7 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
     <td align="center"><em>Dynamic indirect light</em></td>
   </tr>
   <tr>
-    <td><img src="screenshots/dynamic_indirect.gif" width="1100"/></td>
+    <td><img src="screenshots/dynamic_indirect.gif" width="800"/></td>
   </tr>
 </table>
 
@@ -275,8 +275,8 @@ The camera exposure adapts dynamically as the scene brightness changes, computed
 
 <table>
   <tr>
-    <td align="center"><em>Without gamma correction — colors appear dark and washed out</em></td>
-    <td align="center"><em>With gamma correction — perceptually correct brightness</em></td>
+    <td align="center"><em>Without gamma correction - colors dark and washed out</em></td>
+    <td align="center"><em>With gamma correction - correct brightness</em></td>
   </tr>
   <tr>
     <td><img src="screenshots/no_gamma.png" width="600"/></td>
