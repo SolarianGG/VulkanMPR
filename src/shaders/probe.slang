@@ -13,12 +13,15 @@ RaytracingAccelerationStructure SceneTLAS;
 RWTexture2DArray<float4> RayDatas[];
 
 [[vk::binding(0, 2)]]
-Texture2DArray<float4> Irradiance[];
+Texture2DArray<float4> Irradiances[];
 
 [[vk::binding(1, 2)]]
-Texture2DArray<float2> Distance[];
+Texture2DArray<float2> Distances[];
 
 [[vk::binding(2, 2)]]
+Texture2DArray<float4> ProbeDatas[];
+
+[[vk::binding(3, 2)]]
 SamplerState BillinearWrapSampler;
 
 [[vk::binding(0, 3)]] ConstantBuffer<GLTFMaterialData> materials[];
@@ -51,6 +54,7 @@ void RGSMain()
 {
     DDGIVolume volume = pushConstants.volumes[pushConstants.currentVolumeIndex];
     RWTexture2DArray<float4> RayData = RayDatas[pushConstants.currentVolumeIndex];
+    Texture2DArray<float4> ProbeData = ProbeDatas[pushConstants.currentVolumeIndex];
 
     // Compute the probe index for this thread
     int rayIndex = DispatchRaysIndex().x;        // index of the ray to trace for this probe
@@ -64,8 +68,7 @@ void RGSMain()
     int3 probeCoords = DDGIGetProbeCoords(probeIndex, volume);
 
     // Get the probe's world position
-    // Note: world positions are computed from probe coordinates *not* adjusted for infinite scrolling
-    float3 probeWorldPosition = DDGIGetProbeWorldPosition(probeCoords, volume);
+    float3 probeWorldPosition = DDGIGetProbeWorldPosition(probeCoords, volume, ProbeData);
 
     // Get a random normalized ray direction to use for a probe ray
     float3 probeRayDirection = DDGIGetProbeRayDirection(rayIndex, volume);
@@ -96,6 +99,11 @@ void RGSMain()
         return;
     }
 
+    if ((volume.probeRelocationEnabled == 1) && rayIndex < DDGI_NUM_FIXED_RAYS)
+    {
+        RayData[outputCoords] = float4(0.0f, 0.0f, 0.0f, payl.hitT);
+    }
+
     float3 diffuse = DirectDiffuseLighting(payl, pushConstants.rayNormalBias, pushConstants.rayViewBias, SceneTLAS, pushConstants.dirLight, pushConstants.pointLights, pushConstants.pointLightsCount);
 
     float3 irradiance = 0.f;
@@ -103,11 +111,13 @@ void RGSMain()
 
     float volumeBlendWeight = DDGIGetVolumeBlendWeight(payl.worldPosition, volume);
 
-    Texture2DArray<float4> irradianceTexture = Irradiance[pushConstants.currentVolumeIndex];
-    Texture2DArray<float2> distanceTexture = Distance[pushConstants.currentVolumeIndex];
+    Texture2DArray<float4> Irradiance = Irradiances[pushConstants.currentVolumeIndex];
+    Texture2DArray<float2> Distance = Distances[pushConstants.currentVolumeIndex];
     if (volumeBlendWeight > 0.f)
     {
-        irradiance = DDGIGetVolumeIrradiance(payl.worldPosition, surfaceBias, payl.normal, volume, BillinearWrapSampler, irradianceTexture, distanceTexture);
+        irradiance = 
+            DDGIGetVolumeIrradiance(payl.worldPosition, surfaceBias, payl.normal, volume, 
+                BillinearWrapSampler, Irradiance, Distance, ProbeData);
         irradiance *= volumeBlendWeight;
     }
 

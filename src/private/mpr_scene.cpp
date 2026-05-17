@@ -200,6 +200,7 @@ void DDGIVolumeNode::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
         m_Data.rotation = glm::vec4{q.x, q.y, q.z, q.w};
     }
     m_Data.probeRayRotation = mp::math::random_rotation_quaternion();
+    m_Data.probeSpacing = glm::max(m_Data.probeSpacing, glm::vec3(0.01f, 0.01f, 0.01f));
     if (ctx.ddgiVolumes.size() < kMaxDDGIVolumes)
     {
         const auto volumeIdx = static_cast<std::uint32_t>(ctx.ddgiVolumes.size());
@@ -220,7 +221,7 @@ void DDGIVolumeNode::edit()
     if (m_bVisualize)
     {
         static const char *kModes[] = {"Grid Position", "Irradiance", "Distance"};
-        int idx                     = static_cast<int>(m_visMode);
+        int idx = static_cast<int>(m_visMode);
         if (ImGui::Combo("Vis Mode", &idx, kModes, IM_ARRAYSIZE(kModes)))
             m_visMode = static_cast<DDGIProbeVisMode>(idx);
     }
@@ -231,10 +232,16 @@ void DDGIVolumeNode::edit()
     if (ImGui::DragInt3("Probe Counts", counts, 1, 1, static_cast<int>(kMaxDDGIProbesX)))
         m_Data.probeCounts = {counts[0], counts[1], counts[2]};
     ImGui::DragFloat("Probe Normal Bias", &m_Data.probeNormalBias, 0.0001f, 0.0001f, 0.5f, "%.4f");
-    ImGui::DragFloat("Probe View Bias",   &m_Data.probeViewBias,   0.0001f, 0.0001f, 0.5f, "%.4f");
-    ImGui::DragFloat("Irradiance gamma",   &m_Data.probeIrradianceEncodingGamma,   0.1f, 0.1f, 10.0f);
-    ImGui::DragFloat("Irradiance Threshold",   &m_Data.probeIrradianceThreshold,   0.1f, 0.1f, 10.0f);
-    ImGui::DragFloat("Brightness Threshold",   &m_Data.probeBrightnessThreshold,   0.1f, 0.1f, 10.0f);
+    ImGui::DragFloat("Probe View Bias", &m_Data.probeViewBias, 0.0001f, 0.0001f, 0.5f, "%.4f");
+    ImGui::DragFloat("Irradiance gamma", &m_Data.probeIrradianceEncodingGamma, 0.1f, 0.1f, 10.0f);
+    ImGui::DragFloat("Irradiance Threshold", &m_Data.probeIrradianceThreshold, 0.1f, 0.1f, 10.0f);
+    ImGui::DragFloat("Brightness Threshold", &m_Data.probeBrightnessThreshold, 0.1f, 0.1f, 10.0f);
+    ImGui::Checkbox("Relocation enabled", reinterpret_cast<bool *>(&m_Data.probeRelocationEnabled));
+    if (m_Data.probeRelocationEnabled == 1)
+    {
+        ImGui::DragFloat("Min front face distance", &m_Data.probeMinFrontfaceDistance, 0.01f, 0.f, 100.0f);
+        ImGui::DragFloat("Fixed ray backface threshold", &m_Data.probeFixedRayBackfaceThreshold, 0.01f, 0.f, 1.0f);
+    }
 }
 
 void Scene::draw(const glm::mat4 &topMatrix, DrawContext &ctx)

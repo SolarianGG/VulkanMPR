@@ -508,12 +508,12 @@ struct MeshAsset
 
 struct DDGIVolume
 {
-    glm::vec3 origin;
-    std::int32_t probeNumRays;
-    glm::vec4 rotation;
-    glm::vec3 probeSpacing;
-    float probeMaxRayDistance;
-    glm::ivec3 probeCounts;
+    glm::vec3 origin{0.0f, 0.0f, 0.0f};
+    std::int32_t probeNumRays{kMaxDDGIRays};
+    glm::vec4 rotation{0.f, 0.f, 0.0f, 0.0f};
+    glm::vec3 probeSpacing{1.0f, 1.0f, 1.0f};
+    float probeMaxRayDistance{10000.f};
+    glm::ivec3 probeCounts{kMaxDDGIProbesX, kMaxDDGIProbesY, kMaxDDGIProbesZ};
     float probeNormalBias{0.1f};
     glm::vec4 probeRayRotation;
     float probeViewBias{0.1f};
@@ -523,10 +523,13 @@ struct DDGIVolume
     float probeIrradianceThreshold{0.25f};
     float probeBrightnessThreshold{1.0f};
     float probeDistanceExponent{50.0f};
-    float _pad[1]{};
+    std::uint32_t probeRelocationEnabled{1};
+    float probeFixedRayBackfaceThreshold{0.25f};
+    float probeMinFrontfaceDistance{0.3f};
+    float _padding[2]{};
 };
 
-struct DDGIProbeBlendingPushConstants
+struct DDGIProbeSupportPushConstants
 {
     VkDeviceAddress volumes;
     std::uint32_t currentVolumeIndex;

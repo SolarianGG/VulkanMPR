@@ -1,12 +1,13 @@
 module types;
 
 public static const int MAX_CASCADE_COUNT = 4;
-public static const int POINT_LIGHT_SHADOW_MAP_SIZE = 8192u;
-public static const int POINT_LIGHT_TILE_SIZE = 1024u;
+public static const int POINT_LIGHT_SHADOW_MAP_SIZE = 8192;
+public static const int POINT_LIGHT_TILE_SIZE = 1024;
 public static const int MAX_POINT_LIGHTS =
     (POINT_LIGHT_SHADOW_MAP_SIZE * POINT_LIGHT_SHADOW_MAP_SIZE) / (POINT_LIGHT_TILE_SIZE * POINT_LIGHT_TILE_SIZE);
 public static const int POINT_LIGHT_TILES_PER_ROW = POINT_LIGHT_SHADOW_MAP_SIZE / POINT_LIGHT_TILE_SIZE;
 
+public static const int DDGI_NUM_FIXED_RAYS = 32;
 public static const int MAX_DISTANCE_TEXELS = 16;
 public static const int MAX_IRRADIANCE_TEXELS = 8;
 public static const int BLEND_RAYS_PER_PROBE = 256;
@@ -146,7 +147,10 @@ public struct DDGIVolume {
     public float probeIrradianceThreshold;
     public float probeBrightnessThreshold;
     public float probeDistanceExponent;
-    public float _pad[1];
+    public uint probeRelocationEnabled;
+    public float probeFixedRayBackfaceThreshold;
+    public float probeMinFrontfaceDistance;
+    float _padding[2];
 };
 
 public struct Payload {

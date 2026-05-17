@@ -13,12 +13,15 @@ Texture2D<uint> normalTexture;
 Texture2D<float4> albedoTexture;
 
 [[vk::binding(0, 2)]]
-Texture2DArray<float4> IrradianceDatas[];
+Texture2DArray<float4> Irradiances[];
 
 [[vk::binding(1, 2)]]
-Texture2DArray<float2> DistanceDatas[];
+Texture2DArray<float2> Distances[];
 
 [[vk::binding(2, 2)]]
+Texture2DArray<float4> ProbeDatas[];
+
+[[vk::binding(3, 2)]]
 SamplerState BillinearWrapSampler;
 
 struct PushConstants {
@@ -47,8 +50,6 @@ void IndirectCS(uint3 threadID: SV_DispatchThreadID)
         float3 worldPos = ReconstructWorldPos(threadID.xy, uint2(width, height), pushConstants.sceneData.inverseCameraViewProj, depth);
         float3 normal = normalize(DecodeGBufferNormal(normalTexture[threadID.xy]));
 
-
-
         uint volumesCount = pushConstants.volumeCount;
         float3 irradiance = 0.f;
         float3 cameraDirection = normalize(worldPos - pushConstants.sceneData.cameraPos);
@@ -61,7 +62,7 @@ void IndirectCS(uint3 threadID: SV_DispatchThreadID)
             float blendWeight = DDGIGetVolumeBlendWeight(worldPos, volume);
             if (blendWeight > 0)
             {
-                irradiance += DDGIGetVolumeIrradiance(worldPos, surfaceBias, normal, volume, BillinearWrapSampler, IrradianceDatas[i], DistanceDatas[i]) * blendWeight;
+                irradiance += DDGIGetVolumeIrradiance(worldPos, surfaceBias, normal, volume, BillinearWrapSampler, Irradiances[i], Distances[i], ProbeDatas[i]) * blendWeight;
             }
         }
 

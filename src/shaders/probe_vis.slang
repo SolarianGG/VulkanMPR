@@ -8,6 +8,9 @@ Texture2DArray<float4> IrradianceDatas[];
 Texture2DArray<float2> DistanceDatas[];
 
 [[vk::binding(2, 0)]]
+Texture2DArray<float4> ProbeDatas[];
+
+[[vk::binding(3, 0)]]
 SamplerState BilinearSampler;
 
 struct PushConstants {
@@ -36,7 +39,7 @@ VSOutput VSMain(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
     DDGIVolume volume = pushConstants.volumes[pushConstants.volumeIndex];
 
     int3 coords = DDGIGetProbeCoords(int(instanceId), volume);
-    float3 probeWorldPos = DDGIGetProbeWorldPosition(coords, volume);
+    float3 probeWorldPos = DDGIGetProbeWorldPosition(coords, volume, ProbeDatas[pushConstants.volumeIndex]);
 
     float3 sphereVtx = pushConstants.sphereVertices[vertexId].pos;
     float3 worldPos = probeWorldPos + sphereVtx * pushConstants.probeRadius;

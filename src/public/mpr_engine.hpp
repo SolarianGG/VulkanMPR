@@ -314,9 +314,10 @@ class Engine final
     VkDescriptorSetLayout m_DDGIRayDataDescSetLayout{};
     VkDescriptorSetLayout m_DDGIResourcesDescSetLayout{};
 
-    VkPipelineLayout m_DDGIProbeBlendingPipelineLayout{};
+    VkPipelineLayout m_DDGIProbeSupportPipelineLayout{};
     VkPipeline m_DDGIIrradianceBlendingPipeline{};
     VkPipeline m_DDGIDistanceBlendingPipeline{};
+    VkPipeline m_DDGIProbeRelocationPipeline{};
     VkDescriptorSetLayout m_DDGIProbeStorageDescSetLayout{};
 
     VkPipeline m_DDGIIndirectPipeline{};
@@ -358,10 +359,12 @@ class Engine final
     std::array<AllocatedImage, kMaxDDGIVolumes> rayDatas;
     std::array<AllocatedImage, kMaxDDGIVolumes> irradianceDatas;
     std::array<AllocatedImage, kMaxDDGIVolumes> distanceDatas;
-    DescriptorBuffer ddgiRayDataDescBuffer;
+    std::array<AllocatedImage, kMaxDDGIVolumes> probeDatas;
     DescriptorBuffer ddgiResourcesDescBuffer;
+    DescriptorBuffer ddgiRayDataDescBuffer;
     DescriptorBuffer ddgiIrradianceStorageDescBuffer;
     DescriptorBuffer ddgiDistanceStorageDescBuffer;
+    DescriptorBuffer ddgiProbeDataStorageDescBuffer;
 
   private:
     void init_window();
@@ -386,7 +389,7 @@ class Engine final
     void init_cull_meshes_pipeline();
     void init_cull_point_lights_pipeline();
     void init_ddgi_probe_pipeline();
-    void init_ddgi_probe_blending_pipeline();
+    void init_ddgi_probe_support_pipelines();
     void init_ddgi_indirect_pipeline();
     void init_ddgi_probe_vis_pipeline();
     void init_populate_commands_with_cascade_count();
@@ -402,14 +405,15 @@ class Engine final
     void draw_wboit(VkCommandBuffer cmd);
     void draw_wboit_composite(VkCommandBuffer cmd);
     void update_scene();
-    void draw_post(VkCommandBuffer cmd);
-    void draw_luminance_histogram(VkCommandBuffer cmd);
-    void draw_average_luminance(VkCommandBuffer cmd);
+    void compute_post(VkCommandBuffer cmd);
+    void compute_luminance_histogram(VkCommandBuffer cmd);
+    void compute_average_luminance(VkCommandBuffer cmd);
     void draw_prepass(VkCommandBuffer cmd);
-    void draw_ddgi_probe_pass(VkCommandBuffer cmd);
-    void draw_ddgi_irradiance_blending(VkCommandBuffer cmd);
-    void draw_ddgi_distance_blending(VkCommandBuffer cmd);
-    void draw_ddgi_indirect(VkCommandBuffer cmd);
+    void trace_ddgi_probe_pass(VkCommandBuffer cmd);
+    void compute_ddgi_irradiance_blending(VkCommandBuffer cmd);
+    void compute_ddgi_distance_blending(VkCommandBuffer cmd);
+    void compute_ddgi_relocation(VkCommandBuffer cmd);
+    void compute_ddgi_indirect(VkCommandBuffer cmd);
     void draw_ddgi_probe_vis(VkCommandBuffer cmd);
     void compute_depth_reduction(VkCommandBuffer cmd);
     void compute_depth_partition(VkCommandBuffer cmd);
@@ -418,10 +422,10 @@ class Engine final
                      const std::uint32_t objectCount, auto &pushConstants,
                      const VkShaderStageFlags pushConstantsShaderStage);
 
-    void cull_objects(VkCommandBuffer cmd, std::uint32_t objectCount, std::uint32_t objectOffset,
+    void compute_cull_objects(VkCommandBuffer cmd, std::uint32_t objectCount, std::uint32_t objectOffset,
                       const glm::mat4 &viewProj);
-    void populate_commands_with_cascade_count(VkCommandBuffer cmd, std::uint32_t objectCount);
-    void cull_point_lights(VkCommandBuffer cmd);
+    void compute_populate_commands_with_cascade_count(VkCommandBuffer cmd, std::uint32_t objectCount);
+    void compute_cull_point_lights(VkCommandBuffer cmd);
     void compute_point_lights_commands(VkCommandBuffer cmd, std::uint32_t instanceCount, std::uint32_t instanceOffset);
     void draw_point_lights_shadows_pass(VkCommandBuffer cmd);
     void copy_frame_buffers();

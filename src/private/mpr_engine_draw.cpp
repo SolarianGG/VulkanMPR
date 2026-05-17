@@ -78,7 +78,7 @@ void Engine::draw()
 
     vkCmdBindIndexBuffer(cmd, m_globalIndexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 
-    cull_point_lights(cmd);
+    compute_cull_point_lights(cmd);
     // Draw prepass
     {
 
@@ -173,115 +173,159 @@ void Engine::draw()
 
     draw_gBuffer_pass(cmd);
 
-    // DDGI Ray Generation
+    if (m_DDGIVolumeCount > 0)
     {
-        for (std::uint32_t i = 0; i < m_DDGIVolumeCount; ++i)
-        {
-            barrierBuilder.add_image_barrier(
-                rayDatas[i].transition({.stageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
-                                        .accessMask = VK_ACCESS_2_SHADER_WRITE_BIT,
-                                        .layout = VK_IMAGE_LAYOUT_GENERAL,
-                                        .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                                        .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
-            barrierBuilder.add_image_barrier(irradianceDatas[i].transition(
-                {.stageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
-                 .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
-                 .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                 .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                 .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
-            barrierBuilder.add_image_barrier(distanceDatas[i].transition(
-                {.stageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
-                 .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
-                 .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                 .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                 .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
-        }
-        if (m_mainDrawContext.dirLight.has_value())
-            barrierBuilder.add_buffer_barrier(
-                currentFrame.dirLightBuffer.transition({.stageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
-                                                        .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
-                                                        .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED}));
-        if (!m_mainDrawContext.pointLights.empty())
-            barrierBuilder.add_buffer_barrier(
-                currentFrame.pointLightBuffer.transition({.stageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
-                                                          .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
-                                                          .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED}));
-        barrierBuilder.barrier(cmd);
-    }
-    draw_ddgi_probe_pass(cmd);
 
-    // DDGI Probe Blending
-    {
-        for (std::uint32_t i = 0; i < m_DDGIVolumeCount; ++i)
+        // DDGI Ray Generation
         {
-            barrierBuilder.add_image_barrier(
-                rayDatas[i].transition({.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                                        .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
-                                        .layout = VK_IMAGE_LAYOUT_GENERAL,
-                                        .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                                        .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
-            barrierBuilder.add_image_barrier(irradianceDatas[i].transition(
+            for (std::uint32_t i = 0; i < m_DDGIVolumeCount; ++i)
+            {
+                barrierBuilder.add_image_barrier(rayDatas[i].transition(
+                    {.stageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
+                     .accessMask = VK_ACCESS_2_SHADER_WRITE_BIT,
+                     .layout = VK_IMAGE_LAYOUT_GENERAL,
+                     .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                     .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
+                barrierBuilder.add_image_barrier(irradianceDatas[i].transition(
+                    {.stageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
+                     .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
+                     .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                     .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                     .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
+                barrierBuilder.add_image_barrier(distanceDatas[i].transition(
+                    {.stageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
+                     .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
+                     .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                     .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                     .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
+                barrierBuilder.add_image_barrier(probeDatas[i].transition(
+                    {.stageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
+                     .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
+                     .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                     .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                     .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
+            }
+            if (m_mainDrawContext.dirLight.has_value())
+                barrierBuilder.add_buffer_barrier(
+                    currentFrame.dirLightBuffer.transition({.stageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
+                                                            .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
+                                                            .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED}));
+            if (!m_mainDrawContext.pointLights.empty())
+                barrierBuilder.add_buffer_barrier(currentFrame.pointLightBuffer.transition(
+                    {.stageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
+                     .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
+                     .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED}));
+            barrierBuilder.barrier(cmd);
+        }
+        trace_ddgi_probe_pass(cmd);
+
+        // DDGI Probe Blending
+        {
+            for (std::uint32_t i = 0; i < m_DDGIVolumeCount; ++i)
+            {
+                barrierBuilder.add_image_barrier(rayDatas[i].transition(
+                    {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                     .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
+                     .layout = VK_IMAGE_LAYOUT_GENERAL,
+                     .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                     .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
+                barrierBuilder.add_image_barrier(irradianceDatas[i].transition(
+                    {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                     .accessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+                     .layout = VK_IMAGE_LAYOUT_GENERAL,
+                     .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                     .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
+                barrierBuilder.add_image_barrier(distanceDatas[i].transition(
+                    {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                     .accessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+                     .layout = VK_IMAGE_LAYOUT_GENERAL,
+                     .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                     .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
+            }
+            barrierBuilder.barrier(cmd);
+        }
+        compute_ddgi_irradiance_blending(cmd);
+        compute_ddgi_distance_blending(cmd);
+
+        // DDGI Relocation
+
+        {
+            for (std::uint32_t i = 0; i < m_DDGIVolumeCount; ++i)
+            {
+                if (m_mainDrawContext.ddgiVolumes[i].probeRelocationEnabled == 1)
+                {
+                    barrierBuilder.add_image_barrier(probeDatas[i].transition(
+                        {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                         .accessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+                         .layout = VK_IMAGE_LAYOUT_GENERAL,
+                         .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                         .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
+                }
+                else
+                {
+                    barrierBuilder.add_image_barrier(probeDatas[i].transition(
+                        {.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                         .accessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                         .layout = VK_IMAGE_LAYOUT_GENERAL,
+                         .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                         .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
+                }
+            }
+            barrierBuilder.barrier(cmd);
+        }
+        compute_ddgi_relocation(cmd);
+
+        // DDGI Indirect
+        {
+            for (std::uint32_t i = 0; i < m_DDGIVolumeCount; ++i)
+            {
+                barrierBuilder.add_image_barrier(irradianceDatas[i].transition(
+                    {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                     .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
+                     .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                     .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                     .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
+                barrierBuilder.add_image_barrier(distanceDatas[i].transition(
+                    {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                     .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
+                     .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                     .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                     .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
+                barrierBuilder.add_image_barrier(probeDatas[i].transition(
+                    {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                     .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
+                     .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                     .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                     .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
+            }
+            barrierBuilder.add_image_barrier(currentFrame.ddgiOutput.transition(
                 {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                 .accessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+                 .accessMask = VK_ACCESS_2_SHADER_WRITE_BIT,
                  .layout = VK_IMAGE_LAYOUT_GENERAL,
                  .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                  .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
-            barrierBuilder.add_image_barrier(distanceDatas[i].transition(
-                {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                 .accessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
-                 .layout = VK_IMAGE_LAYOUT_GENERAL,
-                 .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                 .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
-        }
-        barrierBuilder.barrier(cmd);
-    }
-    draw_ddgi_irradiance_blending(cmd);
-    draw_ddgi_distance_blending(cmd);
-
-    // DDGI Indirect
-    {
-        for (std::uint32_t i = 0; i < m_DDGIVolumeCount; ++i)
-        {
-            barrierBuilder.add_image_barrier(irradianceDatas[i].transition(
+            barrierBuilder.add_image_barrier(gBuffer.normal.transition(
                 {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                  .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
                  .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                  .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                  .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
-            barrierBuilder.add_image_barrier(distanceDatas[i].transition(
+            barrierBuilder.add_image_barrier(gBuffer.diffuse.transition(
                 {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                  .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
                  .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                  .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                  .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
+            barrierBuilder.add_image_barrier(currentDepthImage.transition(
+                {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                 .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
+                 .layout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL,
+                 .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                 .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_DEPTH_BIT)}));
+            barrierBuilder.barrier(cmd);
         }
-        barrierBuilder.add_image_barrier(currentFrame.ddgiOutput.transition(
-            {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-             .accessMask = VK_ACCESS_2_SHADER_WRITE_BIT,
-             .layout = VK_IMAGE_LAYOUT_GENERAL,
-             .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-             .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
-        barrierBuilder.add_image_barrier(
-            gBuffer.normal.transition({.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                                       .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
-                                       .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                                       .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                                       .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
-        barrierBuilder.add_image_barrier(
-            gBuffer.diffuse.transition({.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                                        .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
-                                        .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                                        .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                                        .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
-        barrierBuilder.add_image_barrier(currentDepthImage.transition(
-            {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-             .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
-             .layout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL,
-             .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-             .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_DEPTH_BIT)}));
-        barrierBuilder.barrier(cmd);
+        compute_ddgi_indirect(cmd);
     }
-    draw_ddgi_indirect(cmd);
 
     // Light pass
     {
@@ -383,6 +427,7 @@ void Engine::draw()
     draw_wboit_composite(cmd);
 
     // DDGI probe visualization
+    if (m_mainDrawContext.ddgiVolumesVis.size() > 0)
     {
         barrierBuilder.add_image_barrier(currentDrawingImage.transition(
             {.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -398,9 +443,9 @@ void Engine::draw()
              .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
              .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_DEPTH_BIT)}));
         barrierBuilder.barrier(cmd);
-    }
 
-    draw_ddgi_probe_vis(cmd);
+        draw_ddgi_probe_vis(cmd);
+    }
 
     // Postprocess (gamma + tone)
     {
@@ -431,7 +476,7 @@ void Engine::draw()
         barrierBuilder.barrier(cmd);
     }
 
-    draw_luminance_histogram(cmd);
+    compute_luminance_histogram(cmd);
 
     {
         barrierBuilder.add_buffer_barrier(
@@ -445,7 +490,7 @@ void Engine::draw()
         barrierBuilder.barrier(cmd);
     }
 
-    draw_average_luminance(cmd);
+    compute_average_luminance(cmd);
 
     {
         barrierBuilder.add_buffer_barrier(
@@ -455,7 +500,7 @@ void Engine::draw()
         barrierBuilder.barrier(cmd);
     }
 
-    draw_post(cmd);
+    compute_post(cmd);
 
     // copy to swapchain
     {
@@ -566,7 +611,7 @@ void Engine::draw_directional_shadow_pass(VkCommandBuffer cmd)
 
     const std::uint32_t cascadeCount = static_cast<std::uint32_t>(std::clamp(light.cascadeCount, 1, MAX_CASCADES));
 
-    cull_objects(cmd, m_OpaqueSize, 0, m_DirLightCullMatrix);
+    compute_cull_objects(cmd, m_OpaqueSize, 0, m_DirLightCullMatrix);
 
     {
         utils::BarrierBuilder barrierBuilder;
@@ -581,7 +626,7 @@ void Engine::draw_directional_shadow_pass(VkCommandBuffer cmd)
         barrierBuilder.barrier(cmd);
     }
 
-    populate_commands_with_cascade_count(cmd, m_OpaqueSize);
+    compute_populate_commands_with_cascade_count(cmd, m_OpaqueSize);
 
     {
         utils::BarrierBuilder barrierBuilder;
@@ -637,7 +682,7 @@ void Engine::draw_directional_shadow_pass(VkCommandBuffer cmd)
 
     if (m_AlphaTestedSize > 0)
     {
-        cull_objects(cmd, m_AlphaTestedSize, m_OpaqueSize, m_DirLightCullMatrix);
+        compute_cull_objects(cmd, m_AlphaTestedSize, m_OpaqueSize, m_DirLightCullMatrix);
 
         {
             utils::BarrierBuilder barrierBuilder;
@@ -652,7 +697,7 @@ void Engine::draw_directional_shadow_pass(VkCommandBuffer cmd)
             barrierBuilder.barrier(cmd);
         }
 
-        populate_commands_with_cascade_count(cmd, m_AlphaTestedSize);
+        compute_populate_commands_with_cascade_count(cmd, m_AlphaTestedSize);
 
         {
             utils::BarrierBuilder barrierBuilder;
@@ -741,7 +786,7 @@ void Engine::draw_gBuffer_pass(VkCommandBuffer cmd)
     const auto renderInfo =
         utils::rendering_info(m_CommonImageExtent2D, std::size(attachments), attachments, &depthAttachment);
 
-    cull_objects(cmd, m_OpaqueSize, 0, m_sceneData.projView);
+    compute_cull_objects(cmd, m_OpaqueSize, 0, m_sceneData.projView);
     {
         utils::BarrierBuilder barrierBuilder;
         barrierBuilder.add_buffer_barrier(
@@ -790,7 +835,7 @@ void Engine::draw_gBuffer_pass(VkCommandBuffer cmd)
 
     if (m_AlphaTestedSize > 0)
     {
-        cull_objects(cmd, m_AlphaTestedSize, m_OpaqueSize, m_sceneData.projView);
+        compute_cull_objects(cmd, m_AlphaTestedSize, m_OpaqueSize, m_sceneData.projView);
 
         {
             utils::BarrierBuilder barrierBuilder;
@@ -896,7 +941,7 @@ void Engine::draw_wboit(VkCommandBuffer cmd)
     const auto renderInfo =
         utils::rendering_info(m_CommonImageExtent2D, std::size(colorAttachments), colorAttachments, &depthAttachment);
 
-    cull_objects(cmd, m_TransparentSize, m_OpaqueSize + m_AlphaTestedSize, m_sceneData.projView);
+    compute_cull_objects(cmd, m_TransparentSize, m_OpaqueSize + m_AlphaTestedSize, m_sceneData.projView);
     {
         utils::BarrierBuilder barrierBuilder;
         barrierBuilder.add_buffer_barrier(
@@ -986,8 +1031,8 @@ void Engine::draw_imgui(const VkCommandBuffer cmd, const VkImageView targetImage
     m_stats.imguiDrawTime = elapsed.count() / 1000.0f;
 }
 
-void Engine::cull_objects(VkCommandBuffer cmd, const std::uint32_t objectCount, const std::uint32_t objectOffset,
-                          const glm::mat4 &viewProj)
+void Engine::compute_cull_objects(VkCommandBuffer cmd, const std::uint32_t objectCount,
+                                  const std::uint32_t objectOffset, const glm::mat4 &viewProj)
 {
     mp::debug::cmd_begin_label(cmd, "Cull Objects", {0.8f, 0.8f, 0.2f, 1.f});
     auto &currentFrame = get_current_frame();
@@ -1029,7 +1074,7 @@ void Engine::cull_objects(VkCommandBuffer cmd, const std::uint32_t objectCount, 
     mp::debug::cmd_end_label(cmd);
 }
 
-void Engine::cull_point_lights(VkCommandBuffer cmd)
+void Engine::compute_cull_point_lights(VkCommandBuffer cmd)
 {
     mp::debug::cmd_begin_label(cmd, "Cull Point Lights", {0.8f, 0.7f, 0.2f, 1.f});
     auto &currentFrame = get_current_frame();
@@ -1085,9 +1130,9 @@ void Engine::cull_point_lights(VkCommandBuffer cmd)
 
     vkCmdDispatch(cmd, std::ceil(pointLightsCount / 64.0f), 1, 1);
 
-    const VkPipelineStageFlags2 dstStages = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
-                                            VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT |
-                                            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT;
+    const VkPipelineStageFlags2 dstStages =
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT |
+        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT;
     barrierBuilder.add_buffer_barrier(
         currentFrame.visiblePointLightsBuffer.transition({.stageMask = dstStages,
                                                           .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
@@ -1336,7 +1381,7 @@ void Engine::draw_meshes(VkCommandBuffer cmd, const VkPipelineLayout drawPassPip
     m_stats.drawCallCount++;
 }
 
-void Engine::draw_post(VkCommandBuffer cmd)
+void Engine::compute_post(VkCommandBuffer cmd)
 {
     mp::debug::cmd_begin_label(cmd, "Post-Process", {0.9f, 0.5f, 0.9f, 1.f});
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_PostProcessPassPipeline);
@@ -1363,7 +1408,7 @@ void Engine::draw_post(VkCommandBuffer cmd)
     mp::debug::cmd_end_label(cmd);
 }
 
-void Engine::draw_luminance_histogram(VkCommandBuffer cmd)
+void Engine::compute_luminance_histogram(VkCommandBuffer cmd)
 {
     mp::debug::cmd_begin_label(cmd, "Luminance Histogram", {0.8f, 0.6f, 0.2f, 1.f});
     auto &currentFrame = get_current_frame();
@@ -1396,7 +1441,7 @@ void Engine::draw_luminance_histogram(VkCommandBuffer cmd)
     mp::debug::cmd_end_label(cmd);
 }
 
-void Engine::draw_average_luminance(VkCommandBuffer cmd)
+void Engine::compute_average_luminance(VkCommandBuffer cmd)
 {
     mp::debug::cmd_begin_label(cmd, "Average Luminance", {0.8f, 0.4f, 0.1f, 1.f});
     auto &currentFrame = get_current_frame();
@@ -1423,7 +1468,7 @@ void Engine::draw_prepass(VkCommandBuffer cmd)
     mp::debug::cmd_begin_label(cmd, "Prepass", {0.4f, 0.6f, 1.0f, 1.f});
     auto &currentFrame = get_current_frame();
 
-    cull_objects(cmd, m_OpaqueSize, 0, m_sceneData.projView);
+    compute_cull_objects(cmd, m_OpaqueSize, 0, m_sceneData.projView);
 
     {
         utils::BarrierBuilder barrierBuilder;
@@ -1476,7 +1521,7 @@ void Engine::draw_prepass(VkCommandBuffer cmd)
 
     if (m_AlphaTestedSize > 0)
     {
-        cull_objects(cmd, m_AlphaTestedSize, m_OpaqueSize, m_sceneData.projView);
+        compute_cull_objects(cmd, m_AlphaTestedSize, m_OpaqueSize, m_sceneData.projView);
 
         {
             utils::BarrierBuilder barrierBuilder;
@@ -1521,7 +1566,7 @@ void Engine::draw_prepass(VkCommandBuffer cmd)
     mp::debug::cmd_end_label(cmd);
 }
 
-void Engine::populate_commands_with_cascade_count(VkCommandBuffer cmd, std::uint32_t objectCount)
+void Engine::compute_populate_commands_with_cascade_count(VkCommandBuffer cmd, std::uint32_t objectCount)
 {
     mp::debug::cmd_begin_label(cmd, "Populate commands with cascade count", {0.33f, 0.66f, 0.99f, 1.f});
 
@@ -1734,12 +1779,8 @@ void Engine::copy_frame_buffers()
                 m_mainDrawContext.renderObjects.size() * sizeof(RenderObject));
 }
 
-void Engine::draw_ddgi_probe_pass(VkCommandBuffer cmd)
+void Engine::trace_ddgi_probe_pass(VkCommandBuffer cmd)
 {
-    if (m_DDGIVolumeCount == 0)
-    {
-        return;
-    }
     mp::debug::cmd_begin_label(cmd, "DDGI Probe Pass", {0.2f, 0.9f, 0.4f, 1.f});
     auto &currentFrame = get_current_frame();
 
@@ -1803,11 +1844,8 @@ void Engine::draw_ddgi_probe_pass(VkCommandBuffer cmd)
     mp::debug::cmd_end_label(cmd);
 }
 
-void Engine::draw_ddgi_irradiance_blending(VkCommandBuffer cmd)
+void Engine::compute_ddgi_irradiance_blending(VkCommandBuffer cmd)
 {
-    if (m_DDGIVolumeCount == 0)
-        return;
-
     mp::debug::cmd_begin_label(cmd, "DDGI Irradiance Blending", {0.1f, 0.8f, 0.5f, 1.f});
     auto &currentFrame = get_current_frame();
 
@@ -1827,15 +1865,15 @@ void Engine::draw_ddgi_irradiance_blending(VkCommandBuffer cmd)
 
     const std::uint32_t setIndices[]{0, 1};
     const VkDeviceSize setOffsets[]{0, 0};
-    vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_DDGIProbeBlendingPipelineLayout, 0,
+    vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_DDGIProbeSupportPipelineLayout, 0,
                                        std::size(setIndices), setIndices, setOffsets);
 
     for (std::uint32_t i = 0; i < m_DDGIVolumeCount; ++i)
     {
         const auto &vol = m_mainDrawContext.ddgiVolumes[i];
-        const DDGIProbeBlendingPushConstants pc{.volumes = m_DDGIVolumesAddr, .currentVolumeIndex = i};
-        vkCmdPushConstants(cmd, m_DDGIProbeBlendingPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                           sizeof(DDGIProbeBlendingPushConstants), &pc);
+        const DDGIProbeSupportPushConstants pc{.volumes = m_DDGIVolumesAddr, .currentVolumeIndex = i};
+        vkCmdPushConstants(cmd, m_DDGIProbeSupportPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                           sizeof(DDGIProbeSupportPushConstants), &pc);
         vkCmdDispatch(cmd, static_cast<std::uint32_t>(vol.probeCounts.x), static_cast<std::uint32_t>(vol.probeCounts.z),
                       static_cast<std::uint32_t>(vol.probeCounts.y));
     }
@@ -1843,11 +1881,8 @@ void Engine::draw_ddgi_irradiance_blending(VkCommandBuffer cmd)
     mp::debug::cmd_end_label(cmd);
 }
 
-void Engine::draw_ddgi_distance_blending(VkCommandBuffer cmd)
+void Engine::compute_ddgi_distance_blending(VkCommandBuffer cmd)
 {
-    if (m_DDGIVolumeCount == 0)
-        return;
-
     mp::debug::cmd_begin_label(cmd, "DDGI Distance Blending", {0.1f, 0.6f, 0.8f, 1.f});
     auto &currentFrame = get_current_frame();
 
@@ -1867,15 +1902,15 @@ void Engine::draw_ddgi_distance_blending(VkCommandBuffer cmd)
 
     const std::uint32_t setIndices[]{0, 1};
     const VkDeviceSize setOffsets[]{0, 0};
-    vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_DDGIProbeBlendingPipelineLayout, 0,
+    vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_DDGIProbeSupportPipelineLayout, 0,
                                        std::size(setIndices), setIndices, setOffsets);
 
     for (std::uint32_t i = 0; i < m_DDGIVolumeCount; ++i)
     {
         const auto &vol = m_mainDrawContext.ddgiVolumes[i];
-        const DDGIProbeBlendingPushConstants pc{.volumes = m_DDGIVolumesAddr, .currentVolumeIndex = i};
-        vkCmdPushConstants(cmd, m_DDGIProbeBlendingPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                           sizeof(DDGIProbeBlendingPushConstants), &pc);
+        const DDGIProbeSupportPushConstants pc{.volumes = m_DDGIVolumesAddr, .currentVolumeIndex = i};
+        vkCmdPushConstants(cmd, m_DDGIProbeSupportPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                           sizeof(DDGIProbeSupportPushConstants), &pc);
         vkCmdDispatch(cmd, static_cast<std::uint32_t>(vol.probeCounts.x), static_cast<std::uint32_t>(vol.probeCounts.z),
                       static_cast<std::uint32_t>(vol.probeCounts.y));
     }
@@ -1883,11 +1918,63 @@ void Engine::draw_ddgi_distance_blending(VkCommandBuffer cmd)
     mp::debug::cmd_end_label(cmd);
 }
 
-void Engine::draw_ddgi_indirect(VkCommandBuffer cmd)
+void Engine::compute_ddgi_relocation(VkCommandBuffer cmd)
 {
-    if (m_DDGIVolumeCount == 0)
-        return;
+    mp::debug::cmd_begin_label(cmd, "DDGI probe Relocation", {0.6f, 0.3f, 0.9f, 1.f});
 
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_DDGIProbeRelocationPipeline);
+
+    const VkDescriptorBufferBindingInfoEXT bindingInfos[]{
+        {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+         .address = ddgiRayDataDescBuffer.get_device_address(),
+         .usage =
+             VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
+        {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+         .address = ddgiProbeDataStorageDescBuffer.get_device_address(),
+         .usage =
+             VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
+    };
+    vkCmdBindDescriptorBuffersEXT(cmd, std::size(bindingInfos), bindingInfos);
+
+    const std::uint32_t setIndices[]{0, 1};
+    const VkDeviceSize setOffsets[]{0, 0};
+    vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_DDGIProbeSupportPipelineLayout, 0,
+                                       std::size(setIndices), setIndices, setOffsets);
+
+    for (std::uint32_t i = 0; i < m_DDGIVolumeCount; ++i)
+    {
+        const auto &vol = m_mainDrawContext.ddgiVolumes[i];
+        if (vol.probeRelocationEnabled == 1)
+        {
+            const DDGIProbeSupportPushConstants pc{.volumes = m_DDGIVolumesAddr, .currentVolumeIndex = i};
+            vkCmdPushConstants(cmd, m_DDGIProbeSupportPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                               sizeof(DDGIProbeSupportPushConstants), &pc);
+            vkCmdDispatch(cmd,
+                          static_cast<std::uint32_t>(
+                              std::ceil(vol.probeCounts.x * vol.probeCounts.z * vol.probeCounts.y / 32.0f)),
+                          1, 1);
+        }
+        else
+        {
+            // TODO: When classification added, replace it with distinct pass
+            VkClearColorValue clearColorValue{
+                .float32 = {0.0f, 0.0f, 0.0f, 1.0f},
+            };
+
+            VkImageSubresourceRange range{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                                          .baseMipLevel = 0,
+                                          .levelCount = 1,
+                                          .baseArrayLayer = 0,
+                                          .layerCount = kMaxDDGIProbesY};
+            vkCmdClearColorImage(cmd, probeDatas[i].image, VK_IMAGE_LAYOUT_GENERAL, &clearColorValue, 1, &range);
+        };
+    }
+
+    mp::debug::cmd_end_label(cmd);
+}
+
+void Engine::compute_ddgi_indirect(VkCommandBuffer cmd)
+{
     mp::debug::cmd_begin_label(cmd, "DDGI Indirect", {0.0f, 0.7f, 0.3f, 1.f});
     auto &currentFrame = get_current_frame();
 

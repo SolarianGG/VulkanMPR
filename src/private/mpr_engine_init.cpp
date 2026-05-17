@@ -41,8 +41,7 @@ std::pair<std::uint32_t, char const *const *> get_required_instance_extensions_f
     return {count, requiredExtensions};
 }
 
-
-std::vector<std::filesystem::path> parse_tiny_multiple(const wchar_t* files)
+std::vector<std::filesystem::path> parse_tiny_multiple(const wchar_t *files)
 {
     std::vector<std::filesystem::path> res;
     if (!files)
@@ -400,13 +399,16 @@ void Engine::init_descriptors()
         m_DDGIResourcesDescSetLayout = DescriptorSetLayoutBuilder()
                                            .add_binding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, kMaxDDGIVolumes,
                                                         VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT |
-                                                            VK_SHADER_STAGE_FRAGMENT_BIT)
+                                                            VK_SHADER_STAGE_FRAGMENT_BIT) // Irradiance
                                            .add_binding(1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, kMaxDDGIVolumes,
                                                         VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT |
-                                                            VK_SHADER_STAGE_FRAGMENT_BIT)
-                                           .add_binding(2, VK_DESCRIPTOR_TYPE_SAMPLER, 1,
+                                                            VK_SHADER_STAGE_FRAGMENT_BIT) // Distance
+                                           .add_binding(2, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, kMaxDDGIVolumes,
                                                         VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT |
-                                                            VK_SHADER_STAGE_FRAGMENT_BIT)
+                                                            VK_SHADER_STAGE_VERTEX_BIT) // Probe Data
+                                           .add_binding(3, VK_DESCRIPTOR_TYPE_SAMPLER, 1,
+                                                        VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT |
+                                                            VK_SHADER_STAGE_FRAGMENT_BIT) // Sampler
                                            .build(m_device, VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT);
         m_DDGIProbeStorageDescSetLayout =
             DescriptorSetLayoutBuilder()
@@ -468,7 +470,7 @@ void Engine::init_pipelines()
     init_alpha_tested_directional_shadow_pass();
     init_alpha_tested_point_shadow_pass();
     init_ddgi_probe_pipeline();
-    init_ddgi_probe_blending_pipeline();
+    init_ddgi_probe_support_pipelines();
     init_ddgi_indirect_pipeline();
     init_ddgi_probe_vis_pipeline();
 }
@@ -1201,13 +1203,13 @@ void Engine::init_ddgi_probe_pipeline()
     });
 }
 
-void Engine::init_ddgi_probe_blending_pipeline()
+void Engine::init_ddgi_probe_support_pipelines()
 {
     const VkDescriptorSetLayout setLayouts[]{m_DDGIRayDataDescSetLayout, m_DDGIProbeStorageDescSetLayout};
     const VkPushConstantRange pcRange{
         .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
         .offset = 0,
-        .size = sizeof(DDGIProbeBlendingPushConstants),
+        .size = sizeof(DDGIProbeSupportPushConstants),
     };
     const VkPipelineLayoutCreateInfo layoutInfo{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
@@ -1216,15 +1218,18 @@ void Engine::init_ddgi_probe_blending_pipeline()
         .pushConstantRangeCount = 1,
         .pPushConstantRanges = &pcRange,
     };
-    vkCreatePipelineLayout(m_device, &layoutInfo, nullptr, &m_DDGIProbeBlendingPipelineLayout) >> chk;
+    vkCreatePipelineLayout(m_device, &layoutInfo, nullptr, &m_DDGIProbeSupportPipelineLayout) >> chk;
 
-    VkShaderModule irradianceShader, distanceShader;
+    VkShaderModule irradianceShader, distanceShader, relocationShader;
     if (!load_shader_module("../../src/compiled_shaders/probe_irradiance_blending.compute.spv", m_device,
                             &irradianceShader))
         throw std::runtime_error("Failed to load probe_irradiance_blending.compute.spv");
     if (!load_shader_module("../../src/compiled_shaders/probe_distance_blending.compute.spv", m_device,
                             &distanceShader))
         throw std::runtime_error("Failed to load probe_distance_blending.compute.spv");
+    if (!load_shader_module("../../src/compiled_shaders/probe_relocation.compute.spv", m_device,
+                            &relocationShader))
+        throw std::runtime_error("Failed to load probe_relocation.compute.spv");
 
     const VkComputePipelineCreateInfo irradiancePipelineInfo{
         .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
@@ -1237,7 +1242,7 @@ void Engine::init_ddgi_probe_blending_pipeline()
                 .module = irradianceShader,
                 .pName = "main",
             },
-        .layout = m_DDGIProbeBlendingPipelineLayout,
+        .layout = m_DDGIProbeSupportPipelineLayout,
     };
     const VkComputePipelineCreateInfo distancePipelineInfo{
         .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
@@ -1250,12 +1255,27 @@ void Engine::init_ddgi_probe_blending_pipeline()
                 .module = distanceShader,
                 .pName = "main",
             },
-        .layout = m_DDGIProbeBlendingPipelineLayout,
+        .layout = m_DDGIProbeSupportPipelineLayout,
+    };
+    const VkComputePipelineCreateInfo relocationPipelineCreateInfo{
+        .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT,
+        .stage =
+            {
+                .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+                .module = relocationShader,
+                .pName = "main",
+            },
+        .layout = m_DDGIProbeSupportPipelineLayout,
     };
     vkCreateComputePipelines(m_device, nullptr, 1, &irradiancePipelineInfo, nullptr,
                              &m_DDGIIrradianceBlendingPipeline) >>
         chk;
     vkCreateComputePipelines(m_device, nullptr, 1, &distancePipelineInfo, nullptr, &m_DDGIDistanceBlendingPipeline) >>
+        chk;
+    vkCreateComputePipelines(m_device, nullptr, 1, &relocationPipelineCreateInfo, nullptr, &m_DDGIProbeRelocationPipeline) >>
         chk;
     mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
                                reinterpret_cast<uint64_t>(m_DDGIIrradianceBlendingPipeline),
@@ -1263,14 +1283,19 @@ void Engine::init_ddgi_probe_blending_pipeline()
     mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
                                reinterpret_cast<uint64_t>(m_DDGIDistanceBlendingPipeline),
                                "DDGI Distance Blending Pipeline");
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
+                               reinterpret_cast<uint64_t>(m_DDGIProbeRelocationPipeline),
+                               "DDGI Probe Relocation Pipeline");
 
     vkDestroyShaderModule(m_device, irradianceShader, nullptr);
     vkDestroyShaderModule(m_device, distanceShader, nullptr);
+    vkDestroyShaderModule(m_device, relocationShader, nullptr);
 
     m_mainDeletionQueue.push_function([this] {
         vkDestroyPipeline(m_device, m_DDGIIrradianceBlendingPipeline, nullptr);
         vkDestroyPipeline(m_device, m_DDGIDistanceBlendingPipeline, nullptr);
-        vkDestroyPipelineLayout(m_device, m_DDGIProbeBlendingPipelineLayout, nullptr);
+        vkDestroyPipeline(m_device, m_DDGIProbeRelocationPipeline, nullptr);
+        vkDestroyPipelineLayout(m_device, m_DDGIProbeSupportPipelineLayout, nullptr);
     });
 }
 
@@ -1599,6 +1624,12 @@ void Engine::init_frames_data()
         [this](const std::size_t allocSize, const VkBufferUsageFlags bufferUsage) {
             return create_buffer(allocSize, bufferUsage, VMA_MEMORY_USAGE_CPU_ONLY);
         });
+    ddgiProbeDataStorageDescBuffer =
+        DescriptorBuffer(m_device, m_DDGIProbeStorageDescSetLayout, DescriptorBufferProperties::query(m_chosenGpu));
+    ddgiProbeDataStorageDescBuffer.create_buffer(
+        [this](const std::size_t allocSize, const VkBufferUsageFlags bufferUsage) {
+            return create_buffer(allocSize, bufferUsage, VMA_MEMORY_USAGE_CPU_ONLY);
+        });
     for (std::uint32_t j = 0; j < kMaxDDGIVolumes; ++j)
     {
         // RayData
@@ -1624,6 +1655,13 @@ void Engine::init_frames_data()
         mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(distanceDatas[j].image),
                                    std::format("DDGI Distance Data [{}]", j).c_str());
 
+        // Probe Data
+        probeDatas[j] = create_image_array(
+            {.width = kMaxDDGIProbesX, .height = kMaxDDGIProbesZ, .depth = 1}, VK_FORMAT_R16G16B16A16_SFLOAT,
+            VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, kMaxDDGIProbesY);
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(probeDatas[j].image),
+                                   std::format("DDGI Probe Data [{}]", j).c_str());
+
         immediate_submit([this, j](VkCommandBuffer cmd) {
             mp::utils::BarrierBuilder barrierBuilder;
             barrierBuilder.add_image_barrier(irradianceDatas[j].transition(
@@ -1633,6 +1671,12 @@ void Engine::init_frames_data()
                  .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                  .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
             barrierBuilder.add_image_barrier(distanceDatas[j].transition(
+                {.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                 .accessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                 .layout = VK_IMAGE_LAYOUT_GENERAL,
+                 .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                 .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
+            barrierBuilder.add_image_barrier(probeDatas[j].transition(
                 {.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
                  .accessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
                  .layout = VK_IMAGE_LAYOUT_GENERAL,
@@ -1650,6 +1694,7 @@ void Engine::init_frames_data()
 
             vkCmdClearColorImage(cmd, irradianceDatas[j].image, VK_IMAGE_LAYOUT_GENERAL, &color, 1, &range);
             vkCmdClearColorImage(cmd, distanceDatas[j].image, VK_IMAGE_LAYOUT_GENERAL, &color, 1, &range);
+            vkCmdClearColorImage(cmd, probeDatas[j].image, VK_IMAGE_LAYOUT_GENERAL, &color, 1, &range);
         });
     }
     for (std::size_t i = 0; i < m_frameData.size(); ++i)
@@ -1905,17 +1950,21 @@ void Engine::init_frames_data()
             auto &rayData = rayDatas[j];
             auto &distanceData = distanceDatas[j];
             auto &irradianceData = irradianceDatas[j];
+            auto &probeData = probeDatas[j];
             vkDestroyImageView(m_device, rayData.imageView, nullptr);
             vmaDestroyImage(m_allocator, rayData.image, rayData.allocation);
             vkDestroyImageView(m_device, distanceData.imageView, nullptr);
             vmaDestroyImage(m_allocator, distanceData.image, distanceData.allocation);
             vkDestroyImageView(m_device, irradianceData.imageView, nullptr);
             vmaDestroyImage(m_allocator, irradianceData.image, irradianceData.allocation);
+            vkDestroyImageView(m_device, probeData.imageView, nullptr);
+            vmaDestroyImage(m_allocator, probeData.image, probeData.allocation);
         }
         destroy_buffer(ddgiRayDataDescBuffer.get_buffer());
         destroy_buffer(ddgiResourcesDescBuffer.get_buffer());
         destroy_buffer(ddgiIrradianceStorageDescBuffer.get_buffer());
         destroy_buffer(ddgiDistanceStorageDescBuffer.get_buffer());
+        destroy_buffer(ddgiProbeDataStorageDescBuffer.get_buffer());
         for (auto &frame : m_frameData)
         {
 
@@ -2663,11 +2712,14 @@ void Engine::write_frame_descriptors()
                                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         ddgiResourcesDescBuffer.write_sampled_image(1, j, distanceDatas[j].imageView,
                                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        ddgiResourcesDescBuffer.write_sampled_image(2, j, probeDatas[j].imageView,
+                                                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         ddgiIrradianceStorageDescBuffer.write_storage_image(0, j, irradianceDatas[j].imageView,
                                                             VK_IMAGE_LAYOUT_GENERAL);
         ddgiDistanceStorageDescBuffer.write_storage_image(0, j, distanceDatas[j].imageView, VK_IMAGE_LAYOUT_GENERAL);
+        ddgiProbeDataStorageDescBuffer.write_storage_image(0, j, probeDatas[j].imageView, VK_IMAGE_LAYOUT_GENERAL);
     }
-    ddgiResourcesDescBuffer.write_sampler(2, 0, m_defaultSamplerLinear);
+    ddgiResourcesDescBuffer.write_sampler(3, 0, m_defaultSamplerLinear);
     for (auto &frame : m_frameData)
     {
         frame.drawImageDescriptorBuffer.write_storage_image(0, 0, frame.drawImage.imageView, VK_IMAGE_LAYOUT_GENERAL);
