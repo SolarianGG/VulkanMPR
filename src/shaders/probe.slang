@@ -67,6 +67,12 @@ void RGSMain()
     // Get the probe's grid coordinates
     int3 probeCoords = DDGIGetProbeCoords(probeIndex, volume);
 
+    // Get the probe's state
+    float probeState = DDGILoadProbeState(probeIndex, ProbeData, volume);
+
+    // Early out: do not shoot rays when the probe is inactive *unless* it is one of the "fixed" rays used by probe classification
+    if (probeState == DDGI_PROBE_STATE_INACTIVE && rayIndex >= DDGI_NUM_FIXED_RAYS) return;
+
     // Get the probe's world position
     float3 probeWorldPosition = DDGIGetProbeWorldPosition(probeCoords, volume, ProbeData);
 
@@ -99,7 +105,7 @@ void RGSMain()
         return;
     }
 
-    if ((volume.probeRelocationEnabled == 1) && rayIndex < DDGI_NUM_FIXED_RAYS)
+    if ((volume.probeRelocationEnabled == 1 || volume.probeClassificationEnabled == 1) && rayIndex < DDGI_NUM_FIXED_RAYS)
     {
         RayData[outputCoords] = float4(0.0f, 0.0f, 0.0f, payl.hitT);
     }

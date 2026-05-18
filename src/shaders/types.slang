@@ -8,8 +8,8 @@ public static const int MAX_POINT_LIGHTS =
 public static const int POINT_LIGHT_TILES_PER_ROW = POINT_LIGHT_SHADOW_MAP_SIZE / POINT_LIGHT_TILE_SIZE;
 
 public static const int DDGI_NUM_FIXED_RAYS = 32;
-public static const int DDGI_PROBE_STATE_ACTIVE = 1;
-public static const int DDGI_PROBE_STATE_INACTIVE = 0;
+public static const float DDGI_PROBE_STATE_ACTIVE = 1.f;
+public static const float DDGI_PROBE_STATE_INACTIVE = 0.f;
 public static const int MAX_DISTANCE_TEXELS = 16;
 public static const int MAX_IRRADIANCE_TEXELS = 8;
 public static const int BLEND_RAYS_PER_PROBE = 256;

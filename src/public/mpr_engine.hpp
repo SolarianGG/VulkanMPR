@@ -314,13 +314,18 @@ class Engine final
     VkDescriptorSetLayout m_DDGIRayDataDescSetLayout{};
     VkDescriptorSetLayout m_DDGIResourcesDescSetLayout{};
 
-    VkPipelineLayout m_DDGIProbeSupportPipelineLayout{};
+    VkPipelineLayout m_DDGIProbeBlendingPipelineLayout{};
     VkPipeline m_DDGIIrradianceBlendingPipeline{};
     VkPipeline m_DDGIDistanceBlendingPipeline{};
+
+    VkPipelineLayout m_DDGIProbeSupportPipelineLayout{};
     VkPipeline m_DDGIProbeRelocationPipeline{};
+    VkPipeline m_DDGIProbeClassificationPipeline{};
+
     VkDescriptorSetLayout m_DDGIProbeStorageDescSetLayout{};
 
     VkPipeline       m_DDGIProbeRelocationResetPipeline{};
+    VkPipeline       m_DDGIProbeClassificationResetPipeline{};
     VkPipelineLayout m_DDGIProbeResetPipelineLayout{};
 
     VkPipeline m_DDGIIndirectPipeline{};
@@ -394,6 +399,7 @@ class Engine final
     void init_cull_point_lights_pipeline();
     void init_ddgi_probe_pipeline();
     void init_ddgi_probe_support_pipelines();
+    void init_ddgi_probe_blending_pipelines();
     void init_ddgi_probe_reset_pipelines();
     void init_ddgi_indirect_pipeline();
     void init_ddgi_probe_vis_pipeline();
@@ -418,6 +424,7 @@ class Engine final
     void compute_ddgi_irradiance_blending(VkCommandBuffer cmd);
     void compute_ddgi_distance_blending(VkCommandBuffer cmd);
     void compute_ddgi_relocation(VkCommandBuffer cmd);
+    void compute_ddgi_classification(VkCommandBuffer cmd);
     void compute_ddgi_indirect(VkCommandBuffer cmd);
     void draw_ddgi_probe_vis(VkCommandBuffer cmd);
     void compute_depth_reduction(VkCommandBuffer cmd);

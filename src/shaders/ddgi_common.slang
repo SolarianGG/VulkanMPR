@@ -117,6 +117,22 @@ public float3 DDGIGetProbeWorldPosition(int3 probeCoords, DDGIVolume volume, Tex
     return worldPosition;
 }
 
+public float3 DDGIGetProbeWorldPosition(int3 probeCoords, DDGIVolume volume, RWTexture2DArray<float4> probeData)
+{
+    float3 worldPosition = DDGIGetProbeWorldPosition(probeCoords, volume);
+
+    if (volume.probeRelocationEnabled == 1)
+    {
+        int probeIndex = DDGIGetProbeIndex(((probeCoords + volume.probeCounts) % volume.probeCounts), volume);
+
+        uint3 coords = DDGIGetProbeTexelCoords(probeIndex, volume);
+
+        worldPosition += DDGILoadProbeDataOffset(probeData, coords, volume);
+    }
+
+    return worldPosition;
+}
+
 public float3 SphericalFibonacci(float sampleIndex, float numSamples)
 {
     const float b = (sqrt(5.f) * 0.5f + 0.5f) - 1.f;
@@ -133,7 +149,7 @@ public float3 DDGIGetProbeRayDirection(int rayIndex, DDGIVolume volume)
     int sampleIndex = rayIndex;
     int numRays = volume.probeNumRays;
 
-    if (volume.probeRelocationEnabled == 1)
+    if (volume.probeRelocationEnabled == 1 || volume.probeClassificationEnabled == 1)
     {
         isFixedRay = (rayIndex < DDGI_NUM_FIXED_RAYS);
         sampleIndex = isFixedRay ? rayIndex : (rayIndex - DDGI_NUM_FIXED_RAYS);
@@ -160,6 +176,42 @@ public uint3 DDGIGetRayDataTexelCoords(int rayIndex, int probeIndex, DDGIVolume 
     coords.y = probeIndex - (coords.z * probesPerPlane);
 
     return coords;
+}
+
+/***
+    Loads and returns the probe's classification state (from a RWTexture2DArray).
+***/
+public float DDGILoadProbeState(int probeIndex, RWTexture2DArray<float4> probeData, DDGIVolume volume)
+{
+    float state = DDGI_PROBE_STATE_ACTIVE;
+    if (volume.probeClassificationEnabled == 1)
+    {
+        // Get the probe's texel coordinates in the Probe Data texture
+        int3 probeDataCoords = DDGIGetProbeTexelCoords(probeIndex, volume);
+
+        // Get the probe's classification state
+        state = probeData[probeDataCoords].w;
+    }
+
+    return state;
+}
+
+/**
+ * Loads and returns the probe's classification state (from a Texture2DArray).
+ */
+public float DDGILoadProbeState(int probeIndex, Texture2DArray<float4> probeData, DDGIVolume volume)
+{
+    float state = DDGI_PROBE_STATE_ACTIVE;
+    if (volume.probeClassificationEnabled == 1)
+    {
+        // Get the probe's texel coordinates in the Probe Data texture
+        int3 probeDataCoords = DDGIGetProbeTexelCoords(probeIndex, volume);
+
+        // Get the probe's classification state
+        state = probeData.Load(int4(probeDataCoords, 0)).w;
+    }
+
+    return state;
 }
 
 public int3 DDGIGetBaseProbeGridCoords(float3 worldPosition, DDGIVolume volume)
@@ -274,7 +326,7 @@ public float3 DDGIGetProbeUV(int probeIndex, float2 octantCoordinates, int numPr
 
 [ForceInline]
 public float3 DDGIGetVolumeIrradiance(float3 worldPosition, float3 surfaceBias, float3 direction,
-                                      DDGIVolume volume, SamplerState sampler, Texture2DArray<float4> Irradiance, Texture2DArray<float2> Distance, Texture2DArray<float4> probeData)
+                                      DDGIVolume volume, SamplerState sampler, Texture2DArray<float4> Irradiance, Texture2DArray<float2> Distance, Texture2DArray<float4> ProbeData)
 {
     float3 irradiance = float3(0.0f, 0.0f, 0.0f);
     float accumulatedWeights = 0.0f;
@@ -306,8 +358,12 @@ public float3 DDGIGetVolumeIrradiance(float3 worldPosition, float3 surfaceBias, 
         // Get the adjacent probe's index, adjusting the adjacent probe index for scrolling offsets (if present)
         int adjacentProbeIndex = DDGIGetProbeIndex(((adjacentProbeCoords + volume.probeCounts) % volume.probeCounts), volume);
 
+        // Early Out: don't allow inactive probes to contribute to irradiance
+        float probeState = DDGILoadProbeState(adjacentProbeIndex, ProbeData, volume);
+        if (probeState == DDGI_PROBE_STATE_INACTIVE) continue;
+
         // Get the adjacent probe's world position
-        float3 adjacentProbeWorldPosition = DDGIGetProbeWorldPosition(adjacentProbeCoords, volume, probeData);
+        float3 adjacentProbeWorldPosition = DDGIGetProbeWorldPosition(adjacentProbeCoords, volume, ProbeData);
 
         // Compute the distance and direction from the (biased and non-biased) shading point and the adjacent probe
         float3 worldPosToAdjProbe = normalize(adjacentProbeWorldPosition - worldPosition);

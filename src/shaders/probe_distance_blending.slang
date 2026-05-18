@@ -10,6 +10,10 @@ RWTexture2DArray<float4> RayDatas[];
 [[vk::image_format("rg32f")]]
 RWTexture2DArray<float2> DistanceDatas[];
 
+[[vk::binding(0, 2)]]
+[[vk::image_format("rgba16f")]]
+RWTexture2DArray<float4> ProbeDatas[];
+
 struct PushConstants {
     DDGIVolume *volumes;
     uint currentVolumeIndex;
@@ -90,6 +94,7 @@ void DDGIProbeBlendingCS(
     bIsBorderTexel |= (GroupThreadID.y == 0 || GroupThreadID.y == (probeDistnaceTexels - 1)); // Border Rows
 
     RWTexture2DArray<float4> RayData = RayDatas[pushConstants.currentVolumeIndex];
+    RWTexture2DArray<float4> ProbeData = ProbeDatas[pushConstants.currentVolumeIndex];
     RWTexture2DArray<float2> Output = DistanceDatas[pushConstants.currentVolumeIndex];
 
     int probeIndex = DDGIGetProbeIndex(DispatchThreadID, probeDistnaceTexels, volume);
@@ -107,11 +112,22 @@ void DDGIProbeBlendingCS(
             int3(GroupID.x * probeDistnaceInteriorTexels, GroupID.y * probeDistnaceInteriorTexels, DispatchThreadID.z) 
             + GroupThreadID - int3(1, 1, 0);
 
+        // Early out: don't blend rays for probes that are inactive
+        float probeState = DDGILoadProbeState(probeIndex, ProbeData, volume);
+        if (probeState == DDGI_PROBE_STATE_INACTIVE)
+        {
+            return;
+        }
+
         // Get the probe ray direction associated with this thread
         float2 probeOctantUV = DDGIGetNormalizedOctahedralCoordinates(int2(threadCoords.xy), probeDistnaceInteriorTexels);
         float3 probeRayDirection = DDGIGetOctahedralDirection(probeOctantUV);
 
         int rayIndex = 0;
+        if (volume.probeRelocationEnabled == 1 || volume.probeClassificationEnabled == 1)
+        {
+            rayIndex = DDGI_NUM_FIXED_RAYS;
+        }
 
         // Blend each ray's radiance or distance values to compute irradiance or fitered distance
         float4 result = float4(0.f, 0.f, 0.f, 0.f);
@@ -143,6 +159,11 @@ void DDGIProbeBlendingCS(
         }
 
         float epsilon = float(volume.probeNumRays);
+        if (volume.probeRelocationEnabled == 1 || volume.probeClassificationEnabled == 1)
+        {
+            // If relocation or classification are enabled, fixed rays aren't blended since they will bias the result
+            epsilon -= DDGI_NUM_FIXED_RAYS;
+        }
         epsilon *= 1e-9f;
 
         // Normalize the blended irradiance (or filtered distance), if the combined weight is not close to zero.

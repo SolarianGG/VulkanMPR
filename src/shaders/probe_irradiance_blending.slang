@@ -10,6 +10,10 @@ RWTexture2DArray<float4> RayDatas[];
 [[vk::image_format("rgba16f")]]
 RWTexture2DArray<float4> IrradianceDatas[];
 
+[[vk::binding(0, 2)]]
+[[vk::image_format("rgba16f")]]
+RWTexture2DArray<float4> ProbeDatas[];
+
 struct PushConstants {
     DDGIVolume *volumes;
     uint currentVolumeIndex;
@@ -93,6 +97,7 @@ void DDGIProbeBlendingCS(
     bIsBorderTexel |= (GroupThreadID.y == 0 || GroupThreadID.y == (probeIrradianceTexels - 1)); // Border Rows
 
     RWTexture2DArray<float4> RayData = RayDatas[pushConstants.currentVolumeIndex];
+    RWTexture2DArray<float4> ProbeData = ProbeDatas[pushConstants.currentVolumeIndex];
     RWTexture2DArray<float4> Output = IrradianceDatas[pushConstants.currentVolumeIndex];
 
     int probeIndex = DDGIGetProbeIndex(DispatchThreadID, probeIrradianceTexels, volume);
@@ -110,11 +115,27 @@ void DDGIProbeBlendingCS(
             int3(GroupID.x * probeIrradianceInteriorTexels, GroupID.y * probeIrradianceInteriorTexels, DispatchThreadID.z) 
             + GroupThreadID - int3(1, 1, 0);
 
+        // Early out: don't blend rays for probes that are inactive
+        float probeState = DDGILoadProbeState(probeIndex, ProbeData, volume);
+        if (probeState == DDGI_PROBE_STATE_INACTIVE)
+        {
+#if 0 
+            ProbeVariability[DispatchThreadID].r = 0.f;
+#endif
+            return;
+        }
+
          // Get the probe ray direction associated with this thread
         float2 probeOctantUV = DDGIGetNormalizedOctahedralCoordinates(int2(threadCoords.xy), probeIrradianceInteriorTexels);
         float3 probeRayDirection = DDGIGetOctahedralDirection(probeOctantUV);
 
         int rayIndex = 0;
+
+        // If relocation or classification are enabled, don't blend the fixed rays since they will bias the result
+        if (volume.probeRelocationEnabled == 1 || volume.probeClassificationEnabled == 1)
+        {
+            rayIndex = DDGI_NUM_FIXED_RAYS;
+        }
 
         // Backface hits are ignored when blending radiance
         // If more than the backface threshold of the rays hit backfaces, the probe is probably inside geometry
@@ -160,6 +181,11 @@ void DDGIProbeBlendingCS(
         }
 
         float epsilon = float(volume.probeNumRays);
+        if (volume.probeRelocationEnabled == 1 || volume.probeClassificationEnabled == 1)
+        {
+            // If relocation or classification are enabled, fixed rays aren't blended since they will bias the result
+            epsilon -= DDGI_NUM_FIXED_RAYS;
+        }
         epsilon *= 1e-9f;
 
         // Normalize the blended irradiance (or filtered distance), if the combined weight is not close to zero.

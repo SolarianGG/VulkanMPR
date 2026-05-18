@@ -28,9 +28,10 @@ PushConstants pushConstants;
 
 struct VSOutput {
     float4               position    : SV_Position;
-    float3               color       : COLOR0;
-    float3               sphereNormal: TEXCOORD0;
-    nointerpolation uint probeIndex  : TEXCOORD1;
+    float3               color;
+    float3               sphereNormal;
+    nointerpolation uint probeIndex;
+    nointerpolation float probeState;
 }
 
 [shader("vertex")]
@@ -38,8 +39,13 @@ VSOutput VSMain(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
 {
     DDGIVolume volume = pushConstants.volumes[pushConstants.volumeIndex];
 
+    Texture2DArray<float4> ProbeData = ProbeDatas[pushConstants.volumeIndex];
+
     int3 coords = DDGIGetProbeCoords(int(instanceId), volume);
-    float3 probeWorldPos = DDGIGetProbeWorldPosition(coords, volume, ProbeDatas[pushConstants.volumeIndex]);
+
+    float probeState = DDGILoadProbeState(int(instanceId), ProbeData, volume);
+  
+    float3 probeWorldPos = DDGIGetProbeWorldPosition(coords, volume, ProbeData);
 
     float3 sphereVtx = pushConstants.sphereVertices[vertexId].pos;
     float3 worldPos = probeWorldPos + sphereVtx * pushConstants.probeRadius;
@@ -50,13 +56,16 @@ VSOutput VSMain(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
     output.position    = mul(pushConstants.sceneData.projView, float4(worldPos, 1.0f));
     output.color       = float3(coords) / maxCoords;
     output.sphereNormal = sphereVtx;
-    output.probeIndex  = instanceId;
+    output.probeIndex = instanceId;
+    output.probeState = probeState;
     return output;
 }
 
 [shader("fragment")]
 float4 FSMain(VSOutput input) : SV_Target
 {
+    if (input.probeState == DDGI_PROBE_STATE_INACTIVE)
+        discard;
     if (pushConstants.visMode == 0)
         return float4(input.color, 1.0f);
 
