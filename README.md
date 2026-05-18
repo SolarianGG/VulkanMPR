@@ -127,15 +127,15 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
 <table>
   <tr>
     <td align="center"><em>Without probe relocation - some probes appear in walls, meaning higher chance to get light or shadow leaks</em></td>
-    <td align="center"><em>With probe relocation - probes move out of the geometry (Notice more correct shadow here)</em></td>
+    <td align="center"><em>With probe relocation - probes move out of the geometry (Notice more correct shadow on the edge of the walls)</em></td>
   </tr>
   <tr>
     <td><img src="screenshots/no_relo.png" width="600"/></td>
     <td><img src="screenshots/relo.png" width="600"/></td>
   </tr>
   <tr>
-    <td align="center"><em>With relocation</em></td>
     <td align="center"><em>Without relocation</em></td>
+    <td align="center"><em>With relocation</em></td>
   </tr>
   <tr>
     <td><img src="screenshots/no_relo_vis.png" width="600"/></td>
