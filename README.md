@@ -121,6 +121,21 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
   </tr>
 </table>
 
+
+#### Probe Relocation
+
+<table>
+  <tr>
+    <td align="center"><em>Without probe relocation - many probes appear in walls, meaning higher chance to get light or shadow leaks</em></td>
+    <td align="center"><em>With probe relocation - probes move out of the geometry</em></td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/no_relo.png" width="600"/></td>
+    <td><img src="screenshots/relo.png" width="600"/></td>
+  </tr>
+</table>
+
+
 #### DDGI Resources
 
 <table>
@@ -128,12 +143,14 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
     <td align="center"><em>Irradiance Data</em></td>
     <td align="center"><em>Distance Data</em></td>
     <td align="center"><em>Ray hit data</em></td>
+    <td align="center"><em>Probe Data</em></td>
     <td align="center"><em>Indirect light only (Note clamped and normalized to distrubution)</em></td>
   </tr>
   <tr>
     <td><img src="screenshots/irradiance_ddgi.png" width="200"/></td>
     <td><img src="screenshots/distance_ddgi.png" width="200"/></td>
     <td><img src="screenshots/ray_hit_data_ddgi.png" width="600"/></td>
+    <td><img src="screenshots/probe_data_ddgi.png" width="600"/></td>
     <td><img src="screenshots/indirect_only_normalized.png" width="800"/></td>
   </tr>
 </table>

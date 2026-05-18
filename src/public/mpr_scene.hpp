@@ -147,13 +147,17 @@ struct PointLightNode : public Node
 struct DDGIVolumeNode : public Node
 {
   public:
-    DDGIVolume       m_Data{};
-    bool             m_bVisualize = false;
-    DDGIProbeVisMode m_visMode    = DDGIProbeVisMode::GridPosition;
+    DDGIVolume m_Data{};
+    bool m_bVisualize{false};
+    float m_ProbeRadius{0.05f};
+    DDGIProbeVisMode m_visMode{DDGIProbeVisMode::GridPosition};
 
   public:
     DDGIVolumeNode() = default;
-    explicit DDGIVolumeNode(const DDGIVolume& volume, bool bVisualize = false) : m_Data(volume), m_bVisualize(bVisualize){}
+    explicit DDGIVolumeNode(const DDGIVolume &volume, bool bVisualize = false)
+        : m_Data(volume), m_bVisualize(bVisualize)
+    {
+    }
 
     void draw(const glm::mat4 &topMatrix, DrawContext &ctx) override;
 

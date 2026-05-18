@@ -32,8 +32,6 @@ constexpr bool bUseValidationLayers = false;
 #endif
 constexpr auto kBaseWindowTitle = "Hello Vulkan";
 
-#define GPU_USAGE_DISCRETE
-
 std::pair<std::uint32_t, char const *const *> get_required_instance_extensions_for_window()
 {
     std::uint32_t count;
@@ -198,10 +196,10 @@ void Engine::init_vulkan()
     vkb::PhysicalDeviceSelector selector{result.value()};
 
     std::vector<const char *> requiredExtensions{
-        VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME,          VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME,
+        VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME,           VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME,
         VK_NV_SHADER_SUBGROUP_PARTITIONED_EXTENSION_NAME, // VK_EXT_SHADER_SUBGROUP_PARTITIONED_EXTENSION_NAME
-        VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,     VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
-        VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+        VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+        VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,        VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
     };
     const auto physicalDevice = selector.set_minimum_version(1, 3)
                                     .add_required_extensions(requiredExtensions)
@@ -214,10 +212,6 @@ void Engine::init_vulkan()
                                     .set_required_features_11(features11)
                                     .set_required_features(features10)
                                     .set_surface(m_surface)
-#ifdef GPU_USAGE_DISCRETE
-                                    .allow_any_gpu_device_type(false)
-                                    .prefer_gpu_device_type(vkb::PreferredDeviceType::discrete)
-#endif
                                     .select();
 
     vkb::DeviceBuilder deviceBuilder{physicalDevice.value()};
@@ -471,6 +465,7 @@ void Engine::init_pipelines()
     init_alpha_tested_point_shadow_pass();
     init_ddgi_probe_pipeline();
     init_ddgi_probe_support_pipelines();
+    init_ddgi_probe_reset_pipelines();
     init_ddgi_indirect_pipeline();
     init_ddgi_probe_vis_pipeline();
 }
@@ -1227,8 +1222,7 @@ void Engine::init_ddgi_probe_support_pipelines()
     if (!load_shader_module("../../src/compiled_shaders/probe_distance_blending.compute.spv", m_device,
                             &distanceShader))
         throw std::runtime_error("Failed to load probe_distance_blending.compute.spv");
-    if (!load_shader_module("../../src/compiled_shaders/probe_relocation.compute.spv", m_device,
-                            &relocationShader))
+    if (!load_shader_module("../../src/compiled_shaders/probe_relocation.compute.spv", m_device, &relocationShader))
         throw std::runtime_error("Failed to load probe_relocation.compute.spv");
 
     const VkComputePipelineCreateInfo irradiancePipelineInfo{
@@ -1275,7 +1269,8 @@ void Engine::init_ddgi_probe_support_pipelines()
         chk;
     vkCreateComputePipelines(m_device, nullptr, 1, &distancePipelineInfo, nullptr, &m_DDGIDistanceBlendingPipeline) >>
         chk;
-    vkCreateComputePipelines(m_device, nullptr, 1, &relocationPipelineCreateInfo, nullptr, &m_DDGIProbeRelocationPipeline) >>
+    vkCreateComputePipelines(m_device, nullptr, 1, &relocationPipelineCreateInfo, nullptr,
+                             &m_DDGIProbeRelocationPipeline) >>
         chk;
     mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
                                reinterpret_cast<uint64_t>(m_DDGIIrradianceBlendingPipeline),
@@ -1296,6 +1291,56 @@ void Engine::init_ddgi_probe_support_pipelines()
         vkDestroyPipeline(m_device, m_DDGIDistanceBlendingPipeline, nullptr);
         vkDestroyPipeline(m_device, m_DDGIProbeRelocationPipeline, nullptr);
         vkDestroyPipelineLayout(m_device, m_DDGIProbeSupportPipelineLayout, nullptr);
+    });
+}
+
+void Engine::init_ddgi_probe_reset_pipelines()
+{
+    const VkDescriptorSetLayout setLayouts[]{m_DDGIProbeStorageDescSetLayout};
+    const VkPushConstantRange pcRange{
+        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+        .offset = 0,
+        .size = sizeof(DDGIProbeSupportPushConstants),
+    };
+    const VkPipelineLayoutCreateInfo layoutInfo{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = static_cast<std::uint32_t>(std::size(setLayouts)),
+        .pSetLayouts = setLayouts,
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &pcRange,
+    };
+    vkCreatePipelineLayout(m_device, &layoutInfo, nullptr, &m_DDGIProbeResetPipelineLayout) >> chk;
+
+    VkShaderModule relocationResetShader;
+    if (!load_shader_module("../../src/compiled_shaders/probe_relocation_reset.compute.spv", m_device,
+                            &relocationResetShader))
+        throw std::runtime_error("Failed to load probe_relocation_reset.compute.spv");
+
+    const VkComputePipelineCreateInfo relocationPipelineCreateInfo{
+        .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_BUFFER_BIT_EXT,
+        .stage =
+            {
+                .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+                .module = relocationResetShader,
+                .pName = "main",
+            },
+        .layout = m_DDGIProbeSupportPipelineLayout,
+    };
+    vkCreateComputePipelines(m_device, nullptr, 1, &relocationPipelineCreateInfo, nullptr,
+                             &m_DDGIProbeRelocationResetPipeline) >>
+        chk;
+    mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_PIPELINE,
+                               reinterpret_cast<uint64_t>(m_DDGIProbeRelocationResetPipeline),
+                               "DDGI Relocation Reset Pipeline");
+
+    vkDestroyShaderModule(m_device, relocationResetShader, nullptr);
+
+    m_mainDeletionQueue.push_function([this] {
+        vkDestroyPipeline(m_device, m_DDGIProbeRelocationResetPipeline, nullptr);
+        vkDestroyPipelineLayout(m_device, m_DDGIProbeResetPipelineLayout, nullptr);
     });
 }
 

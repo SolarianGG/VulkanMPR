@@ -206,7 +206,8 @@ void DDGIVolumeNode::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
         const auto volumeIdx = static_cast<std::uint32_t>(ctx.ddgiVolumes.size());
         ctx.ddgiVolumes.push_back(m_Data);
         if (m_bVisualize)
-            ctx.ddgiVolumesVis.emplace_back(DDGIVolumeVisEntry{m_Data, volumeIdx, m_visMode});
+            ctx.ddgiVolumesVis.emplace_back(DDGIVolumeVisEntry{
+                .volume = m_Data, .volumeIdx = volumeIdx, .probeRadius = m_ProbeRadius, .mode = m_visMode});
     }
 
     Node::draw(topMatrix, ctx);
@@ -224,6 +225,7 @@ void DDGIVolumeNode::edit()
         int idx = static_cast<int>(m_visMode);
         if (ImGui::Combo("Vis Mode", &idx, kModes, IM_ARRAYSIZE(kModes)))
             m_visMode = static_cast<DDGIProbeVisMode>(idx);
+        ImGui::DragFloat("Probe radius", &m_ProbeRadius, 0.001f, 0.001f, 0.5f);
     }
     ImGui::DragFloat3("Probe Spacing", glm::value_ptr(m_Data.probeSpacing), 0.05f, 0.01f, 10.0f);
     ImGui::DragFloat("Max Ray Dist", &m_Data.probeMaxRayDistance, 0.1f, 0.1f, 100000.0f);
@@ -240,6 +242,10 @@ void DDGIVolumeNode::edit()
     if (m_Data.probeRelocationEnabled == 1)
     {
         ImGui::DragFloat("Min front face distance", &m_Data.probeMinFrontfaceDistance, 0.01f, 0.f, 100.0f);
+    }
+    ImGui::Checkbox("Classification enabled", reinterpret_cast<bool *>(&m_Data.probeClassificationEnabled));
+    if (m_Data.probeRelocationEnabled == 1 || m_Data.probeClassificationEnabled == 1)
+    {
         ImGui::DragFloat("Fixed ray backface threshold", &m_Data.probeFixedRayBackfaceThreshold, 0.01f, 0.f, 1.0f);
     }
 }

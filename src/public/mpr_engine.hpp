@@ -320,6 +320,9 @@ class Engine final
     VkPipeline m_DDGIProbeRelocationPipeline{};
     VkDescriptorSetLayout m_DDGIProbeStorageDescSetLayout{};
 
+    VkPipeline       m_DDGIProbeRelocationResetPipeline{};
+    VkPipelineLayout m_DDGIProbeResetPipelineLayout{};
+
     VkPipeline m_DDGIIndirectPipeline{};
     VkPipelineLayout m_DDGIIndirectPipelineLayout{};
     VkDescriptorSetLayout m_DDGIGBufferReadDescSetLayout{};
@@ -366,6 +369,7 @@ class Engine final
     DescriptorBuffer ddgiDistanceStorageDescBuffer;
     DescriptorBuffer ddgiProbeDataStorageDescBuffer;
 
+
   private:
     void init_window();
     void init_vulkan();
@@ -390,6 +394,7 @@ class Engine final
     void init_cull_point_lights_pipeline();
     void init_ddgi_probe_pipeline();
     void init_ddgi_probe_support_pipelines();
+    void init_ddgi_probe_reset_pipelines();
     void init_ddgi_indirect_pipeline();
     void init_ddgi_probe_vis_pipeline();
     void init_populate_commands_with_cascade_count();

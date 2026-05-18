@@ -17,6 +17,7 @@
 
 namespace cn = std::chrono;
 namespace rn = std::ranges;
+namespace vi = std::views;
 
 namespace mp
 {
@@ -252,28 +253,20 @@ void Engine::draw()
         {
             for (std::uint32_t i = 0; i < m_DDGIVolumeCount; ++i)
             {
-                if (m_mainDrawContext.ddgiVolumes[i].probeRelocationEnabled == 1)
-                {
-                    barrierBuilder.add_image_barrier(probeDatas[i].transition(
-                        {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                         .accessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
-                         .layout = VK_IMAGE_LAYOUT_GENERAL,
-                         .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                         .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
-                }
-                else
-                {
-                    barrierBuilder.add_image_barrier(probeDatas[i].transition(
-                        {.stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-                         .accessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                         .layout = VK_IMAGE_LAYOUT_GENERAL,
-                         .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                         .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
-                }
+                barrierBuilder.add_image_barrier(probeDatas[i].transition(
+                    {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                     .accessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+                     .layout = VK_IMAGE_LAYOUT_GENERAL,
+                     .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                     .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
             }
             barrierBuilder.barrier(cmd);
         }
         compute_ddgi_relocation(cmd);
+
+        // DDGI Classification
+        {
+        }
 
         // DDGI Indirect
         {
@@ -427,7 +420,7 @@ void Engine::draw()
     draw_wboit_composite(cmd);
 
     // DDGI probe visualization
-    if (m_mainDrawContext.ddgiVolumesVis.size() > 0)
+    if (!m_mainDrawContext.ddgiVolumesVis.empty())
     {
         barrierBuilder.add_image_barrier(currentDrawingImage.transition(
             {.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -1920,54 +1913,82 @@ void Engine::compute_ddgi_distance_blending(VkCommandBuffer cmd)
 
 void Engine::compute_ddgi_relocation(VkCommandBuffer cmd)
 {
-    mp::debug::cmd_begin_label(cmd, "DDGI probe Relocation", {0.6f, 0.3f, 0.9f, 1.f});
+    mp::debug::cmd_begin_label(cmd, "DDGI Probe Relocation", {0.6f, 0.3f, 0.9f, 1.f});
 
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_DDGIProbeRelocationPipeline);
+    auto relocationVolumes = m_mainDrawContext.ddgiVolumes | vi::enumerate | vi::filter([](const auto &item) {
+                                 const auto &[key, volume] = item;
+                                 return volume.probeRelocationEnabled == 1;
+                             });
+    const auto relocationSize = rn::distance(relocationVolumes);
 
-    const VkDescriptorBufferBindingInfoEXT bindingInfos[]{
-        {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-         .address = ddgiRayDataDescBuffer.get_device_address(),
-         .usage =
-             VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
-        {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-         .address = ddgiProbeDataStorageDescBuffer.get_device_address(),
-         .usage =
-             VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
-    };
-    vkCmdBindDescriptorBuffersEXT(cmd, std::size(bindingInfos), bindingInfos);
-
-    const std::uint32_t setIndices[]{0, 1};
-    const VkDeviceSize setOffsets[]{0, 0};
-    vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_DDGIProbeSupportPipelineLayout, 0,
-                                       std::size(setIndices), setIndices, setOffsets);
-
-    for (std::uint32_t i = 0; i < m_DDGIVolumeCount; ++i)
+    if (relocationSize > 0)
     {
-        const auto &vol = m_mainDrawContext.ddgiVolumes[i];
-        if (vol.probeRelocationEnabled == 1)
-        {
-            const DDGIProbeSupportPushConstants pc{.volumes = m_DDGIVolumesAddr, .currentVolumeIndex = i};
-            vkCmdPushConstants(cmd, m_DDGIProbeSupportPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                               sizeof(DDGIProbeSupportPushConstants), &pc);
-            vkCmdDispatch(cmd,
-                          static_cast<std::uint32_t>(
-                              std::ceil(vol.probeCounts.x * vol.probeCounts.z * vol.probeCounts.y / 32.0f)),
-                          1, 1);
-        }
-        else
-        {
-            // TODO: When classification added, replace it with distinct pass
-            VkClearColorValue clearColorValue{
-                .float32 = {0.0f, 0.0f, 0.0f, 1.0f},
-            };
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_DDGIProbeRelocationPipeline);
 
-            VkImageSubresourceRange range{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                                          .baseMipLevel = 0,
-                                          .levelCount = 1,
-                                          .baseArrayLayer = 0,
-                                          .layerCount = kMaxDDGIProbesY};
-            vkCmdClearColorImage(cmd, probeDatas[i].image, VK_IMAGE_LAYOUT_GENERAL, &clearColorValue, 1, &range);
+        const VkDescriptorBufferBindingInfoEXT bindingInfos[]{
+            {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+             .address = ddgiRayDataDescBuffer.get_device_address(),
+             .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
+                      VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
+            {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+             .address = ddgiProbeDataStorageDescBuffer.get_device_address(),
+             .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
+                      VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
         };
+        vkCmdBindDescriptorBuffersEXT(cmd, std::size(bindingInfos), bindingInfos);
+
+        const std::uint32_t setIndices[]{0, 1};
+        const VkDeviceSize setOffsets[]{0, 0};
+        vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_DDGIProbeSupportPipelineLayout, 0,
+                                           std::size(setIndices), setIndices, setOffsets);
+    }
+    for (const auto [key, vol] : relocationVolumes)
+    {
+        const DDGIProbeSupportPushConstants pc{.volumes = m_DDGIVolumesAddr,
+                                               .currentVolumeIndex = static_cast<std::uint32_t>(key)};
+        vkCmdPushConstants(cmd, m_DDGIProbeSupportPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                           sizeof(DDGIProbeSupportPushConstants), &pc);
+        vkCmdDispatch(
+            cmd,
+            static_cast<std::uint32_t>(std::ceil(vol.probeCounts.x * vol.probeCounts.z * vol.probeCounts.y / 32.0f)), 1,
+            1);
+    }
+
+    auto resetVolumes = m_mainDrawContext.ddgiVolumes | vi::enumerate | vi::filter([](const auto &item) {
+                            const auto &[key, volume] = item;
+                            return volume.probeRelocationEnabled == 0;
+                        });
+    const auto resetSize = rn::distance(resetVolumes);
+
+    if (resetSize > 0)
+    {
+
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_DDGIProbeRelocationResetPipeline);
+
+        const VkDescriptorBufferBindingInfoEXT bindingInfos[]{
+            {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+             .address = ddgiProbeDataStorageDescBuffer.get_device_address(),
+             .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
+                      VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
+        };
+        vkCmdBindDescriptorBuffersEXT(cmd, std::size(bindingInfos), bindingInfos);
+
+        const std::uint32_t setIndices[]{0};
+        const VkDeviceSize setOffsets[]{0};
+        vkCmdSetDescriptorBufferOffsetsEXT(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_DDGIProbeResetPipelineLayout, 0,
+                                           std::size(setIndices), setIndices, setOffsets);
+    }
+
+    for (const auto [key, vol] : resetVolumes)
+    {
+        const DDGIProbeSupportPushConstants pc{.volumes = m_DDGIVolumesAddr,
+                                               .currentVolumeIndex = static_cast<std::uint32_t>(key)};
+        vkCmdPushConstants(cmd, m_DDGIProbeResetPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                           sizeof(DDGIProbeSupportPushConstants), &pc);
+        vkCmdDispatch(
+            cmd,
+            static_cast<std::uint32_t>(std::ceil(vol.probeCounts.x * vol.probeCounts.z * vol.probeCounts.y / 32.0f)), 1,
+            1);
     }
 
     mp::debug::cmd_end_label(cmd);
@@ -2018,9 +2039,6 @@ void Engine::compute_ddgi_indirect(VkCommandBuffer cmd)
 
 void Engine::draw_ddgi_probe_vis(VkCommandBuffer cmd)
 {
-    if (m_mainDrawContext.ddgiVolumesVis.empty())
-        return;
-
     mp::debug::cmd_begin_label(cmd, "DDGI Probe Visualization", {0.3f, 0.9f, 0.3f, 1.f});
 
     auto &currentFrame = get_current_frame();
@@ -2068,7 +2086,7 @@ void Engine::draw_ddgi_probe_vis(VkCommandBuffer cmd)
             .sphereVertices = m_probeSphereVerticesAddr,
             .sceneData = currentFrame.sceneDataBufferAddr,
             .volumeIndex = entry.volumeIdx,
-            .probeRadius = 0.05f,
+            .probeRadius = entry.probeRadius,
             .visMode = entry.mode,
         };
         vkCmdPushConstants(cmd, m_DDGIProbeVisPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,

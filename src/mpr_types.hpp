@@ -526,7 +526,8 @@ struct DDGIVolume
     std::uint32_t probeRelocationEnabled{1};
     float probeFixedRayBackfaceThreshold{0.25f};
     float probeMinFrontfaceDistance{0.3f};
-    float _padding[2]{};
+    std::uint32_t probeClassificationEnabled{1};
+    float _padding[1]{};
 };
 
 struct DDGIProbeSupportPushConstants
@@ -586,6 +587,7 @@ struct DDGIVolumeVisEntry
 {
     DDGIVolume       volume;
     std::uint32_t    volumeIdx;
+    float probeRadius;
     DDGIProbeVisMode mode;
 };
 
