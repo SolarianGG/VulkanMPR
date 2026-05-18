@@ -21,7 +21,7 @@ void CSMain(uint3 threadID: SV_DispatchThreadID)
     uint volumeIndex = pushConstants.currentVolumeIndex;
     DDGIVolume volume = pushConstants.volumes[volumeIndex];
 
-    if (threadID.x >= (volume.probeSpacing.x * volume.probeSpacing.y * volume.probeSpacing.z)) return;
+    if (threadID.x >= (volume.probeCounts.x * volume.probeCounts.y * volume.probeCounts.z)) return;
 
     RWTexture2DArray<float4> ProbeData = ProbeDatas[volumeIndex];
 

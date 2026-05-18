@@ -314,8 +314,8 @@ public float3 DDGIGetProbeUV(int probeIndex, float2 octantCoordinates, int numPr
     float textureHeight = numProbeTexels * volume.probeCounts.z;
     #endif
 
-    float textureWidth = numProbeTexels * kMaxDDGIProbesX;
-    float textureHeight = numProbeTexels * kMaxDDGIProbesZ;
+    float textureWidth = numProbeTexels * MAX_PROBES_X;
+    float textureHeight = numProbeTexels * MAX_PROBES_Z;
 
     // Move to the center of the probe and move to the octant texel before normalizing
     float2 uv = float2(coords.x * numProbeTexels, coords.y * numProbeTexels) + (numProbeTexels * 0.5f);

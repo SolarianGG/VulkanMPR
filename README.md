@@ -61,7 +61,7 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
 - **Vertex quantization**
 - **Auto-exposure** using luminance histogram
 - **ACES tone mapping**
-- **Dynamic Diffuse Global Illumination**
+- **Dynamic Diffuse Global Illumination** with probe relocation and classification
 
 ## Demo
 
@@ -126,12 +126,42 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
 
 <table>
   <tr>
-    <td align="center"><em>Without probe relocation - many probes appear in walls, meaning higher chance to get light or shadow leaks</em></td>
-    <td align="center"><em>With probe relocation - probes move out of the geometry</em></td>
+    <td align="center"><em>Without probe relocation - some probes appear in walls, meaning higher chance to get light or shadow leaks</em></td>
+    <td align="center"><em>With probe relocation - probes move out of the geometry (Notice more correct shadow here)</em></td>
   </tr>
   <tr>
     <td><img src="screenshots/no_relo.png" width="600"/></td>
     <td><img src="screenshots/relo.png" width="600"/></td>
+  </tr>
+  <tr>
+    <td align="center"><em>With relocation</em></td>
+    <td align="center"><em>Without relocation</em></td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/no_relo_vis.png" width="600"/></td>
+    <td><img src="screenshots/relo_vis.png" width="600"/></td>
+  </tr>
+</table>
+
+
+##### Probe Classification
+
+<table>
+  <tr>
+    <td align="center"><em>Without probe classification - we trace the rays from all the probes, meaning that probes are far from geometry and does not contribute to indirect light are getting traced too</em></td>
+    <td align="center"><em>With probe classification - those probes are marked as inactive and most of their rays are not traced, saving us perfomance</em></td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/no_classification.png" width="600"/></td>
+    <td><img src="screenshots/classification.png" width="600"/></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Perfomance without classification [14.3378 ms]</em></td>
+    <td align="center"><em>Perfomance with classification [9.62889 ms] (Notice 6 ms perfomance boost)</em></td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/no_classification_perf.png" width="600"/></td>
+    <td><img src="screenshots/classification_perf.png" width="600"/></td>
   </tr>
 </table>
 

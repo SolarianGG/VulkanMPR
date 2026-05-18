@@ -1765,7 +1765,8 @@ void Engine::init_frames_data()
                  .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
             barrierBuilder.barrier(cmd);
 
-            const VkClearColorValue color{{0.f, 0.f, 0.f, 1.f}};
+            const VkClearColorValue blendingColor{{0.f, 0.f, 0.f, 1.f}};
+            const VkClearColorValue probeDataColor{{0.f, 0.f, 0.f, 0.f}};
             VkImageSubresourceRange range;
             range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
             range.baseMipLevel = 0;
@@ -1773,9 +1774,9 @@ void Engine::init_frames_data()
             range.baseArrayLayer = 0;
             range.layerCount = kMaxDDGIProbesY;
 
-            vkCmdClearColorImage(cmd, irradianceDatas[j].image, VK_IMAGE_LAYOUT_GENERAL, &color, 1, &range);
-            vkCmdClearColorImage(cmd, distanceDatas[j].image, VK_IMAGE_LAYOUT_GENERAL, &color, 1, &range);
-            vkCmdClearColorImage(cmd, probeDatas[j].image, VK_IMAGE_LAYOUT_GENERAL, &color, 1, &range);
+            vkCmdClearColorImage(cmd, irradianceDatas[j].image, VK_IMAGE_LAYOUT_GENERAL, &blendingColor, 1, &range);
+            vkCmdClearColorImage(cmd, distanceDatas[j].image, VK_IMAGE_LAYOUT_GENERAL, &blendingColor, 1, &range);
+            vkCmdClearColorImage(cmd, probeDatas[j].image, VK_IMAGE_LAYOUT_GENERAL, &probeDataColor, 1, &range);
         });
     }
     for (std::size_t i = 0; i < m_frameData.size(); ++i)

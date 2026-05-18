@@ -13,9 +13,9 @@ public static const float DDGI_PROBE_STATE_INACTIVE = 0.f;
 public static const int MAX_DISTANCE_TEXELS = 16;
 public static const int MAX_IRRADIANCE_TEXELS = 8;
 public static const int BLEND_RAYS_PER_PROBE = 256;
-public static const int kMaxDDGIProbesX = 22u;
-public static const int kMaxDDGIProbesY = 22u;
-public static const int kMaxDDGIProbesZ = 22u;
+public static const int MAX_PROBES_X = 22u;
+public static const int MAX_PROBES_Y = 22u;
+public static const int MAX_PROBES_Z = 22u;
 
 public struct Vertex
 {
