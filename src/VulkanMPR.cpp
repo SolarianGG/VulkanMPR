@@ -1,9 +1,16 @@
 ﻿#include "public/mpr_engine.hpp"
 
-int main(int argc, char* argv[])
+int main(int argc, char *argv[])
 {
-  mp::Engine engine;
+    std::uint32_t width = 1920;
+    std::uint32_t height = 1080;
+    if (argc >= 3)
+    {
+        width = std::stoi(argv[1]);
+        height = std::stoi(argv[2]);
+    }
+    mp::Engine engine(width, height);
 
-  engine.run();
-  return 0;
+    engine.run();
+    return 0;
 }

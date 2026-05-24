@@ -113,7 +113,7 @@ class Engine final
     Engine &operator=(Engine &&other) noexcept = delete;
     ~Engine();
 
-    Engine();
+    Engine(std::uint32_t windowWidth, std::uint32_t windowHeight);
 
     static Engine &get();
 
@@ -140,7 +140,7 @@ class Engine final
     void destroy_swapchain();
     void resize_swapchain();
 
-    VkExtent2D m_windowExtent{1920, 1080};
+    VkExtent2D m_windowExtent{};
     std::uint64_t m_frameNumber = 0;
     bool m_isInitialized = false;
     bool m_isRenderStopped = false;
@@ -364,15 +364,15 @@ class Engine final
     glm::vec4 m_SkyRadiance{1.0f, 1.0f, 1.0f, 0.1f};
 
     // DDGI Data
-    std::array<AllocatedImage, kMaxDDGIVolumes> rayDatas;
-    std::array<AllocatedImage, kMaxDDGIVolumes> irradianceDatas;
-    std::array<AllocatedImage, kMaxDDGIVolumes> distanceDatas;
-    std::array<AllocatedImage, kMaxDDGIVolumes> probeDatas;
-    DescriptorBuffer ddgiResourcesDescBuffer;
-    DescriptorBuffer ddgiRayDataDescBuffer;
-    DescriptorBuffer ddgiIrradianceStorageDescBuffer;
-    DescriptorBuffer ddgiDistanceStorageDescBuffer;
-    DescriptorBuffer ddgiProbeDataStorageDescBuffer;
+    std::array<AllocatedImage, kMaxDDGIVolumes> m_RayDatas;
+    std::array<AllocatedImage, kMaxDDGIVolumes> m_IrradianceDatas;
+    std::array<AllocatedImage, kMaxDDGIVolumes> m_DistanceDatas;
+    std::array<AllocatedImage, kMaxDDGIVolumes> m_ProbeDatas;
+    DescriptorBuffer m_DDGIResourcesDescBuffer;
+    DescriptorBuffer m_DDGIRayDataDescBuffer;
+    DescriptorBuffer m_DDGIIrradianceStorageDescBuffer;
+    DescriptorBuffer m_DDGIDistanceStorageDescBuffer;
+    DescriptorBuffer m_DDGIProbeDataStorageDescBuffer;
 
 
   private:

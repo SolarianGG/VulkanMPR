@@ -181,25 +181,25 @@ void Engine::draw()
         {
             for (std::uint32_t i = 0; i < m_DDGIVolumeCount; ++i)
             {
-                barrierBuilder.add_image_barrier(rayDatas[i].transition(
+                barrierBuilder.add_image_barrier(m_RayDatas[i].transition(
                     {.stageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
                      .accessMask = VK_ACCESS_2_SHADER_WRITE_BIT,
                      .layout = VK_IMAGE_LAYOUT_GENERAL,
                      .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                      .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
-                barrierBuilder.add_image_barrier(irradianceDatas[i].transition(
+                barrierBuilder.add_image_barrier(m_IrradianceDatas[i].transition(
                     {.stageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
                      .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
                      .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                      .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                      .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
-                barrierBuilder.add_image_barrier(distanceDatas[i].transition(
+                barrierBuilder.add_image_barrier(m_DistanceDatas[i].transition(
                     {.stageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
                      .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
                      .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                      .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                      .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
-                barrierBuilder.add_image_barrier(probeDatas[i].transition(
+                barrierBuilder.add_image_barrier(m_ProbeDatas[i].transition(
                     {.stageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
                      .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
                      .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -224,25 +224,25 @@ void Engine::draw()
         {
             for (std::uint32_t i = 0; i < m_DDGIVolumeCount; ++i)
             {
-                barrierBuilder.add_image_barrier(rayDatas[i].transition(
+                barrierBuilder.add_image_barrier(m_RayDatas[i].transition(
                     {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                      .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
                      .layout = VK_IMAGE_LAYOUT_GENERAL,
                      .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                      .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
-                barrierBuilder.add_image_barrier(irradianceDatas[i].transition(
+                barrierBuilder.add_image_barrier(m_IrradianceDatas[i].transition(
                     {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                      .accessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
                      .layout = VK_IMAGE_LAYOUT_GENERAL,
                      .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                      .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
-                barrierBuilder.add_image_barrier(distanceDatas[i].transition(
+                barrierBuilder.add_image_barrier(m_DistanceDatas[i].transition(
                     {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                      .accessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
                      .layout = VK_IMAGE_LAYOUT_GENERAL,
                      .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                      .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
-                barrierBuilder.add_image_barrier(probeDatas[i].transition(
+                barrierBuilder.add_image_barrier(m_ProbeDatas[i].transition(
                     {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                      .accessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
                      .layout = VK_IMAGE_LAYOUT_GENERAL,
@@ -259,7 +259,7 @@ void Engine::draw()
         {
             for (std::uint32_t i = 0; i < m_DDGIVolumeCount; ++i)
             {
-                barrierBuilder.add_image_barrier(probeDatas[i].transition(
+                barrierBuilder.add_image_barrier(m_ProbeDatas[i].transition(
                     {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                      .accessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
                      .layout = VK_IMAGE_LAYOUT_GENERAL,
@@ -274,7 +274,7 @@ void Engine::draw()
         {
             for (std::uint32_t i = 0; i < m_DDGIVolumeCount; ++i)
             {
-                barrierBuilder.add_image_barrier(probeDatas[i].transition(
+                barrierBuilder.add_image_barrier(m_ProbeDatas[i].transition(
                     {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                      .accessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
                      .layout = VK_IMAGE_LAYOUT_GENERAL,
@@ -289,19 +289,19 @@ void Engine::draw()
         {
             for (std::uint32_t i = 0; i < m_DDGIVolumeCount; ++i)
             {
-                barrierBuilder.add_image_barrier(irradianceDatas[i].transition(
+                barrierBuilder.add_image_barrier(m_IrradianceDatas[i].transition(
                     {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                      .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
                      .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                      .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                      .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
-                barrierBuilder.add_image_barrier(distanceDatas[i].transition(
+                barrierBuilder.add_image_barrier(m_DistanceDatas[i].transition(
                     {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                      .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
                      .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                      .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                      .subresourceRange = utils::init_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT)}));
-                barrierBuilder.add_image_barrier(probeDatas[i].transition(
+                barrierBuilder.add_image_barrier(m_ProbeDatas[i].transition(
                     {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                      .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
                      .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -1802,11 +1802,11 @@ void Engine::trace_ddgi_probe_pass(VkCommandBuffer cmd)
          .usage =
              VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
         {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-         .address = ddgiRayDataDescBuffer.get_device_address(),
+         .address = m_DDGIRayDataDescBuffer.get_device_address(),
          .usage =
              VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
         {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-         .address = ddgiResourcesDescBuffer.get_device_address(),
+         .address = m_DDGIResourcesDescBuffer.get_device_address(),
          .usage =
              VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
         {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
@@ -1862,15 +1862,15 @@ void Engine::compute_ddgi_irradiance_blending(VkCommandBuffer cmd)
 
     const VkDescriptorBufferBindingInfoEXT bindingInfos[]{
         {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-         .address = ddgiRayDataDescBuffer.get_device_address(),
+         .address = m_DDGIRayDataDescBuffer.get_device_address(),
          .usage =
              VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
         {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-         .address = ddgiIrradianceStorageDescBuffer.get_device_address(),
+         .address = m_DDGIIrradianceStorageDescBuffer.get_device_address(),
          .usage =
              VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
         {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-         .address = ddgiProbeDataStorageDescBuffer.get_device_address(),
+         .address = m_DDGIProbeDataStorageDescBuffer.get_device_address(),
          .usage =
              VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
     };
@@ -1903,15 +1903,15 @@ void Engine::compute_ddgi_distance_blending(VkCommandBuffer cmd)
 
     const VkDescriptorBufferBindingInfoEXT bindingInfos[]{
         {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-         .address = ddgiRayDataDescBuffer.get_device_address(),
+         .address = m_DDGIRayDataDescBuffer.get_device_address(),
          .usage =
              VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
         {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-         .address = ddgiDistanceStorageDescBuffer.get_device_address(),
+         .address = m_DDGIDistanceStorageDescBuffer.get_device_address(),
          .usage =
              VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
         {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-         .address = ddgiProbeDataStorageDescBuffer.get_device_address(),
+         .address = m_DDGIProbeDataStorageDescBuffer.get_device_address(),
          .usage =
              VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
     };
@@ -1951,11 +1951,11 @@ void Engine::compute_ddgi_relocation(VkCommandBuffer cmd)
 
         const VkDescriptorBufferBindingInfoEXT bindingInfos[]{
             {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-             .address = ddgiRayDataDescBuffer.get_device_address(),
+             .address = m_DDGIRayDataDescBuffer.get_device_address(),
              .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
                       VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
             {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-             .address = ddgiProbeDataStorageDescBuffer.get_device_address(),
+             .address = m_DDGIProbeDataStorageDescBuffer.get_device_address(),
              .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
                       VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
         };
@@ -1991,7 +1991,7 @@ void Engine::compute_ddgi_relocation(VkCommandBuffer cmd)
 
         const VkDescriptorBufferBindingInfoEXT bindingInfos[]{
             {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-             .address = ddgiProbeDataStorageDescBuffer.get_device_address(),
+             .address = m_DDGIProbeDataStorageDescBuffer.get_device_address(),
              .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
                       VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
         };
@@ -2034,11 +2034,11 @@ void Engine::compute_ddgi_classification(VkCommandBuffer cmd)
 
         const VkDescriptorBufferBindingInfoEXT bindingInfos[]{
             {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-             .address = ddgiRayDataDescBuffer.get_device_address(),
+             .address = m_DDGIRayDataDescBuffer.get_device_address(),
              .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
                       VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
             {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-             .address = ddgiProbeDataStorageDescBuffer.get_device_address(),
+             .address = m_DDGIProbeDataStorageDescBuffer.get_device_address(),
              .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
                       VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
         };
@@ -2074,7 +2074,7 @@ void Engine::compute_ddgi_classification(VkCommandBuffer cmd)
 
         const VkDescriptorBufferBindingInfoEXT bindingInfos[]{
             {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-             .address = ddgiProbeDataStorageDescBuffer.get_device_address(),
+             .address = m_DDGIProbeDataStorageDescBuffer.get_device_address(),
              .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
                       VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
         };
@@ -2118,7 +2118,7 @@ void Engine::compute_ddgi_indirect(VkCommandBuffer cmd)
          .usage =
              VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
         {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-         .address = ddgiResourcesDescBuffer.get_device_address(),
+         .address = m_DDGIResourcesDescBuffer.get_device_address(),
          .usage =
              VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT},
     };
@@ -2161,7 +2161,7 @@ void Engine::draw_ddgi_probe_vis(VkCommandBuffer cmd)
 
     const VkDescriptorBufferBindingInfoEXT bindingInfo{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-        .address = ddgiResourcesDescBuffer.get_device_address(),
+        .address = m_DDGIResourcesDescBuffer.get_device_address(),
         .usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT,
     };
     vkCmdBindDescriptorBuffersEXT(cmd, 1, &bindingInfo);

@@ -118,7 +118,8 @@ Engine::~Engine()
     gLoadedEngine = nullptr;
 }
 
-Engine::Engine()
+Engine::Engine(const std::uint32_t windowWidth, const std::uint32_t windowHeight)
+    : m_windowExtent(VkExtent2D{windowWidth, windowHeight})
 {
     assert(!gLoadedEngine);
     gLoadedEngine = this;

@@ -1,6 +1,11 @@
 ## VulkanMPR
 A high-performance, modern graphics engine built in C++ and Vulkan, designed for real-time rendering and experimentation with advanced rendering techniques.
 
+
+## Showcase
+
+https://youtu.be/_C4b5n7VW7U
+
 ## Dependencies:
 - SDL3
 - Vulkan
@@ -148,7 +153,7 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
 
 <table>
   <tr>
-    <td align="center"><em>Without probe classification - we trace the rays from all the probes, meaning that probes are far from geometry and does not contribute to indirect light are getting traced too</em></td>
+    <td align="center"><em>Without probe classification - we trace the rays from all the probes, meaning that probes that are far from geometry and does not contribute to indirect light are getting traced too</em></td>
     <td align="center"><em>With probe classification - those probes are marked as inactive and most of their rays are not traced, saving us perfomance</em></td>
   </tr>
   <tr>
@@ -157,7 +162,7 @@ A high-performance, modern graphics engine built in C++ and Vulkan, designed for
   </tr>
   <tr>
     <td align="center"><em>Perfomance without classification [14.3378 ms]</em></td>
-    <td align="center"><em>Perfomance with classification [9.62889 ms] (Notice 6 ms perfomance boost)</em></td>
+    <td align="center"><em>Perfomance with classification [9.62889 ms] (Notice 5 ms perfomance boost)</em></td>
   </tr>
   <tr>
     <td><img src="screenshots/no_classification_perf.png" width="600"/></td>
