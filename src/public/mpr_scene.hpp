@@ -61,6 +61,7 @@ struct DrawContext
 
     glm::vec3 min{FLT_MAX};
     glm::vec3 max{-FLT_MAX};
+    bool bGeometryUpdated{false};
 };
 
 struct Node : public IRenderable
@@ -90,9 +91,7 @@ struct Node : public IRenderable
         }
     }
 
-    virtual void edit()
-    {
-    }
+    virtual bool edit(const GpuSceneData &sceneData);
 };
 
 struct MeshAsset;
@@ -100,6 +99,7 @@ struct MeshAsset;
 struct MeshNode final : public Node
 {
     std::shared_ptr<MeshAsset> mesh;
+    bool m_bIsUpdated{false};
 
     MeshNode() = default;
 
@@ -107,6 +107,8 @@ struct MeshNode final : public Node
     {
     }
 
+
+    bool edit(const GpuSceneData &sceneData) override;
     void draw(const glm::mat4 &topMatrix, DrawContext &ctx) override;
 };
 
@@ -124,7 +126,7 @@ struct DirectionalLightNode : public Node
 
     void draw(const glm::mat4 &topMatrix, DrawContext &ctx) override;
 
-    void edit() override;
+    bool edit(const GpuSceneData &sceneData) override;
 };
 
 struct PointLightNode : public Node
@@ -141,7 +143,7 @@ struct PointLightNode : public Node
 
     void draw(const glm::mat4 &topMatrix, DrawContext &ctx) override;
 
-    void edit() override;
+    bool edit(const GpuSceneData &sceneData) override;
 };
 
 struct DDGIVolumeNode : public Node
@@ -161,7 +163,7 @@ struct DDGIVolumeNode : public Node
 
     void draw(const glm::mat4 &topMatrix, DrawContext &ctx) override;
 
-    void edit() override;
+    bool edit(const GpuSceneData &sceneData) override;
 };
 
 struct Scene final : public IRenderable

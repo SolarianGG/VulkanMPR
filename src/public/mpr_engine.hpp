@@ -134,6 +134,7 @@ class Engine final
 
     void destroy_sync();
     void destroy_commands();
+    void destroy_accel(AccelerationStructure& accel);
     void create_draw_image(AllocatedImage &image, VkExtent3D extent);
     void create_depth_image(AllocatedImage &depthImage, VkExtent3D extent);
     void create_swapchain(const std::uint32_t width, const std::uint32_t height);
@@ -457,7 +458,6 @@ class Engine final
                                VkAccelerationStructureBuildRangeInfoKHR &asBuildRangeInfo);
 
         static std::uint64_t render_scene_tree_ui(Scene &scene, std::uint64_t nodeIndex, std::uint64_t selectedNode);
-    bool edit_transform_ui(const glm::mat4 &view, const glm::mat4 &projection, glm::mat4 &globalTransform);
     void edit_node(Scene &scene, std::uint64_t nodeIndex);
 };
 

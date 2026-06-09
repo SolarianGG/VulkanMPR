@@ -350,6 +350,14 @@ void Engine::update_scene()
 
     m_scene.draw(glm::mat4(1.0f), m_mainDrawContext);
 
+    if (m_mainDrawContext.bGeometryUpdated)
+    {
+        vkDeviceWaitIdle(m_device) >> chk;
+        destroy_accel(m_TlasAccel);
+
+        create_TLAS(); 
+    }
+
     copy_frame_buffers();
 
     const glm::mat4 proj = glm::perspectiveRH_ZO(

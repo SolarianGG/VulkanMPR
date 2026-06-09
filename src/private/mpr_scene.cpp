@@ -10,6 +10,7 @@
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtx/transform.hpp>
 #include <imgui.h>
+#include <ImGuizmo.h>
 
 #include "mpr_engine.hpp"
 #include "mpr_math.hpp"
@@ -18,6 +19,48 @@
 
 namespace
 {
+
+bool edit_transform_ui(const glm::mat4 &view, const glm::mat4 &projection, glm::mat4 &globalTransform)
+{
+    static ImGuizmo::OPERATION gizmoOperation(ImGuizmo::TRANSLATE);
+
+    ImGui::Text("Transforms:");
+
+    if (ImGui::IsKeyPressed(ImGuiKey_W))
+        gizmoOperation = ImGuizmo::TRANSLATE;
+    if (ImGui::IsKeyPressed(ImGuiKey_E))
+        gizmoOperation = ImGuizmo::ROTATE;
+    if (ImGui::IsKeyPressed(ImGuiKey_R))
+        gizmoOperation = ImGuizmo::SCALE;
+
+    if (ImGui::RadioButton("Translate", gizmoOperation == ImGuizmo::TRANSLATE))
+        gizmoOperation = ImGuizmo::TRANSLATE;
+
+    if (ImGui::RadioButton("Rotate", gizmoOperation == ImGuizmo::ROTATE))
+        gizmoOperation = ImGuizmo::ROTATE;
+
+    if (ImGui::RadioButton("Scale", gizmoOperation == ImGuizmo::SCALE))
+        gizmoOperation = ImGuizmo::SCALE;
+
+    float matrixTranslation[3], matrixRotation[3], matrixScale[3];
+    ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(globalTransform), matrixTranslation, matrixRotation,
+                                          matrixScale);
+    bool bFieldsChanged = false;
+    bFieldsChanged |= ImGui::InputFloat3("Tr", matrixTranslation);
+    bFieldsChanged |= ImGui::InputFloat3("Rt", matrixRotation);
+    bFieldsChanged |= ImGui::InputFloat3("Sc", matrixScale);
+    if (bFieldsChanged)
+    {
+        ImGuizmo::RecomposeMatrixFromComponents(matrixTranslation, matrixRotation, matrixScale,
+                                                glm::value_ptr(globalTransform));
+    }
+
+    const ImGuiIO &io = ImGui::GetIO();
+    ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
+    const bool bManipulated = ImGuizmo::Manipulate(glm::value_ptr(view), glm::value_ptr(projection), gizmoOperation,
+                                                   ImGuizmo::WORLD, glm::value_ptr(globalTransform));
+    return bManipulated || bFieldsChanged;
+}
 
 void compute_tetrahedron_shadow_matrices(mp::PointLightData &pointLight)
 {
@@ -63,10 +106,12 @@ void compute_tetrahedron_shadow_matrices(mp::PointLightData &pointLight)
 
 namespace mp
 {
+
 void DrawContext::clear()
 {
     min = glm::vec3{FLT_MAX};
     max = glm::vec3{-FLT_MAX};
+    bGeometryUpdated = false;
     opaqueMeshes.clear();
     alphaTestedMeshes.clear();
     transparentMeshes.clear();
@@ -78,6 +123,33 @@ void DrawContext::clear()
     opaqueInstances.clear();
     alphaTestedInstances.clear();
     transparentInstances.clear();
+}
+
+bool Node::edit(const GpuSceneData &sceneData)
+{
+    bool bIsUpdated = edit_transform_ui(sceneData.view, sceneData.proj, worldTransform);
+
+    if (bIsUpdated)
+    {
+        if (const auto p = parent.lock(); p)
+        {
+            const glm::mat4 parentWorldTransform = p->worldTransform;
+            localTransform = glm::inverse(parentWorldTransform) * worldTransform;
+        }
+        else
+        {
+            localTransform = worldTransform;
+        }
+    }
+
+    return bIsUpdated;
+}
+
+bool MeshNode::edit(const GpuSceneData &sceneData)
+{
+    m_bIsUpdated = Node::edit(sceneData);
+
+    return m_bIsUpdated;
 }
 
 void MeshNode::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
@@ -134,6 +206,9 @@ void MeshNode::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
         }
     }
 
+    ctx.bGeometryUpdated |= m_bIsUpdated;
+    m_bIsUpdated = false;
+
     Node::draw(topMatrix, ctx);
 }
 
@@ -163,28 +238,30 @@ void PointLightNode::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
     Node::draw(topMatrix, ctx);
 }
 
-void DirectionalLightNode::edit()
+bool DirectionalLightNode::edit(const GpuSceneData &sceneData)
 {
-    Node::edit();
+    bool bIsUpdated = Node::edit(sceneData);
 
     ImGui::Text("Directional light");
-    ImGui::ColorPicker3("Color", reinterpret_cast<float *>(&m_Data.color));
-    ImGui::DragFloat("Intensity", &m_Data.intensity, 0.01f, 0.01f, 100.0f);
-    ImGui::SliderInt("Cascades", &m_Data.cascadeCount, 1, kMaxCascadeCount);
-    ImGui::DragFloat("Normal bias", &m_Data.normalBias, 0.0001f, 0.0001f, 0.1f, "%.4f");
-    ImGui::DragFloat("Constant bias", &m_Data.constantBias, 0.0001f, 0.0001f, 0.1f, "%.4f");
+    bIsUpdated |= ImGui::ColorPicker3("Color", reinterpret_cast<float *>(&m_Data.color));
+    bIsUpdated |= ImGui::DragFloat("Intensity", &m_Data.intensity, 0.01f, 0.01f, 100.0f);
+    bIsUpdated |= ImGui::SliderInt("Cascades", &m_Data.cascadeCount, 1, kMaxCascadeCount);
+    bIsUpdated |= ImGui::DragFloat("Normal bias", &m_Data.normalBias, 0.0001f, 0.0001f, 0.1f, "%.4f");
+    bIsUpdated |= ImGui::DragFloat("Constant bias", &m_Data.constantBias, 0.0001f, 0.0001f, 0.1f, "%.4f");
+    return bIsUpdated;
 }
 
-void PointLightNode::edit()
+bool PointLightNode::edit(const GpuSceneData &sceneData)
 {
-    Node::edit();
+    bool bIsUpdated = Node::edit(sceneData);
 
     ImGui::Text("Point light");
-    ImGui::ColorPicker3("Color", reinterpret_cast<float *>(&m_Data.color));
-    ImGui::DragFloat("Range", &m_Data.range, 0.01f, 0.01f, 100.0f);
-    ImGui::DragFloat("Intensity", &m_Data.intensity, 0.01f, 0.01f, 100.0f);
-    ImGui::DragFloat("Normal bias", &m_Data.normalBias, 0.0001f, 0.0001f, 0.1f, "%.4f");
-    ImGui::DragFloat("Constant bias", &m_Data.constantBias, 0.0001f, 0.0001f, 0.1f, "%.4f");
+    bIsUpdated |= ImGui::ColorPicker3("Color", reinterpret_cast<float *>(&m_Data.color));
+    bIsUpdated |= ImGui::DragFloat("Range", &m_Data.range, 0.01f, 0.01f, 100.0f);
+    bIsUpdated |= ImGui::DragFloat("Intensity", &m_Data.intensity, 0.01f, 0.01f, 100.0f);
+    bIsUpdated |= ImGui::DragFloat("Normal bias", &m_Data.normalBias, 0.0001f, 0.0001f, 0.1f, "%.4f");
+    bIsUpdated |= ImGui::DragFloat("Constant bias", &m_Data.constantBias, 0.0001f, 0.0001f, 0.1f, "%.4f");
+    return bIsUpdated;
 }
 
 void DDGIVolumeNode::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
@@ -213,9 +290,9 @@ void DDGIVolumeNode::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
     Node::draw(topMatrix, ctx);
 }
 
-void DDGIVolumeNode::edit()
+bool DDGIVolumeNode::edit(const GpuSceneData &sceneData)
 {
-    Node::edit();
+    bool bIsUpdated = Node::edit(sceneData);
 
     ImGui::Text("DDGI Volume");
     ImGui::Checkbox("Visualize Probes", &m_bVisualize);
@@ -227,27 +304,33 @@ void DDGIVolumeNode::edit()
             m_visMode = static_cast<DDGIProbeVisMode>(idx);
         ImGui::DragFloat("Probe radius", &m_ProbeRadius, 0.001f, 0.001f, 0.5f);
     }
-    ImGui::DragFloat3("Probe Spacing", glm::value_ptr(m_Data.probeSpacing), 0.05f, 0.01f, 10.0f);
-    ImGui::DragFloat("Max Ray Dist", &m_Data.probeMaxRayDistance, 0.1f, 0.1f, 100000.0f);
-    ImGui::DragInt("Rays per Probe", &m_Data.probeNumRays, 1, 1, static_cast<int>(kMaxDDGIRays));
+    bIsUpdated |= ImGui::DragFloat3("Probe Spacing", glm::value_ptr(m_Data.probeSpacing), 0.05f, 0.01f, 10.0f);
+    bIsUpdated |= ImGui::DragFloat("Max Ray Dist", &m_Data.probeMaxRayDistance, 0.1f, 0.1f, 100000.0f);
+    bIsUpdated |= ImGui::DragInt("Rays per Probe", &m_Data.probeNumRays, 1, 1, static_cast<int>(kMaxDDGIRays));
     int counts[3] = {m_Data.probeCounts.x, m_Data.probeCounts.y, m_Data.probeCounts.z};
-    if (ImGui::DragInt3("Probe Counts", counts, 1, 1, static_cast<int>(kMaxDDGIProbesX)))
+    bool probeCountUpdated = ImGui::DragInt3("Probe Counts", counts, 1, 1, static_cast<int>(kMaxDDGIProbesX));
+    if (probeCountUpdated)
         m_Data.probeCounts = {counts[0], counts[1], counts[2]};
-    ImGui::DragFloat("Probe Normal Bias", &m_Data.probeNormalBias, 0.0001f, 0.0001f, 0.5f, "%.4f");
-    ImGui::DragFloat("Probe View Bias", &m_Data.probeViewBias, 0.0001f, 0.0001f, 0.5f, "%.4f");
-    ImGui::DragFloat("Irradiance gamma", &m_Data.probeIrradianceEncodingGamma, 0.1f, 0.1f, 10.0f);
-    ImGui::DragFloat("Irradiance Threshold", &m_Data.probeIrradianceThreshold, 0.1f, 0.1f, 10.0f);
-    ImGui::DragFloat("Brightness Threshold", &m_Data.probeBrightnessThreshold, 0.1f, 0.1f, 10.0f);
-    ImGui::Checkbox("Relocation enabled", reinterpret_cast<bool *>(&m_Data.probeRelocationEnabled));
+    bIsUpdated |= probeCountUpdated;
+    bIsUpdated |= ImGui::DragFloat("Probe Normal Bias", &m_Data.probeNormalBias, 0.0001f, 0.0001f, 0.5f, "%.4f");
+    bIsUpdated |= ImGui::DragFloat("Probe View Bias", &m_Data.probeViewBias, 0.0001f, 0.0001f, 0.5f, "%.4f");
+    bIsUpdated |= ImGui::DragFloat("Irradiance gamma", &m_Data.probeIrradianceEncodingGamma, 0.1f, 0.1f, 10.0f);
+    bIsUpdated |= ImGui::DragFloat("Irradiance Threshold", &m_Data.probeIrradianceThreshold, 0.1f, 0.1f, 10.0f);
+    bIsUpdated |= ImGui::DragFloat("Brightness Threshold", &m_Data.probeBrightnessThreshold, 0.1f, 0.1f, 10.0f);
+    bIsUpdated |= ImGui::Checkbox("Relocation enabled", reinterpret_cast<bool *>(&m_Data.probeRelocationEnabled));
     if (m_Data.probeRelocationEnabled == 1)
     {
-        ImGui::DragFloat("Min front face distance", &m_Data.probeMinFrontfaceDistance, 0.01f, 0.f, 100.0f);
+        bIsUpdated |=
+            ImGui::DragFloat("Min front face distance", &m_Data.probeMinFrontfaceDistance, 0.01f, 0.f, 100.0f);
     }
-    ImGui::Checkbox("Classification enabled", reinterpret_cast<bool *>(&m_Data.probeClassificationEnabled));
+    bIsUpdated |=
+        ImGui::Checkbox("Classification enabled", reinterpret_cast<bool *>(&m_Data.probeClassificationEnabled));
     if (m_Data.probeRelocationEnabled == 1 || m_Data.probeClassificationEnabled == 1)
     {
-        ImGui::DragFloat("Fixed ray backface threshold", &m_Data.probeFixedRayBackfaceThreshold, 0.01f, 0.f, 1.0f);
+        bIsUpdated |=
+            ImGui::DragFloat("Fixed ray backface threshold", &m_Data.probeFixedRayBackfaceThreshold, 0.01f, 0.f, 1.0f);
     }
+    return bIsUpdated;
 }
 
 void Scene::draw(const glm::mat4 &topMatrix, DrawContext &ctx)

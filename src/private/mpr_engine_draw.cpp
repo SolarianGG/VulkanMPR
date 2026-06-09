@@ -1749,7 +1749,7 @@ void Engine::copy_staging_buffers(VkCommandBuffer cmd)
         vkCmdCopyBuffer(cmd, frame.instanceStagingBuffer.buffer, frame.instanceBuffer.buffer, 1, &instanceCopy);
         barrierBuilder.add_buffer_barrier(frame.instanceBuffer.transition(
             {.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT |
-                          VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT,
+                          VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
              .accessMask = VK_ACCESS_2_SHADER_READ_BIT,
              .queueFamilyIndex = VK_QUEUE_FAMILY_IGNORED}));
     }
@@ -1796,6 +1796,7 @@ void Engine::trace_ddgi_probe_pass(VkCommandBuffer cmd)
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_DDGIPipeline);
 
+    currentFrame.ddgiTLASDescBuffer.write_acceleration_structure(0, 0, m_TlasAccel.address);
     const VkDescriptorBufferBindingInfoEXT bindingInfos[]{
         {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
          .address = currentFrame.ddgiTLASDescBuffer.get_device_address(),
@@ -1939,10 +1940,14 @@ void Engine::compute_ddgi_relocation(VkCommandBuffer cmd)
 {
     mp::debug::cmd_begin_label(cmd, "DDGI Probe Relocation", {0.6f, 0.3f, 0.9f, 1.f});
 
-    auto relocationVolumes = m_mainDrawContext.ddgiVolumes | vi::enumerate | vi::filter([](const auto &item) {
-                                 const auto &[key, volume] = item;
-                                 return volume.probeRelocationEnabled == 1;
-                             });
+    // On geometry updates probes are reset instead of relocated: stale offsets must not survive the move,
+    // and the reset/relocation volume lists must stay disjoint (no barrier between the dispatches)
+    const bool bGeometryUpdated = m_mainDrawContext.bGeometryUpdated;
+    auto relocationVolumes =
+        m_mainDrawContext.ddgiVolumes | vi::enumerate | vi::filter([bGeometryUpdated](const auto &item) {
+            const auto &[key, volume] = item;
+            return volume.probeRelocationEnabled == 1 && !bGeometryUpdated;
+        });
     const auto relocationSize = rn::distance(relocationVolumes);
 
     if (relocationSize > 0)
@@ -1978,10 +1983,11 @@ void Engine::compute_ddgi_relocation(VkCommandBuffer cmd)
             1);
     }
 
-    auto resetVolumes = m_mainDrawContext.ddgiVolumes | vi::enumerate | vi::filter([](const auto &item) {
-                            const auto &[key, volume] = item;
-                            return volume.probeRelocationEnabled == 0;
-                        });
+    auto resetVolumes =
+        m_mainDrawContext.ddgiVolumes | vi::enumerate | vi::filter([bGeometryUpdated](const auto &item) {
+            const auto &[key, volume] = item;
+            return volume.probeRelocationEnabled == 0 || bGeometryUpdated;
+        });
     const auto resetSize = rn::distance(resetVolumes);
 
     if (resetSize > 0)
@@ -2022,10 +2028,13 @@ void Engine::compute_ddgi_classification(VkCommandBuffer cmd)
 {
     mp::debug::cmd_begin_label(cmd, "DDGI Probe Classification", {0.9f, 0.3f, 0.6f, 1.f});
 
-    auto classificationVolumes = m_mainDrawContext.ddgiVolumes | vi::enumerate | vi::filter([](const auto &item) {
-                                 const auto &[key, volume] = item;
-                                 return volume.probeClassificationEnabled == 1;
-                             });
+    // Same as relocation: reset classification state on geometry updates, keep the volume lists disjoint
+    const bool bGeometryUpdated = m_mainDrawContext.bGeometryUpdated;
+    auto classificationVolumes =
+        m_mainDrawContext.ddgiVolumes | vi::enumerate | vi::filter([bGeometryUpdated](const auto &item) {
+            const auto &[key, volume] = item;
+            return volume.probeClassificationEnabled == 1 && !bGeometryUpdated;
+        });
     const auto classificationSize = rn::distance(classificationVolumes);
 
     if (classificationSize > 0)
@@ -2061,10 +2070,11 @@ void Engine::compute_ddgi_classification(VkCommandBuffer cmd)
             1);
     }
 
-    auto resetVolumes = m_mainDrawContext.ddgiVolumes | vi::enumerate | vi::filter([](const auto &item) {
-                            const auto &[key, volume] = item;
-                            return volume.probeClassificationEnabled == 0;
-                        });
+    auto resetVolumes =
+        m_mainDrawContext.ddgiVolumes | vi::enumerate | vi::filter([bGeometryUpdated](const auto &item) {
+            const auto &[key, volume] = item;
+            return volume.probeClassificationEnabled == 0 || bGeometryUpdated;
+        });
     const auto resetSize = rn::distance(resetVolumes);
 
     if (resetSize > 0)

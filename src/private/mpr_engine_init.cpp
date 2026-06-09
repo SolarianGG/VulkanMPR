@@ -1726,7 +1726,8 @@ void Engine::init_frames_data()
              .depth = 1},
             VK_FORMAT_R16G16B16A16_SFLOAT,
             VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, kMaxDDGIProbesY);
-        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(m_IrradianceDatas[j].image),
+        mp::debug::set_object_name(m_device, VK_OBJECT_TYPE_IMAGE,
+                                   reinterpret_cast<uint64_t>(m_IrradianceDatas[j].image),
                                    std::format("DDGI Irradiance Data [{}]", j).c_str());
         // Distance
         m_DistanceDatas[j] = create_image_array(
@@ -2393,11 +2394,9 @@ void Engine::init_mesh_data()
 
         for (auto &blas : m_BlasAccels)
         {
-            vkDestroyAccelerationStructureKHR(m_device, blas.accel, nullptr);
-            destroy_buffer(blas.buffer);
+            destroy_accel(blas);
         }
-        vkDestroyAccelerationStructureKHR(m_device, m_TlasAccel.accel, nullptr);
-        destroy_buffer(m_TlasAccel.buffer);
+        destroy_accel(m_TlasAccel);
     });
 }
 
@@ -2732,6 +2731,12 @@ void Engine::destroy_commands()
     vkDestroyCommandPool(m_device, m_commandPool, nullptr);
 }
 
+void Engine::destroy_accel(AccelerationStructure &accel)
+{
+    vkDestroyAccelerationStructureKHR(m_device, accel.accel, nullptr);
+    destroy_buffer(accel.buffer);
+}
+
 void Engine::create_swapchain(const std::uint32_t width, const std::uint32_t height)
 {
     m_swapchainImageFormat = VK_FORMAT_B8G8R8A8_UNORM;
@@ -2791,14 +2796,15 @@ void Engine::write_frame_descriptors()
     {
         m_DDGIRayDataDescBuffer.write_storage_image(0, j, m_RayDatas[j].imageView, VK_IMAGE_LAYOUT_GENERAL);
         m_DDGIResourcesDescBuffer.write_sampled_image(0, j, m_IrradianceDatas[j].imageView,
-                                                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         m_DDGIResourcesDescBuffer.write_sampled_image(1, j, m_DistanceDatas[j].imageView,
-                                                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         m_DDGIResourcesDescBuffer.write_sampled_image(2, j, m_ProbeDatas[j].imageView,
-                                                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         m_DDGIIrradianceStorageDescBuffer.write_storage_image(0, j, m_IrradianceDatas[j].imageView,
+                                                              VK_IMAGE_LAYOUT_GENERAL);
+        m_DDGIDistanceStorageDescBuffer.write_storage_image(0, j, m_DistanceDatas[j].imageView,
                                                             VK_IMAGE_LAYOUT_GENERAL);
-        m_DDGIDistanceStorageDescBuffer.write_storage_image(0, j, m_DistanceDatas[j].imageView, VK_IMAGE_LAYOUT_GENERAL);
         m_DDGIProbeDataStorageDescBuffer.write_storage_image(0, j, m_ProbeDatas[j].imageView, VK_IMAGE_LAYOUT_GENERAL);
     }
     m_DDGIResourcesDescBuffer.write_sampler(3, 0, m_defaultSamplerLinear);
