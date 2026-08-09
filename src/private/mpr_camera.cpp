@@ -2,6 +2,7 @@
 #include "mpr_camera.hpp"
 
 #include <SDL3/SDL.h>
+#include <tracy/Tracy.hpp>
 
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtx/transform.hpp>
@@ -10,12 +11,14 @@ namespace mp
 {
 void Camera::update(const float deltaTime)
 {
+    ZoneScoped;
     const glm::mat4 cameraRotation = get_rotation_matrix();
     position += glm::vec3(cameraRotation * glm::vec4(velocity * 0.5f * deltaTime * cameraSpeed, 0.f));
 }
 
 void Camera::process_sdl_event(SDL_Event &e, SDL_Window *window)
 {
+    ZoneScoped;
     if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN)
     {
         if (e.button.button == SDL_BUTTON_RIGHT)
@@ -88,6 +91,7 @@ void Camera::process_sdl_event(SDL_Event &e, SDL_Window *window)
 
 glm::mat4 Camera::get_view_matrix()
 {
+    ZoneScoped;
     // to create a correct model view, we need to move the world in opposite
     // direction to the camera
     //  so we will create the camera model matrix and invert
@@ -98,6 +102,7 @@ glm::mat4 Camera::get_view_matrix()
 
 glm::mat4 Camera::get_rotation_matrix()
 {
+    ZoneScoped;
     // fairly typical FPS style camera. we join the pitch and yaw rotations into
     // the final rotation matrix
 

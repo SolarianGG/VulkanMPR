@@ -11,8 +11,10 @@
     },
     "stb",
     "tinyfiledialogs",
+    "tracy",
     "vk-bootstrap",
     "volk",
-    "vulkan-memory-allocator"
+    "vulkan-memory-allocator",
+    "vulkan-utility-libraries"
   ]
 }

@@ -24,10 +24,14 @@ namespace mp
 
 void Engine::draw()
 {
+    ZoneScoped;
     FrameData &currentFrame = get_current_frame();
     // Wait if command buffer is in execution on the gpu
-    vkWaitForFences(m_device, 1, &currentFrame.fence, true, std::numeric_limits<std::uint64_t>::max()) >> chk;
-    currentFrame.frameDeletionQueue.flush();
+    {
+        ZoneScopedN("vkWaitForFences"); 
+        vkWaitForFences(m_device, 1, &currentFrame.fence, true, std::numeric_limits<std::uint64_t>::max()) >> chk;
+        currentFrame.frameDeletionQueue.flush();
+    }
     update_scene();
 
     // Get the current image from the swapchain
@@ -573,6 +577,8 @@ void Engine::draw()
         barrierBuilder.barrier(cmd);
     }
 
+    TracyVkCollect(m_tracyVkCtx, cmd);
+
     vkEndCommandBuffer(currentFrame.commandBuffer) >> chk;
 
     const auto waitSemaphoreInfo =
@@ -607,15 +613,17 @@ void Engine::draw()
         swapchainPresentResult >> chk;
     }
     ++m_frameNumber;
+    FrameMark;
 }
 
 void Engine::draw_directional_shadow_pass(VkCommandBuffer cmd)
 {
     if (!m_mainDrawContext.dirLight.has_value())
         return;
+    ZoneScoped;
     mp::debug::cmd_begin_label(cmd, "Directional Shadow Pass", {0.9f, 0.2f, 0.2f, 1.f});
+    TracyVkZone(m_tracyVkCtx, cmd, "Directional Shadow Pass");
     const auto &light = m_mainDrawContext.dirLight.value();
-    const auto start = cn::steady_clock::now();
     const VkExtent2D shadowPassExtent{kDirectionalShadowMapSize, kDirectionalShadowMapSize};
     auto &currentFrame = get_current_frame();
 
@@ -765,15 +773,13 @@ void Engine::draw_directional_shadow_pass(VkCommandBuffer cmd)
     }
 
     mp::debug::cmd_end_label(cmd);
-    const auto end = cn::steady_clock::now();
-    const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
-    m_stats.shadowPassDrawTime = elapsed.count() / 1000.0f;
 }
 
 void Engine::draw_gBuffer_pass(VkCommandBuffer cmd)
 {
+    ZoneScoped;
     mp::debug::cmd_begin_label(cmd, "GBuffer Pass", {0.6f, 0.3f, 0.9f, 1.f});
-    const auto start = cn::steady_clock::now();
+    TracyVkZone(m_tracyVkCtx, cmd, "GBuffer Pass");
     auto &currentFrame = get_current_frame();
     auto &gBuffer = currentFrame.gBuffer;
     auto &depthImage = currentFrame.depthImage;
@@ -892,15 +898,13 @@ void Engine::draw_gBuffer_pass(VkCommandBuffer cmd)
     }
 
     mp::debug::cmd_end_label(cmd);
-    const auto end = cn::steady_clock::now();
-    const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
-    m_stats.gBufferPassTime = elapsed.count() / 1000.0f;
 }
 
 void Engine::draw_light_pass(const VkCommandBuffer cmd)
 {
+    ZoneScoped;
     mp::debug::cmd_begin_label(cmd, "Light Pass", {1.0f, 0.8f, 0.2f, 1.f});
-    const auto start = cn::steady_clock::now();
+    TracyVkZone(m_tracyVkCtx, cmd, "Light Pass");
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_LightPassPipeline);
 
     const VkDescriptorBufferBindingInfoEXT buffersInfo[]{
@@ -928,15 +932,13 @@ void Engine::draw_light_pass(const VkCommandBuffer cmd)
                   1);
 
     mp::debug::cmd_end_label(cmd);
-    const auto end = cn::steady_clock::now();
-    const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
-    m_stats.gBufferLightPassTime = elapsed.count() / 1000.0f;
 }
 
 void Engine::draw_wboit(VkCommandBuffer cmd)
 {
+    ZoneScoped;
     mp::debug::cmd_begin_label(cmd, "WBOIT Forward Pass", {0.2f, 0.8f, 0.9f, 1.f});
-    const auto start = cn::steady_clock::now();
+    TracyVkZone(m_tracyVkCtx, cmd, "WBOIT Forward Pass");
     auto &currentFrame = get_current_frame();
 
     const VkClearValue clearAccum{.color = {0.0f, 0.0f, 0.0f, 0.0f}};
@@ -984,15 +986,13 @@ void Engine::draw_wboit(VkCommandBuffer cmd)
                 VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
     vkCmdEndRendering(cmd);
     mp::debug::cmd_end_label(cmd);
-    const auto end = cn::steady_clock::now();
-    const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
-    m_stats.transparentForwardLightPassTime = elapsed.count() / 1000.0f;
 }
 
 void Engine::draw_wboit_composite(VkCommandBuffer cmd)
 {
+    ZoneScoped;
     mp::debug::cmd_begin_label(cmd, "WBOIT Composite Pass", {0.1f, 0.7f, 0.9f, 1.f});
-    const auto start = cn::steady_clock::now();
+    TracyVkZone(m_tracyVkCtx, cmd, "WBOIT Composite Pass");
 
     const auto attachment = utils::attachment_info(get_current_frame().drawImage.imageView, nullptr,
                                                    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
@@ -1017,15 +1017,13 @@ void Engine::draw_wboit_composite(VkCommandBuffer cmd)
 
     vkCmdEndRendering(cmd);
     mp::debug::cmd_end_label(cmd);
-    const auto end = cn::steady_clock::now();
-    const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
-    m_stats.postProcessPassTime = elapsed.count() / 1000.0f;
 }
 
 void Engine::draw_imgui(const VkCommandBuffer cmd, const VkImageView targetImageView)
 {
+    ZoneScoped;
     mp::debug::cmd_begin_label(cmd, "ImGui", {0.7f, 0.7f, 0.7f, 1.f});
-    const auto start = cn::steady_clock::now();
+    TracyVkZone(m_tracyVkCtx, cmd, "ImGui");
     const auto colorAttachment =
         utils::attachment_info(targetImageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     const auto renderingInfo = utils::rendering_info(m_swapchainExtent, 1, &colorAttachment, nullptr);
@@ -1036,15 +1034,14 @@ void Engine::draw_imgui(const VkCommandBuffer cmd, const VkImageView targetImage
 
     vkCmdEndRendering(cmd);
     mp::debug::cmd_end_label(cmd);
-    const auto end = cn::steady_clock::now();
-    const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
-    m_stats.imguiDrawTime = elapsed.count() / 1000.0f;
 }
 
 void Engine::compute_cull_objects(VkCommandBuffer cmd, const std::uint32_t objectCount,
                                   const std::uint32_t objectOffset, const glm::mat4 &viewProj)
 {
+    ZoneScoped;
     mp::debug::cmd_begin_label(cmd, "Cull Objects", {0.8f, 0.8f, 0.2f, 1.f});
+    TracyVkZone(m_tracyVkCtx, cmd, "Cull Objects");
     auto &currentFrame = get_current_frame();
     utils::BarrierBuilder barrierBuilder;
     barrierBuilder.add_buffer_barrier(
@@ -1086,7 +1083,9 @@ void Engine::compute_cull_objects(VkCommandBuffer cmd, const std::uint32_t objec
 
 void Engine::compute_cull_point_lights(VkCommandBuffer cmd)
 {
+    ZoneScoped;
     mp::debug::cmd_begin_label(cmd, "Cull Point Lights", {0.8f, 0.7f, 0.2f, 1.f});
+    TracyVkZone(m_tracyVkCtx, cmd, "Cull Point Lights");
     auto &currentFrame = get_current_frame();
     utils::BarrierBuilder barrierBuilder;
     barrierBuilder.add_buffer_barrier(
@@ -1160,7 +1159,9 @@ void Engine::compute_point_lights_commands(VkCommandBuffer cmd, const std::uint3
 {
     if (m_mainDrawContext.pointLights.empty() || instanceCount == 0)
         return;
+    ZoneScoped;
     mp::debug::cmd_begin_label(cmd, "Generate Point Light Commands", {0.7f, 0.5f, 0.2f, 1.f});
+    TracyVkZone(m_tracyVkCtx, cmd, "Generate Point Light Commands");
 
     auto &currentFrame = get_current_frame();
 
@@ -1207,7 +1208,9 @@ void Engine::draw_point_lights_shadows_pass(VkCommandBuffer cmd)
 
     if (m_mainDrawContext.pointLights.empty())
         return;
+    ZoneScoped;
     mp::debug::cmd_begin_label(cmd, "Point Light Shadow Pass", {0.9f, 0.4f, 0.1f, 1.f});
+    TracyVkZone(m_tracyVkCtx, cmd, "Point Light Shadow Pass");
 
     // Generate point light commands
     {
@@ -1393,7 +1396,9 @@ void Engine::draw_meshes(VkCommandBuffer cmd, const VkPipelineLayout drawPassPip
 
 void Engine::compute_post(VkCommandBuffer cmd)
 {
+    ZoneScoped;
     mp::debug::cmd_begin_label(cmd, "Post-Process", {0.9f, 0.5f, 0.9f, 1.f});
+    TracyVkZone(m_tracyVkCtx, cmd, "Post-Process");
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_PostProcessPassPipeline);
 
     const VkDescriptorBufferBindingInfoEXT buffersInfo[]{
@@ -1420,7 +1425,9 @@ void Engine::compute_post(VkCommandBuffer cmd)
 
 void Engine::compute_luminance_histogram(VkCommandBuffer cmd)
 {
+    ZoneScoped;
     mp::debug::cmd_begin_label(cmd, "Luminance Histogram", {0.8f, 0.6f, 0.2f, 1.f});
+    TracyVkZone(m_tracyVkCtx, cmd, "Luminance Histogram");
     auto &currentFrame = get_current_frame();
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_LuminanceHistogramPipeline);
@@ -1453,7 +1460,9 @@ void Engine::compute_luminance_histogram(VkCommandBuffer cmd)
 
 void Engine::compute_average_luminance(VkCommandBuffer cmd)
 {
+    ZoneScoped;
     mp::debug::cmd_begin_label(cmd, "Average Luminance", {0.8f, 0.4f, 0.1f, 1.f});
+    TracyVkZone(m_tracyVkCtx, cmd, "Average Luminance");
     auto &currentFrame = get_current_frame();
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_AverageLuminancePipeline);
@@ -1475,7 +1484,9 @@ void Engine::compute_average_luminance(VkCommandBuffer cmd)
 
 void Engine::draw_prepass(VkCommandBuffer cmd)
 {
+    ZoneScoped;
     mp::debug::cmd_begin_label(cmd, "Prepass", {0.4f, 0.6f, 1.0f, 1.f});
+    TracyVkZone(m_tracyVkCtx, cmd, "Prepass");
     auto &currentFrame = get_current_frame();
 
     compute_cull_objects(cmd, m_OpaqueSize, 0, m_sceneData.projView);
@@ -1578,7 +1589,9 @@ void Engine::draw_prepass(VkCommandBuffer cmd)
 
 void Engine::compute_populate_commands_with_cascade_count(VkCommandBuffer cmd, std::uint32_t objectCount)
 {
+    ZoneScoped;
     mp::debug::cmd_begin_label(cmd, "Populate commands with cascade count", {0.33f, 0.66f, 0.99f, 1.f});
+    TracyVkZone(m_tracyVkCtx, cmd, "Populate commands with cascade count");
 
     auto &currentFrame = get_current_frame();
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_PopulateCommandsWithCascadeCountPipeline);
@@ -1595,7 +1608,9 @@ void Engine::compute_populate_commands_with_cascade_count(VkCommandBuffer cmd, s
 
 void Engine::compute_depth_reduction(VkCommandBuffer cmd)
 {
+    ZoneScoped;
     mp::debug::cmd_begin_label(cmd, "Depth Reduction", {0.5f, 0.9f, 0.5f, 1.f});
+    TracyVkZone(m_tracyVkCtx, cmd, "Depth Reduction");
     auto &frame = get_current_frame();
 
     MinMax initMinMax;
@@ -1641,7 +1656,9 @@ void Engine::compute_depth_partition(VkCommandBuffer cmd)
 {
     if (!m_mainDrawContext.dirLight.has_value())
         return;
+    ZoneScoped;
     mp::debug::cmd_begin_label(cmd, "Depth Partition", {0.3f, 0.8f, 0.3f, 1.f});
+    TracyVkZone(m_tracyVkCtx, cmd, "Depth Partition");
     auto &frame = get_current_frame();
     // Reset splitsAABB: min* = FLT_MAX, max* = -FLT_MAX
     CascadesAABB initAABB{};
@@ -1701,7 +1718,9 @@ void Engine::compute_dir_lights_vp(VkCommandBuffer cmd)
 {
     if (!m_mainDrawContext.dirLight.has_value())
         return;
+    ZoneScoped;
     mp::debug::cmd_begin_label(cmd, "Directional VP", {0.2f, 0.7f, 0.2f, 1.f});
+    TracyVkZone(m_tracyVkCtx, cmd, "Directional VP");
     auto &frame = get_current_frame();
 
     // splitsAABB and dirLight (splitDistances written by partition): COMPUTE WRITE -> COMPUTE READ
@@ -1735,6 +1754,7 @@ void Engine::compute_dir_lights_vp(VkCommandBuffer cmd)
 
 void Engine::copy_staging_buffers(VkCommandBuffer cmd)
 {
+    ZoneScoped;
     auto &frame = get_current_frame();
     utils::BarrierBuilder barrierBuilder;
 
@@ -1773,6 +1793,7 @@ void Engine::copy_staging_buffers(VkCommandBuffer cmd)
 
 void Engine::copy_frame_buffers()
 {
+    ZoneScoped;
     m_OpaqueSize = static_cast<std::uint32_t>(m_mainDrawContext.opaqueInstances.size());
     std::memcpy(m_CurrentFrameInstanceBuffer, m_mainDrawContext.opaqueInstances.data(),
                 m_OpaqueSize * sizeof(Instance));
@@ -1791,7 +1812,9 @@ void Engine::copy_frame_buffers()
 
 void Engine::trace_ddgi_probe_pass(VkCommandBuffer cmd)
 {
+    ZoneScoped;
     mp::debug::cmd_begin_label(cmd, "DDGI Probe Pass", {0.2f, 0.9f, 0.4f, 1.f});
+    TracyVkZone(m_tracyVkCtx, cmd, "DDGI Probe Pass");
     auto &currentFrame = get_current_frame();
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_DDGIPipeline);
@@ -1857,7 +1880,9 @@ void Engine::trace_ddgi_probe_pass(VkCommandBuffer cmd)
 
 void Engine::compute_ddgi_irradiance_blending(VkCommandBuffer cmd)
 {
+    ZoneScoped;
     mp::debug::cmd_begin_label(cmd, "DDGI Irradiance Blending", {0.1f, 0.8f, 0.5f, 1.f});
+    TracyVkZone(m_tracyVkCtx, cmd, "DDGI Irradiance Blending");
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_DDGIIrradianceBlendingPipeline);
 
@@ -1897,7 +1922,9 @@ void Engine::compute_ddgi_irradiance_blending(VkCommandBuffer cmd)
 
 void Engine::compute_ddgi_distance_blending(VkCommandBuffer cmd)
 {
+    ZoneScoped;
     mp::debug::cmd_begin_label(cmd, "DDGI Distance Blending", {0.1f, 0.6f, 0.8f, 1.f});
+    TracyVkZone(m_tracyVkCtx, cmd, "DDGI Distance Blending");
     auto &currentFrame = get_current_frame();
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_DDGIDistanceBlendingPipeline);
@@ -1938,7 +1965,9 @@ void Engine::compute_ddgi_distance_blending(VkCommandBuffer cmd)
 
 void Engine::compute_ddgi_relocation(VkCommandBuffer cmd)
 {
+    ZoneScoped;
     mp::debug::cmd_begin_label(cmd, "DDGI Probe Relocation", {0.6f, 0.3f, 0.9f, 1.f});
+    TracyVkZone(m_tracyVkCtx, cmd, "DDGI Probe Relocation");
 
     // On geometry updates probes are reset instead of relocated: stale offsets must not survive the move,
     // and the reset/relocation volume lists must stay disjoint (no barrier between the dispatches)
@@ -2026,7 +2055,9 @@ void Engine::compute_ddgi_relocation(VkCommandBuffer cmd)
 
 void Engine::compute_ddgi_classification(VkCommandBuffer cmd)
 {
+    ZoneScoped;
     mp::debug::cmd_begin_label(cmd, "DDGI Probe Classification", {0.9f, 0.3f, 0.6f, 1.f});
+    TracyVkZone(m_tracyVkCtx, cmd, "DDGI Probe Classification");
 
     // Same as relocation: reset classification state on geometry updates, keep the volume lists disjoint
     const bool bGeometryUpdated = m_mainDrawContext.bGeometryUpdated;
@@ -2113,7 +2144,9 @@ void Engine::compute_ddgi_classification(VkCommandBuffer cmd)
 
 void Engine::compute_ddgi_indirect(VkCommandBuffer cmd)
 {
+    ZoneScoped;
     mp::debug::cmd_begin_label(cmd, "DDGI Indirect", {0.0f, 0.7f, 0.3f, 1.f});
+    TracyVkZone(m_tracyVkCtx, cmd, "DDGI Indirect");
     auto &currentFrame = get_current_frame();
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_DDGIIndirectPipeline);
@@ -2156,7 +2189,9 @@ void Engine::compute_ddgi_indirect(VkCommandBuffer cmd)
 
 void Engine::draw_ddgi_probe_vis(VkCommandBuffer cmd)
 {
+    ZoneScoped;
     mp::debug::cmd_begin_label(cmd, "DDGI Probe Visualization", {0.3f, 0.9f, 0.3f, 1.f});
+    TracyVkZone(m_tracyVkCtx, cmd, "DDGI Probe Visualization");
 
     auto &currentFrame = get_current_frame();
 

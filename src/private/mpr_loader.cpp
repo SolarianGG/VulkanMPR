@@ -189,6 +189,7 @@ namespace mp
 {
 bool load_gltf(mp::Engine &engine, const std::filesystem::path &filePath)
 {
+    ZoneScoped;
     namespace cn = std::chrono;
     using namespace std::chrono_literals;
     if (!std::filesystem::exists(filePath))
@@ -420,14 +421,18 @@ bool load_gltf(mp::Engine &engine, const std::filesystem::path &filePath)
                 fastgltf::Accessor &posAccessor = asset.accessors[p.findAttribute("POSITION")->accessorIndex];
                 primVertices.resize(posAccessor.count);
 
-                newSurface.min =
-                    std::visit(fastgltf::visitor{[](const std::monostate &e) { return glm::vec3(0.0f); },
-                                                 [](const auto &min) { return glm::vec3(min[0], min[1], min[2]); }},
-                               posAccessor.min);
-                newSurface.max =
-                    std::visit(fastgltf::visitor{[](const std::monostate &e) { return glm::vec3(0.0f); },
-                                                 [](const auto &max) { return glm::vec3(max[0], max[1], max[2]); }},
-                               posAccessor.max);
+                const auto readBoundsVec3 = [](const std::optional<fastgltf::AccessorBoundsArray> &bounds) {
+                    if (!bounds.has_value())
+                        return glm::vec3(0.0f);
+                    const auto component = [&](const std::size_t i) {
+                        return bounds->isType<double>() ? static_cast<float>(bounds->get<double>(i))
+                                                        : static_cast<float>(bounds->get<std::int64_t>(i));
+                    };
+                    return glm::vec3(component(0), component(1), component(2));
+                };
+
+                newSurface.min = readBoundsVec3(posAccessor.min);
+                newSurface.max = readBoundsVec3(posAccessor.max);
 
                 fastgltf::iterateAccessorWithIndex<glm::vec3>(
                     asset, posAccessor, [&](const glm::vec3 v, const size_t index) {
@@ -693,6 +698,7 @@ bool load_gltf(mp::Engine &engine, const std::filesystem::path &filePath)
 
 std::optional<AllocatedImage> load_hdr(mp::Engine &engine, const std::filesystem::path &filePath)
 {
+    ZoneScoped;
     if (!std::filesystem::exists(filePath))
     {
         std::println("HDR file not found: {}", filePath.string());

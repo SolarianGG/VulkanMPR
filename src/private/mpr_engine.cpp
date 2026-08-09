@@ -28,6 +28,9 @@
 
 #include <vk_mem_alloc.h>
 
+#include <tracy/TracyVulkan.hpp>
+#include <tracy/Tracy.hpp>
+
 #include "mpr_error_check.hpp"
 #include "mpr_image.hpp"
 #include "mpr_init_vk_stucts.hpp"
@@ -121,6 +124,7 @@ Engine::~Engine()
 Engine::Engine(const std::uint32_t windowWidth, const std::uint32_t windowHeight)
     : m_windowExtent(VkExtent2D{windowWidth, windowHeight})
 {
+    ZoneScoped;
     assert(!gLoadedEngine);
     gLoadedEngine = this;
     init_window();
@@ -159,35 +163,155 @@ Engine &Engine::get()
     return *gLoadedEngine;
 }
 
+void Engine::update_imgui()
+{
+    ZoneScopedN("Imgui ui frame");
+
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplSDL3_NewFrame();
+    ImGui::NewFrame();
+
+    // ImGui UI
+    if (ImGui::Begin("Other"))
+    {
+        ImGui::DragFloat("Camera speed", &m_camera.cameraSpeed, 0.01f, 0.01f, 100.0f);
+        ImGui::DragFloat("DDGI Ray normal bias", &m_DDGIRayNormalBias, 0.0001f, 0.0001f, 1.0f, "%.4f");
+        ImGui::DragFloat("DDGI Ray View bias", &m_DDGIRayViewBias, 0.0001f, 0.0001f, 1.0f, "%.4f");
+        if (ImGui::CollapsingHeader("Sky"))
+        {
+            ImGui::ColorPicker3("Sky radiance", reinterpret_cast<float *>(&m_SkyRadiance));
+            ImGui::DragFloat("Sky intensity", &m_SkyRadiance.a, 0.01f, 0.0f, 10.0f);
+        }
+        if (ImGui::CollapsingHeader("Auto Exposure"))
+        {
+            ImGui::DragFloat("Adaptation speed", &m_autoExposureAdaptationSpeed, 0.1f, 0.1f, 10.0f);
+            ImGui::DragFloat("Min log lum", &m_autoExposureMinLogLum, 0.1f, -12.0f, 0.0f);
+            ImGui::DragFloat("Log lum range", &m_autoExposureLogLumRange, 0.1f, 4.0f, 20.0f);
+        }
+        // TODO: Add debug light visualization
+#if 0
+      ImGui::Checkbox("Draw debug light positions", &m_IsLightsRendered);
+#endif
+    }
+    ImGui::End();
+
+    ImGui::Begin("Stats");
+    ImGui::Text("Frame time: %f s", m_stats.frameTime);
+    ImGui::Text("Amount of draw calls: %i", m_stats.drawCallCount);
+    ImGui::Text("Amount of triangles: %i", m_stats.triangleCount);
+    ImGui::End();
+
+    {
+        const ImGuiViewport *v = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(ImVec2(10, 200));
+        ImGui::SetNextWindowSize(ImVec2(v->WorkSize.x / 6, v->WorkSize.y - 210));
+        ImGui::Begin("Scene graph", nullptr,
+                     ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize);
+        ImGui::Separator();
+        for (const auto &topNode : m_scene.topNodes)
+        {
+            m_selectedNode = render_scene_tree_ui(m_scene, topNode->nodeIndex, m_selectedNode);
+        }
+        ImGui::Separator();
+        if (!m_mainDrawContext.dirLight.has_value() && ImGui::Button("Add Directional light"))
+        {
+            const auto nodeIndex = m_scene.add_node(std::make_shared<DirectionalLightNode>(DirectionalLightData{
+                .direction = {0.0f, -1.0f, 0.0f},
+                .cascadeCount = 4,
+                .color = {1.0f, 1.0f, 1.0f},
+                .intensity = 1.0f,
+                .normalBias = 0.001f,
+                .constantBias = 0.001f,
+            }));
+
+            auto &node = m_scene.nodes.find(nodeIndex)->second;
+            node->worldTransform = glm::mat4(1.0f);
+            node->localTransform = glm::mat4(1.0f);
+            node->name = "Directional Light";
+            node->nodeIndex = nodeIndex;
+            m_scene.topNodes.push_back(node);
+        }
+        if (ImGui::Button("Add Point light"))
+        {
+            const auto nodeIndex = m_scene.add_node(std::make_shared<PointLightNode>(
+                PointLightData{.position = (m_mainDrawContext.max + m_mainDrawContext.min) * 0.5f,
+                               .range = 10.0f,
+                               .color = glm::vec3(1.0f, 1.0f, 1.0f),
+                               .intensity = 3.0f,
+                               .normalBias = 0.03f,
+                               .constantBias = 0.001f}));
+
+            auto &node = m_scene.nodes.find(nodeIndex)->second;
+            node->worldTransform = glm::mat4(1.0f);
+            node->localTransform = glm::mat4(1.0f);
+            node->name = "Point Light";
+            node->nodeIndex = nodeIndex;
+            m_scene.topNodes.push_back(node);
+        }
+        if (m_mainDrawContext.ddgiVolumes.size() < kMaxDDGIVolumes && ImGui::Button("Add DDGI Volume"))
+        {
+            const glm::vec3 center = (m_mainDrawContext.max + m_mainDrawContext.min) * 0.5f;
+            const auto nodeIndex = m_scene.add_node(std::make_shared<DDGIVolumeNode>(DDGIVolume{
+                .origin = center,
+                .probeNumRays = kMaxDDGIRays,
+                .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
+                .probeSpacing = {1.0f, 1.0f, 1.0f},
+                .probeMaxRayDistance = 10000.0f,
+                .probeCounts = {kMaxDDGIProbesX, kMaxDDGIProbesY, kMaxDDGIProbesZ},
+                .probeRayRotation = {0.0f, 0.0f, 0.0f, 1.0f},
+            }));
+            auto &node = m_scene.nodes.find(nodeIndex)->second;
+            node->worldTransform = glm::mat4(1.0f);
+            node->localTransform = glm::mat4(1.0f);
+            node->name = "DDGI Volume";
+            node->nodeIndex = nodeIndex;
+            m_scene.topNodes.push_back(node);
+        }
+        ImGui::End();
+    }
+
+    if (m_selectedNode != UINT64_MAX)
+    {
+        edit_node(m_scene, m_selectedNode);
+    }
+    // ImGui UI end
+    ImGui::Render();
+}
+
 void Engine::run()
 {
+    ZoneScoped;
     SDL_Event e;
     bool bIsRunning = true;
 
     while (bIsRunning)
     {
+        ZoneScopedN("Game loop");
         auto start = cn::steady_clock::now();
-        while (SDL_PollEvent(&e))
         {
-            if (e.type == SDL_EVENT_QUIT)
+            ZoneScopedN("SDL process events");
+            while (SDL_PollEvent(&e))
             {
-                bIsRunning = false;
-            }
+                if (e.type == SDL_EVENT_QUIT)
+                {
+                    bIsRunning = false;
+                }
 
-            if (e.type == SDL_EVENT_WINDOW_MINIMIZED)
-            {
-                m_isRenderStopped = true;
-            }
+                if (e.type == SDL_EVENT_WINDOW_MINIMIZED)
+                {
+                    m_isRenderStopped = true;
+                }
 
-            if (e.type == SDL_EVENT_WINDOW_MAXIMIZED)
-            {
-                m_isRenderStopped = false;
-            }
-            m_camera.process_sdl_event(e, m_window.get());
-            ImGui_ImplSDL3_ProcessEvent(&e);
+                if (e.type == SDL_EVENT_WINDOW_MAXIMIZED)
+                {
+                    m_isRenderStopped = false;
+                }
+                m_camera.process_sdl_event(e, m_window.get());
+                ImGui_ImplSDL3_ProcessEvent(&e);
 
-            if (ImGui::GetIO().WantCaptureMouse || ImGui::GetIO().WantCaptureKeyboard)
-                continue;
+                if (ImGui::GetIO().WantCaptureMouse || ImGui::GetIO().WantCaptureKeyboard)
+                    continue;
+            }
         }
 
         if (m_bSwapchainResizeRequest)
@@ -201,125 +325,7 @@ void Engine::run()
             continue;
         }
 
-        ImGui_ImplVulkan_NewFrame();
-        ImGui_ImplSDL3_NewFrame();
-        ImGui::NewFrame();
-
-        // ImGui UI
-        if (ImGui::Begin("Other"))
-        {
-            ImGui::DragFloat("Camera speed", &m_camera.cameraSpeed, 0.01f, 0.01f, 100.0f);
-            ImGui::DragFloat("DDGI Ray normal bias", &m_DDGIRayNormalBias, 0.0001f, 0.0001f, 1.0f, "%.4f");
-            ImGui::DragFloat("DDGI Ray View bias", &m_DDGIRayViewBias, 0.0001f, 0.0001f, 1.0f, "%.4f");
-            if (ImGui::CollapsingHeader("Sky"))
-            {
-                ImGui::ColorPicker3("Sky radiance", reinterpret_cast<float *>(&m_SkyRadiance));
-                ImGui::DragFloat("Sky intensity", &m_SkyRadiance.a, 0.01f, 0.0f, 10.0f);
-            }
-            if (ImGui::CollapsingHeader("Auto Exposure"))
-            {
-                ImGui::DragFloat("Adaptation speed", &m_autoExposureAdaptationSpeed, 0.1f, 0.1f, 10.0f);
-                ImGui::DragFloat("Min log lum", &m_autoExposureMinLogLum, 0.1f, -12.0f, 0.0f);
-                ImGui::DragFloat("Log lum range", &m_autoExposureLogLumRange, 0.1f, 4.0f, 20.0f);
-            }
-            // TODO: Add debug light visualization
-#if 0
-      ImGui::Checkbox("Draw debug light positions", &m_IsLightsRendered);
-#endif
-        }
-        ImGui::End();
-
-        // TODO: These stats are only showing cpu execution time of vulkan commands,
-        // for gpu metrics I plan to integrate tracy
-        ImGui::Begin("Stats");
-        ImGui::Text("Frame time: %f s", m_stats.frameTime);
-        ImGui::Text("Shadow Pass time: %f s", m_stats.shadowPassDrawTime);
-        ImGui::Text("GBuffer Pass time: %f s", m_stats.gBufferPassTime);
-        ImGui::Text("Deferred light pass time: %f s", m_stats.gBufferLightPassTime);
-        ImGui::Text("WBOIT forward pass time: %f s", m_stats.transparentForwardLightPassTime);
-        ImGui::Text("Post process pass time: %f s", m_stats.postProcessPassTime);
-        ImGui::Text("ImGui draw time: %f s", m_stats.imguiDrawTime);
-        ImGui::Text("Scene update tim: %f s", m_stats.sceneUpdateTime);
-        ImGui::Text("Amount of draw calls: %i", m_stats.drawCallCount);
-        ImGui::Text("Amount of triangles: %i", m_stats.triangleCount);
-        ImGui::End();
-
-        {
-            const ImGuiViewport *v = ImGui::GetMainViewport();
-            ImGui::SetNextWindowPos(ImVec2(10, 200));
-            ImGui::SetNextWindowSize(ImVec2(v->WorkSize.x / 6, v->WorkSize.y - 210));
-            ImGui::Begin("Scene graph", nullptr,
-                         ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize);
-            ImGui::Separator();
-            for (const auto &topNode : m_scene.topNodes)
-            {
-                m_selectedNode = render_scene_tree_ui(m_scene, topNode->nodeIndex, m_selectedNode);
-            }
-            ImGui::Separator();
-            if (!m_mainDrawContext.dirLight.has_value() && ImGui::Button("Add Directional light"))
-            {
-                const auto nodeIndex = m_scene.add_node(std::make_shared<DirectionalLightNode>(DirectionalLightData{
-                    .direction = {0.0f, -1.0f, 0.0f},
-                    .cascadeCount = 4,
-                    .color = {1.0f, 1.0f, 1.0f},
-                    .intensity = 1.0f,
-                    .normalBias = 0.001f,
-                    .constantBias = 0.001f,
-                }));
-
-                auto &node = m_scene.nodes.find(nodeIndex)->second;
-                node->worldTransform = glm::mat4(1.0f);
-                node->localTransform = glm::mat4(1.0f);
-                node->name = "Directional Light";
-                node->nodeIndex = nodeIndex;
-                m_scene.topNodes.push_back(node);
-            }
-            if (ImGui::Button("Add Point light"))
-            {
-                const auto nodeIndex = m_scene.add_node(std::make_shared<PointLightNode>(
-                    PointLightData{.position = (m_mainDrawContext.max + m_mainDrawContext.min) * 0.5f,
-                                   .range = 10.0f,
-                                   .color = glm::vec3(1.0f, 1.0f, 1.0f),
-                                   .intensity = 3.0f,
-                                   .normalBias = 0.03f,
-                                   .constantBias = 0.001f}));
-
-                auto &node = m_scene.nodes.find(nodeIndex)->second;
-                node->worldTransform = glm::mat4(1.0f);
-                node->localTransform = glm::mat4(1.0f);
-                node->name = "Point Light";
-                node->nodeIndex = nodeIndex;
-                m_scene.topNodes.push_back(node);
-            }
-            if (m_mainDrawContext.ddgiVolumes.size() < kMaxDDGIVolumes && ImGui::Button("Add DDGI Volume"))
-            {
-                const glm::vec3 center = (m_mainDrawContext.max + m_mainDrawContext.min) * 0.5f;
-                const auto nodeIndex = m_scene.add_node(std::make_shared<DDGIVolumeNode>(DDGIVolume{
-                    .origin = center,
-                    .probeNumRays = kMaxDDGIRays,
-                    .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
-                    .probeSpacing = {1.0f, 1.0f, 1.0f},
-                    .probeMaxRayDistance = 10000.0f,
-                    .probeCounts = {kMaxDDGIProbesX, kMaxDDGIProbesY, kMaxDDGIProbesZ},
-                    .probeRayRotation = {0.0f, 0.0f, 0.0f, 1.0f},
-                }));
-                auto &node = m_scene.nodes.find(nodeIndex)->second;
-                node->worldTransform = glm::mat4(1.0f);
-                node->localTransform = glm::mat4(1.0f);
-                node->name = "DDGI Volume";
-                node->nodeIndex = nodeIndex;
-                m_scene.topNodes.push_back(node);
-            }
-            ImGui::End();
-        }
-
-        if (m_selectedNode != UINT64_MAX)
-        {
-            edit_node(m_scene, m_selectedNode);
-        }
-        // ImGui UI end
-
-        ImGui::Render();
+        update_imgui();
 
         draw();
 
@@ -341,7 +347,7 @@ void Engine::WindowCleaner::operator()(SDL_Window *window) const
 
 void Engine::update_scene()
 {
-    const auto start = cn::steady_clock::now();
+    ZoneScoped;
     m_camera.update(m_stats.frameTime);
     m_mainDrawContext.clear();
     m_CurrentFrameInstanceBuffer =
@@ -355,7 +361,7 @@ void Engine::update_scene()
         vkDeviceWaitIdle(m_device) >> chk;
         destroy_accel(m_TlasAccel);
 
-        create_TLAS(); 
+        create_TLAS();
     }
 
     copy_frame_buffers();
@@ -443,10 +449,6 @@ void Engine::update_scene()
                                        .directionalLight = frame.dirLightBufferAddr,
                                        .visiblePointLights = frame.visiblePointLightsBufferAddr,
                                        .visiblePointLightsCount = frame.visiblePointLightsCountBufferAddr};
-    const auto end = cn::steady_clock::now();
-    const auto elapsed = cn::duration_cast<cn::milliseconds>(end - start);
-
-    m_stats.sceneUpdateTime = elapsed.count() / 1000.0f;
 }
 
 } // namespace mp

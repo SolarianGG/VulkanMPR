@@ -2,6 +2,8 @@
 
 #include "mpr_types.hpp"
 
+#include <tracy/TracyVulkan.hpp>
+
 #include "mpr_camera.hpp"
 #include "mpr_descriptors.hpp"
 #include "mpr_materials.hpp"
@@ -22,13 +24,6 @@ struct EngineStats
     float frameTime;
     int triangleCount;
     int drawCallCount;
-    float sceneUpdateTime;
-    float gBufferPassTime;
-    float gBufferLightPassTime;
-    float transparentForwardLightPassTime;
-    float imguiDrawTime;
-    float postProcessPassTime;
-    float shadowPassDrawTime;
 };
 
 struct AccelerationStructure
@@ -166,6 +161,7 @@ class Engine final
 
     VkQueue m_queue{};
     std::uint32_t m_queueFamilyIndex{};
+    TracyVkCtx m_tracyVkCtx{};
     // TODO: For multithreading add 1 per thread
     VkCommandPool m_commandPool{};
     std::array<FrameData, kNumberOfFrames> m_frameData{};
@@ -416,6 +412,7 @@ class Engine final
     void draw_gBuffer_pass(VkCommandBuffer cmd);
     void draw_wboit(VkCommandBuffer cmd);
     void draw_wboit_composite(VkCommandBuffer cmd);
+    void update_imgui();
     void update_scene();
     void compute_post(VkCommandBuffer cmd);
     void compute_luminance_histogram(VkCommandBuffer cmd);

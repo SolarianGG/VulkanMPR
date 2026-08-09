@@ -127,6 +127,7 @@ void DrawContext::clear()
 
 bool Node::edit(const GpuSceneData &sceneData)
 {
+    ZoneScoped;
     bool bIsUpdated = edit_transform_ui(sceneData.view, sceneData.proj, worldTransform);
 
     if (bIsUpdated)
@@ -147,6 +148,7 @@ bool Node::edit(const GpuSceneData &sceneData)
 
 bool MeshNode::edit(const GpuSceneData &sceneData)
 {
+    ZoneScoped;
     m_bIsUpdated = Node::edit(sceneData);
 
     return m_bIsUpdated;
@@ -154,6 +156,7 @@ bool MeshNode::edit(const GpuSceneData &sceneData)
 
 void MeshNode::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
 {
+    ZoneScoped;
     const glm::mat4 nodeMatrix = topMatrix * worldTransform;
     for (const auto &s : mesh->geoSurfaces)
     {
@@ -214,6 +217,7 @@ void MeshNode::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
 
 void DirectionalLightNode::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
 {
+    ZoneScoped;
     glm::mat3 R(worldTransform);
     R[0] = normalize(R[0]);
     R[1] = normalize(R[1]);
@@ -227,6 +231,7 @@ void DirectionalLightNode::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
 
 void PointLightNode::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
 {
+    ZoneScoped;
     const auto newPos = glm::vec3{worldTransform[3].x, worldTransform[3].y, worldTransform[3].z};
     if (newPos != m_Data.position)
     {
@@ -240,6 +245,7 @@ void PointLightNode::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
 
 bool DirectionalLightNode::edit(const GpuSceneData &sceneData)
 {
+    ZoneScoped;
     bool bIsUpdated = Node::edit(sceneData);
 
     ImGui::Text("Directional light");
@@ -253,6 +259,7 @@ bool DirectionalLightNode::edit(const GpuSceneData &sceneData)
 
 bool PointLightNode::edit(const GpuSceneData &sceneData)
 {
+    ZoneScoped;
     bool bIsUpdated = Node::edit(sceneData);
 
     ImGui::Text("Point light");
@@ -266,6 +273,7 @@ bool PointLightNode::edit(const GpuSceneData &sceneData)
 
 void DDGIVolumeNode::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
 {
+    ZoneScoped;
     m_Data.origin = glm::vec3{worldTransform[3]};
     {
         glm::mat3 R(worldTransform);
@@ -292,6 +300,7 @@ void DDGIVolumeNode::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
 
 bool DDGIVolumeNode::edit(const GpuSceneData &sceneData)
 {
+    ZoneScoped;
     bool bIsUpdated = Node::edit(sceneData);
 
     ImGui::Text("DDGI Volume");
@@ -335,6 +344,7 @@ bool DDGIVolumeNode::edit(const GpuSceneData &sceneData)
 
 void Scene::draw(const glm::mat4 &topMatrix, DrawContext &ctx)
 {
+    ZoneScoped;
     for (const auto &node : topNodes)
     {
         node->draw(topMatrix, ctx);
@@ -361,6 +371,7 @@ void Scene::add_material(std::string materialName, std::shared_ptr<GLTFMaterial>
 
 std::uint64_t Scene::add_node(std::shared_ptr<Node> node)
 {
+    ZoneScoped;
     static std::atomic_uint64_t counter = 0;
     nodes[counter] = std::move(node);
     return counter++;

@@ -21,6 +21,7 @@ namespace mp
 
 void Engine::immediate_submit(const std::function<void(VkCommandBuffer)> &function)
 {
+    ZoneScoped;
     vkResetFences(m_device, 1, &m_immFence) >> chk;
     {
         constexpr VkCommandBufferBeginInfo cmdBeginInfo{
@@ -48,6 +49,7 @@ void Engine::immediate_submit(const std::function<void(VkCommandBuffer)> &functi
 AllocatedBuffer Engine::create_buffer(const std::size_t allocSize, const VkBufferUsageFlags usageFlags,
                                       const VmaMemoryUsage memoryUsage)
 {
+    ZoneScoped;
     const VkBufferCreateInfo bufferCreateInfo{
         .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         .pNext = nullptr,
@@ -71,12 +73,14 @@ AllocatedBuffer Engine::create_buffer(const std::size_t allocSize, const VkBuffe
 
 void Engine::destroy_buffer(const AllocatedBuffer &buffer)
 {
+    ZoneScoped;
     vmaDestroyBuffer(m_allocator, buffer.buffer, buffer.allocation);
 }
 
 AllocatedImage Engine::create_image(const VkExtent3D extent, const VkFormat format, const VkImageUsageFlags imageUsage,
                                     const bool mipMapped)
 {
+    ZoneScoped;
     AllocatedImage image;
     image.imageFormat = format;
     image.imageExtent = extent;
@@ -106,6 +110,7 @@ AllocatedImage Engine::create_image(const VkExtent3D extent, const VkFormat form
 AllocatedImage Engine::create_image(void *data, const VkExtent3D extent, const VkFormat format,
                                     const VkImageUsageFlags imageUsage, const bool mipMapped)
 {
+    ZoneScoped;
     constexpr auto imagePixelSize = 4; // NOTE: 8 + 8 + 8 + 8 = 32bits (4 bytes)
     if (!(vkuFormatIs8bit(format) && vkuFormatComponentCount(format) == 4))
     {
@@ -160,6 +165,7 @@ AllocatedImage Engine::create_image(void *data, const VkExtent3D extent, const V
 
 AllocatedImage Engine::create_image(dds::Image *ddsImage, const VkImageUsageFlags imageUsage)
 {
+    ZoneScoped;
     const VkFormat format = dds::getVulkanFormat(ddsImage->format, ddsImage->supportsAlpha);
     if (format == VK_FORMAT_UNDEFINED)
         throw std::runtime_error(std::format("DDS: unsupported DXGI format {}", static_cast<int>(ddsImage->format)));
@@ -241,6 +247,7 @@ AllocatedImage Engine::create_image(dds::Image *ddsImage, const VkImageUsageFlag
 AllocatedImage Engine::create_image_array(const VkExtent3D extent, const VkFormat format,
                                            const VkImageUsageFlags imageUsage, const std::uint32_t arrayLayers)
 {
+    ZoneScoped;
     AllocatedImage image;
     image.imageFormat = format;
     image.imageExtent = extent;
@@ -277,6 +284,7 @@ AllocatedImage Engine::create_image_array(const VkExtent3D extent, const VkForma
 
 void Engine::destroy_image(const AllocatedImage &image)
 {
+    ZoneScoped;
     vkDestroyImageView(m_device, image.imageView, nullptr);
     vmaDestroyImage(m_allocator, image.image, image.allocation);
 }
@@ -287,6 +295,7 @@ void Engine::ensure_position_capacity(std::size_t additionalCount)
     {
         return;
     }
+    ZoneScoped;
 
     std::size_t newCapacity = m_globalPositionCapacity == 0 ? 1024 : m_globalPositionCapacity * 2;
     while (m_globalPositionCount + additionalCount > newCapacity)
@@ -337,6 +346,7 @@ void Engine::ensure_attributes_capacity(std::size_t additionalCount)
     {
         return;
     }
+    ZoneScoped;
 
     std::size_t newCapacity = m_globalAttributesCapacity == 0 ? 1024 : m_globalAttributesCapacity * 2;
     while (m_globalAttributesCount + additionalCount > newCapacity)
@@ -386,6 +396,7 @@ void Engine::ensure_index_capacity(std::size_t additionalCount)
     {
         return;
     }
+    ZoneScoped;
 
     std::size_t newCapacity = m_globalIndexCapacity == 0 ? 1024 : m_globalIndexCapacity * 2;
     while (m_globalIndexCount + additionalCount > newCapacity)

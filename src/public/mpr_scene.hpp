@@ -2,6 +2,8 @@
 
 #include "mpr_types.hpp"
 
+#include <tracy/Tracy.hpp>
+
 namespace mp
 {
 
@@ -85,6 +87,7 @@ struct Node : public IRenderable
 
     void draw(const glm::mat4 &topMatrix, DrawContext &ctx) override
     {
+        ZoneScoped;
         for (auto &c : children)
         {
             c->draw(topMatrix, ctx);

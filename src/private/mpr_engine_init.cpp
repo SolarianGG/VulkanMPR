@@ -10,6 +10,8 @@
 #include <imgui_impl_vulkan.h>
 #include <glm/gtc/type_ptr.hpp>
 #include <tinyfiledialogs.h>
+#include <tracy/Tracy.hpp>
+#include <tracy/TracyVulkan.hpp>
 
 #include <format>
 #include <print>
@@ -68,6 +70,16 @@ std::vector<std::filesystem::path> parse_tiny_multiple(const wchar_t *files)
     }
 
     return res;
+}
+
+void VKAPI_PTR tracy_vma_allocate(VmaAllocator, std::uint32_t, VkDeviceMemory memory, VkDeviceSize size, void *)
+{
+    TracyAllocN(reinterpret_cast<void *>(memory), size, "VMA Device Memory");
+}
+
+void VKAPI_PTR tracy_vma_free(VmaAllocator, std::uint32_t, VkDeviceMemory memory, VkDeviceSize, void *)
+{
+    TracyFreeN(reinterpret_cast<void *>(memory), "VMA Device Memory");
 }
 
 } // namespace
@@ -238,10 +250,16 @@ void Engine::init_vulkan()
     volkLoadDevice(m_device);
 
     VmaVulkanFunctions vulkanFunc[]{vkGetInstanceProcAddr, vkGetDeviceProcAddr};
+    constexpr VmaDeviceMemoryCallbacks deviceMemoryCallbacks{
+        .pfnAllocate = tracy_vma_allocate,
+        .pfnFree = tracy_vma_free,
+        .pUserData = nullptr,
+    };
     VmaAllocatorCreateInfo allocatorCreateInfo{
         .flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
         .physicalDevice = m_chosenGpu,
         .device = m_device,
+        .pDeviceMemoryCallbacks = &deviceMemoryCallbacks,
         .pVulkanFunctions = vulkanFunc,
         .instance = m_instance,
     };
@@ -358,6 +376,9 @@ void Engine::init_sync()
     vkCreateFence(m_device, &fenceCreateInfo, nullptr, &m_immFence) >> chk;
 
     m_mainDeletionQueue.push_function([&] { vkDestroyFence(m_device, m_immFence, nullptr); });
+
+    m_tracyVkCtx = TracyVkContext(m_chosenGpu, m_device, m_queue, m_immCommandBuffer);
+    m_mainDeletionQueue.push_function([this] { TracyVkDestroy(m_tracyVkCtx); });
 }
 
 void Engine::init_descriptors()
@@ -2107,6 +2128,7 @@ void Engine::init_frames_data()
 
 AccelerationStructure Engine::allocate_acceleration_structure(VkAccelerationStructureCreateInfoKHR &createInfo)
 {
+    ZoneScoped;
     AccelerationStructure resultAccel{};
 
     resultAccel.buffer = create_buffer(createInfo.size,
@@ -2133,6 +2155,7 @@ void Engine::create_acceleration_structure(VkAccelerationStructureTypeKHR asType
                                            VkAccelerationStructureBuildRangeInfoKHR &asBuildRangeInfo,
                                            AccelerationStructure &accelerationStructure)
 {
+    ZoneScoped;
     auto alignUp = [](auto value, size_t alignment) noexcept { return ((value + alignment - 1) & ~(alignment - 1)); };
 
     VkAccelerationStructureBuildGeometryInfoKHR asBuildInfo{
@@ -2202,6 +2225,7 @@ void Engine::create_BLAS()
 
 void Engine::create_TLAS()
 {
+    ZoneScoped;
     auto toTransformMatrixKHR = [](const glm::mat4 &m) {
         VkTransformMatrixKHR t;
         memcpy(&t, glm::value_ptr(glm::transpose(m)), sizeof(t));
@@ -2733,12 +2757,14 @@ void Engine::destroy_commands()
 
 void Engine::destroy_accel(AccelerationStructure &accel)
 {
+    ZoneScoped;
     vkDestroyAccelerationStructureKHR(m_device, accel.accel, nullptr);
     destroy_buffer(accel.buffer);
 }
 
 void Engine::create_swapchain(const std::uint32_t width, const std::uint32_t height)
 {
+    ZoneScoped;
     m_swapchainImageFormat = VK_FORMAT_B8G8R8A8_UNORM;
 
     auto vkbSwapchainResult =
@@ -2767,6 +2793,7 @@ void Engine::create_swapchain(const std::uint32_t width, const std::uint32_t hei
 
 void Engine::destroy_swapchain()
 {
+    ZoneScoped;
     vkDestroySwapchainKHR(m_device, m_swapchain, nullptr);
 
     for (const auto &imageView : m_swapchainImageViews)
@@ -2777,6 +2804,7 @@ void Engine::destroy_swapchain()
 
 void Engine::resize_swapchain()
 {
+    ZoneScoped;
     vkDeviceWaitIdle(m_device) >> chk;
 
     destroy_swapchain();

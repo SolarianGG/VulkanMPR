@@ -207,18 +207,21 @@ void GLTFMetallicRoughness::clear_resources(Engine& engine) {
 
 std::uint32_t GLTFMetallicRoughness::write_uniform_buffer(
     const VkDeviceAddress uniformBuffer) {
+  ZoneScoped;
   descriptors.write_uniform_buffer(0, currentMaterialOffset, uniformBuffer,
                                    sizeof(MaterialConstants));
   return currentMaterialOffset++;
 }
 
 std::uint32_t GLTFMetallicRoughness::write_sampler(const VkSampler sampler) {
+  ZoneScoped;
   descriptors.write_sampler(1, currentSamplerOffset, sampler);
   return currentSamplerOffset++;
 }
 
 std::uint32_t GLTFMetallicRoughness::write_texture(
     const VkImageView imageView) {
+  ZoneScoped;
   descriptors.write_sampled_image(2, currentTextureOffset, imageView,
                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   return currentTextureOffset++;

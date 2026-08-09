@@ -1,9 +1,11 @@
 ﻿#include "public/mpr_engine.hpp"
+#include <tracy/Tracy.hpp>
 
 int main(int argc, char *argv[])
 {
-    std::uint32_t width = 1920;
-    std::uint32_t height = 1080;
+    ZoneScoped;
+    std::uint32_t width = 1600;
+    std::uint32_t height = 900;
     if (argc >= 3)
     {
         width = std::stoi(argv[1]);

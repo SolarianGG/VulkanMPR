@@ -16,6 +16,7 @@ namespace mp
 
 std::uint64_t Engine::render_scene_tree_ui(Scene &scene, std::uint64_t nodeIndex, std::uint64_t selectedNode)
 {
+    ZoneScoped;
     const bool isLeaf = scene.nodes.at(nodeIndex)->children.empty();
     ImGuiTreeNodeFlags flags = isLeaf ? ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_Bullet : 0;
 
@@ -56,6 +57,7 @@ std::uint64_t Engine::render_scene_tree_ui(Scene &scene, std::uint64_t nodeIndex
 
 void Engine::edit_node(Scene &scene, const std::uint64_t nodeIndex)
 {
+    ZoneScoped;
     ImGuizmo::SetOrthographic(false);
     ImGuizmo::BeginFrame();
 

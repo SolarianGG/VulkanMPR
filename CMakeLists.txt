@@ -1,10 +1,5 @@
 ﻿cmake_minimum_required (VERSION 3.28)
 
-if (POLICY CMP0141)
-  cmake_policy(SET CMP0141 NEW)
-  set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<IF:$<AND:$<C_COMPILER_ID:MSVC>,$<CXX_COMPILER_ID:MSVC>>,$<$<CONFIG:Debug,RelWithDebInfo>:EditAndContinue>,$<$<CONFIG:Debug,RelWithDebInfo>:ProgramDatabase>>")
-endif()
-
 project ("VulkanMPR")
 
 set(CMAKE_CXX_STANDARD 23)
@@ -22,6 +17,7 @@ set(DDSIMAGE_PATH "${PROJECT_SOURCE_DIR}/external/dds_image")
 
 find_package(Vulkan REQUIRED)
 find_package(volk CONFIG REQUIRED)
+find_package(VulkanUtilityLibraries CONFIG REQUIRED)
 find_package(VulkanMemoryAllocator CONFIG REQUIRED)
 find_package(vk-bootstrap CONFIG REQUIRED)
 find_package(Stb REQUIRED)
@@ -30,6 +26,7 @@ find_package(glm CONFIG REQUIRED)
 find_package(fastgltf CONFIG REQUIRED)
 find_package(meshoptimizer CONFIG REQUIRED)
 find_package(tinyfiledialogs CONFIG REQUIRED)
+find_package(Tracy CONFIG REQUIRED)
 
 # Have to build ImGui from source since vcpkg's imgui package are prebuild without Volk support
 add_library(ImGui STATIC 
@@ -81,11 +78,10 @@ add_executable(VulkanMPR "${SRC_PATH}/VulkanMPR.cpp"
                          "${COMP_PATH}/mpr_camera.cpp"
                          "${COMP_PATH}/mpr_materials.cpp"
                          "${COMP_PATH}/mpr_scene.cpp"
-)
+ )
 
-target_include_directories(VulkanMPR PRIVATE 
-  "$ENV{VULKAN_SDK}/Include"
-  ${INCLUDE_PATH} 
+target_include_directories(VulkanMPR PRIVATE
+  ${INCLUDE_PATH}
   ${SRC_PATH} 
   ${IMGUI_PATH} 
   ${IMGUIZMO_PATH}
@@ -93,6 +89,7 @@ target_include_directories(VulkanMPR PRIVATE
   "${IMGUI_PATH}/backends"
   "${DDSIMAGE_PATH}"
   )
+
 
 target_link_libraries(VulkanMPR PRIVATE
   Vulkan::Vulkan
@@ -102,13 +99,25 @@ target_link_libraries(VulkanMPR PRIVATE
   glm::glm
   fastgltf::fastgltf
   volk::volk volk::volk_headers
+  Vulkan::UtilityHeaders
   meshoptimizer::meshoptimizer
   tinyfiledialogs::tinyfiledialogs
   ImGui
   ImGuizmo
+  Tracy::TracyClient
 )
 
 target_compile_definitions(VulkanMPR PRIVATE
   $<$<CONFIG:Debug>:MPR_DEBUG>
+  TRACY_ENABLE
 )
+
+if (WIN32)
+add_custom_command(TARGET VulkanMPR POST_BUILD
+  COMMAND "${CMAKE_COMMAND}" -E copy
+  ${VCPKG_INSTALLED_DIR}/x64-windows/bin/TracyClient.dll
+  $<TARGET_FILE_DIR:VulkanMPR>/TracyClient.dll
+  COMMENT "Copying tracy client DLL to output directory"
+)
+endif()
 
